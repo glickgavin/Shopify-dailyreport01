@@ -75,11 +75,13 @@ interface GQLResponse {
 }
 
 function isoRange(date: string, tz: string): { start: string; end: string } {
+  // getTimezoneOffset returns ms to ADD to UTC to get local (e.g. -25200000 for UTC-7)
+  // so negative = west of UTC → '-07:00', positive = east → '+05:30'
   const offsetMs = getTimezoneOffset(tz, new Date(`${date}T12:00:00Z`));
-  const offsetHrs = -offsetMs / 3600000;
-  const sign = offsetHrs >= 0 ? '+' : '-';
-  const pad = (n: number) => String(Math.abs(n)).padStart(2, '0');
-  const tzStr = `${sign}${pad(Math.floor(Math.abs(offsetHrs)))}:${pad((Math.abs(offsetHrs) % 1) * 60)}`;
+  const sign = offsetMs >= 0 ? '+' : '-';
+  const absHrs = Math.abs(offsetMs) / 3600000;
+  const pad = (n: number) => String(Math.floor(n)).padStart(2, '0');
+  const tzStr = `${sign}${pad(absHrs)}:${pad((absHrs % 1) * 60)}`;
   return {
     start: `${date}T00:00:00${tzStr}`,
     end: `${date}T23:59:59${tzStr}`,
