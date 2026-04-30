@@ -24,7 +24,7 @@ export default function Home() {
               fontSize: '0.95rem',
             }}
           >
-            Today's Dashboard
+            Today&apos;s Dashboard
           </Link>
           <Link
             href="/history"
