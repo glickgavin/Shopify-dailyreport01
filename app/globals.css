@@ -3,19 +3,36 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg:       #f5f3ef;
+  --surface:  #ffffff;
+  --surface2: #edeae4;
+  --border:   rgba(0, 0, 0, 0.08);
+  --text:     #1a1a1a;
+  --muted:    #6b6b6b;
+
+  --cash-blue:       #185FA5;
+  --cash-blue-light: #E6F1FB;
+  --cash-blue-dark:  #0C447C;
+
+  --nc-green:       #1D9E75;
+  --nc-green-light: #E1F5EE;
+  --nc-green-dark:  #085041;
+
+  --accent: #c8a88a;
+
+  --font-body: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
+  --font-mono: var(--font-dm-mono), 'DM Mono', monospace;
+  --font-serif: 'Instrument Serif', Georgia, serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
 }
+
+.font-serif  { font-family: var(--font-serif); }
+.font-mono   { font-family: var(--font-mono); }
