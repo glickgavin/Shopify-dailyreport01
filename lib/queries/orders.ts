@@ -1,5 +1,5 @@
 import { toZonedTime, format, getTimezoneOffset } from 'date-fns-tz';
-import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { subDays } from 'date-fns';
 import { shopifyGraphQL } from '@/lib/shopify';
 
 export interface OrderRow {
@@ -30,13 +30,20 @@ const ORDERS_QUERY = `
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
         totalRefundedSet { shopMoney { amount } }
-        totalShippingPriceSet { shopMoney { amount } }
+        shippingLines(first: 10) {
+          nodes {
+            discountedPriceSet { shopMoney { amount } }
+          }
+        }
         lineItems(first: 100) {
           nodes {
             title
             variantTitle
             quantity
-            discountedUnitPriceSet { shopMoney { amount } }
+            originalTotalSet { shopMoney { amount } }
+            discountAllocations {
+              allocatedAmountSet { shopMoney { amount } }
+            }
             variant {
               inventoryItem {
                 unitCost { amount }
@@ -55,13 +62,18 @@ interface GQLOrder {
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
   totalRefundedSet: { shopMoney: { amount: string } };
-  totalShippingPriceSet: { shopMoney: { amount: string } };
+  shippingLines: {
+    nodes: {
+      discountedPriceSet: { shopMoney: { amount: string } };
+    }[];
+  };
   lineItems: {
     nodes: {
       title: string;
       variantTitle: string | null;
       quantity: number;
-      discountedUnitPriceSet: { shopMoney: { amount: string } };
+      originalTotalSet: { shopMoney: { amount: string } };
+      discountAllocations: { allocatedAmountSet: { shopMoney: { amount: string } } }[];
       variant: { inventoryItem: { unitCost: { amount: string } | null } } | null;
     }[];
   };
@@ -114,9 +126,14 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     const totalNet = parseFloat(order.totalPriceSet.shopMoney.amount) || 0;
     const totalRefunded = parseFloat(order.totalRefundedSet.shopMoney.amount) || 0;
     const netPayment = totalNet - totalRefunded;
-    const shipping = parseFloat(order.totalShippingPriceSet.shopMoney.amount) || 0;
 
-    // Payment row — primary gateway is the one with highest value (use first non-store-credit if multiple)
+    // True net shipping after any shipping discounts
+    const shipping = order.shippingLines.nodes.reduce(
+      (sum, sl) => sum + (parseFloat(sl.discountedPriceSet.shopMoney.amount) || 0),
+      0,
+    );
+
+    // Payment row — skip store credit when a real gateway is also present
     const gateways = order.paymentGatewayNames;
     const primaryGateway = gateways.includes('shopify_store_credit') && gateways.length > 1
       ? gateways.find((g) => g !== 'shopify_store_credit') ?? gateways[0]
@@ -128,15 +145,22 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
       net_payments: netPayment,
     });
 
-    // Prorate shipping across line items by revenue share
+    // True net per line = gross - all discount allocations (line-level + order-level)
     const lineItems = order.lineItems.nodes;
-    const totalLineRevenue = lineItems.reduce(
-      (sum, li) => sum + (parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0) * li.quantity,
-      0,
-    );
+    const lineRevenues = lineItems.map((li) => {
+      const gross = parseFloat(li.originalTotalSet.shopMoney.amount) || 0;
+      const totalDiscount = li.discountAllocations.reduce(
+        (sum, da) => sum + (parseFloat(da.allocatedAmountSet.shopMoney.amount) || 0),
+        0,
+      );
+      return Math.max(0, gross - totalDiscount);
+    });
 
-    for (const li of lineItems) {
-      const lineRevenue = (parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0) * li.quantity;
+    const totalLineRevenue = lineRevenues.reduce((s, v) => s + v, 0);
+
+    for (let i = 0; i < lineItems.length; i++) {
+      const li = lineItems[i];
+      const lineRevenue = lineRevenues[i];
       const revenueShare = totalLineRevenue > 0 ? lineRevenue / totalLineRevenue : 1 / lineItems.length;
       const lineShipping = shipping * revenueShare;
       const unitCost = parseFloat(li.variant?.inventoryItem?.unitCost?.amount ?? '0') || 0;
