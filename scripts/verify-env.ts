@@ -5,7 +5,8 @@ config({ path: resolve(process.cwd(), '.env.local') });
 
 const required = [
   'SHOPIFY_STORE_DOMAIN',
-  'SHOPIFY_ADMIN_API_TOKEN',
+  'SHOPIFY_CLIENT_ID',
+  'SHOPIFY_CLIENT_SECRET',
   'SHOPIFY_API_VERSION',
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',

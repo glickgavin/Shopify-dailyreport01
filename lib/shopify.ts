@@ -7,10 +7,50 @@ if (!process.env.SHOPIFY_STORE_DOMAIN) {
 }
 
 const domain = process.env.SHOPIFY_STORE_DOMAIN!;
-const token = process.env.SHOPIFY_ADMIN_API_TOKEN!;
+const clientId = process.env.SHOPIFY_CLIENT_ID!;
+const clientSecret = process.env.SHOPIFY_CLIENT_SECRET!;
 const version = process.env.SHOPIFY_API_VERSION ?? '2026-01';
 
+const TOKEN_URL = `https://${domain}/admin/oauth/access_token`;
 const ENDPOINT = `https://${domain}/admin/api/${version}/graphql.json`;
+
+// In-process token cache — refreshed automatically before expiry
+let cachedToken: string | null = null;
+let tokenExpiresAt = 0; // unix ms
+
+async function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function fetchAccessToken(): Promise<string> {
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: clientId,
+    client_secret: clientSecret,
+  });
+
+  const res = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Shopify token fetch failed HTTP ${res.status}: ${await res.text()}`);
+  }
+
+  const json = await res.json() as { access_token: string; expires_in: number };
+  // Refresh 5 minutes before actual expiry
+  tokenExpiresAt = Date.now() + (json.expires_in - 300) * 1000;
+  return json.access_token;
+}
+
+async function getToken(): Promise<string> {
+  if (!cachedToken || Date.now() >= tokenExpiresAt) {
+    cachedToken = await fetchAccessToken();
+  }
+  return cachedToken;
+}
 
 const SHOPIFYQL_QUERY = /* GraphQL */ `
   query ShopifyQL($query: String!) {
@@ -35,16 +75,16 @@ const SHOPIFYQL_QUERY = /* GraphQL */ `
   }
 `;
 
-async function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 export async function runShopifyQL(ql: string): Promise<Record<string, string>[]> {
   let attempt = 0;
   const maxAttempts = 5;
 
   while (attempt < maxAttempts) {
     attempt++;
+
+    // If we get a 401 mid-flight, force token refresh on next iteration
+    const token = await getToken();
+
     const res = await fetch(ENDPOINT, {
       method: 'POST',
       headers: {
@@ -53,6 +93,14 @@ export async function runShopifyQL(ql: string): Promise<Record<string, string>[]
       },
       body: JSON.stringify({ query: SHOPIFYQL_QUERY, variables: { query: ql } }),
     });
+
+    // Force refresh and retry on 401
+    if (res.status === 401) {
+      cachedToken = null;
+      tokenExpiresAt = 0;
+      await sleep(500);
+      continue;
+    }
 
     // Retry on 429 / 5xx
     if (res.status === 429 || res.status >= 500) {
