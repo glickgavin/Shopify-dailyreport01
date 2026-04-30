@@ -96,7 +96,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
   let cursor: string | null = null;
 
   while (true) {
-    const data = await shopifyGraphQL<GQLResponse>(ORDERS_QUERY, { filter, cursor });
+    const data: GQLResponse = await shopifyGraphQL<GQLResponse>(ORDERS_QUERY, { filter, cursor });
     allOrders.push(...data.orders.nodes);
     if (!data.orders.pageInfo.hasNextPage) break;
     cursor = data.orders.pageInfo.endCursor;
