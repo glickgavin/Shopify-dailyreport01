@@ -1,6 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[];
 
-export interface Database {
+export type Database = {
   public: {
     Tables: {
       daily_summary: {
@@ -45,11 +45,89 @@ export interface Database {
           created_at: string;
           updated_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['daily_summary']['Row'], 'created_at' | 'updated_at'> & {
-          created_at?: string;
-          updated_at?: string;
+        Insert: {
+          date: string;
+          total_revenue?: number | null;
+          total_net_sales?: number | null;
+          total_shipping?: number | null;
+          total_cogs?: number | null;
+          total_profit?: number | null;
+          total_margin?: number | null;
+          total_orders?: number | null;
+          total_qty?: number | null;
+          total_aov?: number | null;
+          phys_cash_revenue?: number | null;
+          phys_cash_net_sales?: number | null;
+          phys_cash_shipping?: number | null;
+          phys_cash_cogs?: number | null;
+          phys_cash_profit?: number | null;
+          phys_cash_margin?: number | null;
+          phys_cash_orders?: number | null;
+          phys_cash_qty?: number | null;
+          phys_cash_aov?: number | null;
+          phys_non_cash_revenue?: number | null;
+          phys_non_cash_net_sales?: number | null;
+          phys_non_cash_shipping?: number | null;
+          phys_non_cash_cogs?: number | null;
+          phys_non_cash_profit?: number | null;
+          phys_non_cash_margin?: number | null;
+          phys_non_cash_orders?: number | null;
+          phys_non_cash_qty?: number | null;
+          phys_non_cash_aov?: number | null;
+          mem_revenue?: number | null;
+          mem_net_sales?: number | null;
+          mem_shipping?: number | null;
+          mem_cogs?: number | null;
+          mem_profit?: number | null;
+          mem_margin?: number | null;
+          mem_orders?: number | null;
+          mem_qty?: number | null;
+          mem_aov?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
         };
-        Update: Partial<Database['public']['Tables']['daily_summary']['Insert']>;
+        Update: {
+          date?: string;
+          total_revenue?: number | null;
+          total_net_sales?: number | null;
+          total_shipping?: number | null;
+          total_cogs?: number | null;
+          total_profit?: number | null;
+          total_margin?: number | null;
+          total_orders?: number | null;
+          total_qty?: number | null;
+          total_aov?: number | null;
+          phys_cash_revenue?: number | null;
+          phys_cash_net_sales?: number | null;
+          phys_cash_shipping?: number | null;
+          phys_cash_cogs?: number | null;
+          phys_cash_profit?: number | null;
+          phys_cash_margin?: number | null;
+          phys_cash_orders?: number | null;
+          phys_cash_qty?: number | null;
+          phys_cash_aov?: number | null;
+          phys_non_cash_revenue?: number | null;
+          phys_non_cash_net_sales?: number | null;
+          phys_non_cash_shipping?: number | null;
+          phys_non_cash_cogs?: number | null;
+          phys_non_cash_profit?: number | null;
+          phys_non_cash_margin?: number | null;
+          phys_non_cash_orders?: number | null;
+          phys_non_cash_qty?: number | null;
+          phys_non_cash_aov?: number | null;
+          mem_revenue?: number | null;
+          mem_net_sales?: number | null;
+          mem_shipping?: number | null;
+          mem_cogs?: number | null;
+          mem_profit?: number | null;
+          mem_margin?: number | null;
+          mem_orders?: number | null;
+          mem_qty?: number | null;
+          mem_aov?: number | null;
+          created_at?: string | null;
+          updated_at?: string | null;
+        };
+        Relationships: [];
       };
       daily_products: {
         Row: {
@@ -57,7 +135,7 @@ export interface Database {
           date: string;
           title: string;
           variant: string;
-          item_type: 'Physical' | 'Membership';
+          item_type: string;
           net_sales: number;
           shipping: number;
           cogs: number;
@@ -66,28 +144,68 @@ export interface Database {
           orders: number;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['daily_products']['Row'], 'id' | 'created_at'> & {
-          id?: number;
-          created_at?: string;
+        Insert: {
+          id?: number | null;
+          date: string;
+          title: string;
+          variant?: string | null;
+          item_type: string;
+          net_sales?: number | null;
+          shipping?: number | null;
+          cogs?: number | null;
+          revenue?: number | null;
+          qty?: number | null;
+          orders?: number | null;
+          created_at?: string | null;
         };
-        Update: Partial<Database['public']['Tables']['daily_products']['Insert']>;
+        Update: {
+          id?: number | null;
+          date?: string;
+          title?: string;
+          variant?: string | null;
+          item_type?: string;
+          net_sales?: number | null;
+          shipping?: number | null;
+          cogs?: number | null;
+          revenue?: number | null;
+          qty?: number | null;
+          orders?: number | null;
+          created_at?: string | null;
+        };
+        Relationships: [];
       };
       daily_membership_orders: {
         Row: {
           id: number;
           date: string;
           order_name: string;
-          membership_type: 'new' | 'recurring';
+          membership_type: string;
           net_sales: number;
           shipping: number;
           revenue: number;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['daily_membership_orders']['Row'], 'id' | 'created_at'> & {
-          id?: number;
-          created_at?: string;
+        Insert: {
+          id?: number | null;
+          date: string;
+          order_name: string;
+          membership_type: string;
+          net_sales?: number | null;
+          shipping?: number | null;
+          revenue?: number | null;
+          created_at?: string | null;
         };
-        Update: Partial<Database['public']['Tables']['daily_membership_orders']['Insert']>;
+        Update: {
+          id?: number | null;
+          date?: string;
+          order_name?: string;
+          membership_type?: string;
+          net_sales?: number | null;
+          shipping?: number | null;
+          revenue?: number | null;
+          created_at?: string | null;
+        };
+        Relationships: [];
       };
       raw_data: {
         Row: {
@@ -97,31 +215,64 @@ export interface Database {
           order_rows: Json;
           payment_rows: Json;
         };
-        Insert: Omit<Database['public']['Tables']['raw_data']['Row'], 'id' | 'fetched_at'> & {
-          id?: number;
-          fetched_at?: string;
+        Insert: {
+          id?: number | null;
+          date: string;
+          fetched_at?: string | null;
+          order_rows: Json;
+          payment_rows: Json;
         };
-        Update: Partial<Database['public']['Tables']['raw_data']['Insert']>;
+        Update: {
+          id?: number | null;
+          date?: string;
+          fetched_at?: string | null;
+          order_rows?: Json;
+          payment_rows?: Json;
+        };
+        Relationships: [];
       };
       job_logs: {
         Row: {
           id: number;
           date: string | null;
           job_type: string;
-          status: 'started' | 'success' | 'error';
+          status: string;
           message: string | null;
           meta: Json | null;
           created_at: string;
         };
-        Insert: Omit<Database['public']['Tables']['job_logs']['Row'], 'id' | 'created_at'> & {
-          id?: number;
-          created_at?: string;
+        Insert: {
+          id?: number | null;
+          date?: string | null;
+          job_type?: string | null;
+          status: string;
+          message?: string | null;
+          meta?: Json | null;
+          created_at?: string | null;
         };
-        Update: Partial<Database['public']['Tables']['job_logs']['Insert']>;
+        Update: {
+          id?: number | null;
+          date?: string | null;
+          job_type?: string | null;
+          status?: string;
+          message?: string | null;
+          meta?: Json | null;
+          created_at?: string | null;
+        };
+        Relationships: [];
       };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Views: {
+      [_ in never]: never;
+    };
+    Functions: {
+      [_ in never]: never;
+    };
+    Enums: {
+      [_ in never]: never;
+    };
+    CompositeTypes: {
+      [_ in never]: never;
+    };
   };
-}
+};

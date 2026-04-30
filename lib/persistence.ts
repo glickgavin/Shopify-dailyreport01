@@ -1,6 +1,7 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import type { ProcessedDay } from '@/lib/business-rules';
 import type { OrderRow, PaymentRow } from '@/lib/queries/orders';
+import type { Json } from '@/lib/types/database';
 
 export async function saveDay(
   processed: ProcessedDay,
@@ -101,8 +102,8 @@ export async function saveDay(
   // 4. Append to raw_data (audit log — never delete)
   const { error: rawErr } = await supabaseAdmin.from('raw_data').insert({
     date,
-    order_rows:   orderRows as unknown as import('@/lib/types/database').Json,
-    payment_rows: paymentRows as unknown as import('@/lib/types/database').Json,
+    order_rows:   orderRows as unknown as Json,
+    payment_rows: paymentRows as unknown as Json,
   });
   if (rawErr) throw new Error(`raw_data insert: ${rawErr.message}`);
 }
