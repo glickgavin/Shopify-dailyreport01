@@ -9,7 +9,7 @@ if (!process.env.SHOPIFY_STORE_DOMAIN) {
 const domain = process.env.SHOPIFY_STORE_DOMAIN!;
 const clientId = process.env.SHOPIFY_CLIENT_ID!;
 const clientSecret = process.env.SHOPIFY_CLIENT_SECRET!;
-const version = process.env.SHOPIFY_API_VERSION ?? '2026-01';
+const version = process.env.SHOPIFY_API_VERSION ?? '2024-04';
 
 const TOKEN_URL = `https://${domain}/admin/oauth/access_token`;
 const ENDPOINT = `https://${domain}/admin/api/${version}/graphql.json`;
