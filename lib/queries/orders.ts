@@ -36,7 +36,7 @@ const ORDERS_QUERY = `
             title
             variantTitle
             quantity
-            discountedTotalSet { shopMoney { amount } }
+            discountedUnitPriceSet { shopMoney { amount } }
             variant {
               inventoryItem {
                 unitCost { amount }
@@ -61,7 +61,7 @@ interface GQLOrder {
       title: string;
       variantTitle: string | null;
       quantity: number;
-      discountedTotalSet: { shopMoney: { amount: string } };
+      discountedUnitPriceSet: { shopMoney: { amount: string } };
       variant: { inventoryItem: { unitCost: { amount: string } | null } } | null;
     }[];
   };
@@ -131,12 +131,12 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     // Prorate shipping across line items by revenue share
     const lineItems = order.lineItems.nodes;
     const totalLineRevenue = lineItems.reduce(
-      (sum, li) => sum + (parseFloat(li.discountedTotalSet.shopMoney.amount) || 0),
+      (sum, li) => sum + (parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0) * li.quantity,
       0,
     );
 
     for (const li of lineItems) {
-      const lineRevenue = parseFloat(li.discountedTotalSet.shopMoney.amount) || 0;
+      const lineRevenue = (parseFloat(li.discountedUnitPriceSet.shopMoney.amount) || 0) * li.quantity;
       const revenueShare = totalLineRevenue > 0 ? lineRevenue / totalLineRevenue : 1 / lineItems.length;
       const lineShipping = shipping * revenueShare;
       const unitCost = parseFloat(li.variant?.inventoryItem?.unitCost?.amount ?? '0') || 0;
