@@ -179,17 +179,17 @@ export function processDay(
 
   // finalise products
   const products: ProductLine[] = [];
-  for (const [, p] of productMap) {
+  productMap.forEach((p) => {
     p.orders = p.orderSet.size;
     products.push({ ...p });
-  }
+  });
 
   // classify membership orders
   const memOrderList: MemberOrder[] = [];
-  for (const [, m] of memOrderMap) {
+  memOrderMap.forEach((m) => {
     m.membershipType = m.netSales < 35 ? 'new' : 'recurring';
     memOrderList.push(m);
-  }
+  });
 
   return { date, total, physCash, physNonCash, membership, products, memOrders: memOrderList };
 }
