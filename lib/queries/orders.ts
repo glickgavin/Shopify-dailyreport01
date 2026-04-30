@@ -1,5 +1,6 @@
-import { toZonedTime, format } from 'date-fns-tz';
-import { subDays } from 'date-fns';
+import { toZonedTime, format, getTimezoneOffset } from 'date-fns-tz';
+import { subDays, startOfDay, endOfDay } from 'date-fns';
+import { shopifyGraphQL } from '@/lib/shopify';
 
 export interface OrderRow {
   hour: string;
@@ -13,39 +14,145 @@ export interface OrderRow {
   quantity_ordered: number;
 }
 
-function yesterdayLabel(tz: string): string {
-  const yesterday = subDays(new Date(), 1);
-  const zoned = toZonedTime(yesterday, tz);
-  return format(zoned, 'yyyy-MM-dd', { timeZone: tz });
+export interface PaymentRow {
+  order_name: string;
+  payment_gateway: string;
+  net_payments: number;
 }
 
-export function buildOrdersQuery(date?: string): string {
+const ORDERS_QUERY = `
+  query GetOrders($filter: String!, $cursor: String) {
+    orders(first: 250, query: $filter, after: $cursor) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        name
+        createdAt
+        paymentGatewayNames
+        totalPriceSet { shopMoney { amount } }
+        totalRefundedSet { shopMoney { amount } }
+        totalShippingPriceSet { shopMoney { amount } }
+        lineItems(first: 100) {
+          nodes {
+            title
+            variantTitle
+            quantity
+            discountedTotalSet { shopMoney { amount } }
+            variant {
+              inventoryItem {
+                unitCost { amount }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
+interface GQLOrder {
+  name: string;
+  createdAt: string;
+  paymentGatewayNames: string[];
+  totalPriceSet: { shopMoney: { amount: string } };
+  totalRefundedSet: { shopMoney: { amount: string } };
+  totalShippingPriceSet: { shopMoney: { amount: string } };
+  lineItems: {
+    nodes: {
+      title: string;
+      variantTitle: string | null;
+      quantity: number;
+      discountedTotalSet: { shopMoney: { amount: string } };
+      variant: { inventoryItem: { unitCost: { amount: string } | null } } | null;
+    }[];
+  };
+}
+
+interface GQLResponse {
+  orders: {
+    pageInfo: { hasNextPage: boolean; endCursor: string | null };
+    nodes: GQLOrder[];
+  };
+}
+
+function isoRange(date: string, tz: string): { start: string; end: string } {
+  const offsetMs = getTimezoneOffset(tz, new Date(`${date}T12:00:00Z`));
+  const offsetHrs = -offsetMs / 3600000;
+  const sign = offsetHrs >= 0 ? '+' : '-';
+  const pad = (n: number) => String(Math.abs(n)).padStart(2, '0');
+  const tzStr = `${sign}${pad(Math.floor(Math.abs(offsetHrs)))}:${pad((Math.abs(offsetHrs) % 1) * 60)}`;
+  return {
+    start: `${date}T00:00:00${tzStr}`,
+    end: `${date}T23:59:59${tzStr}`,
+  };
+}
+
+export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: OrderRow[]; paymentRows: PaymentRow[] }> {
   const tz = process.env.STORE_TIMEZONE ?? 'America/Los_Angeles';
-  const d = date ?? yesterdayLabel(tz);
-  return `
-FROM sales
-  SHOW net_sales, shipping_charges, cost_of_goods_sold, quantity_ordered
-  GROUP BY hour, product_title_at_time_of_sale, product_title,
-    product_variant_title, order_name WITH TOTALS
-  TIMESERIES hour
-  DURING ${d}
-  ORDER BY hour ASC
-  LIMIT 5000
-`.trim();
-}
+  const d = date ?? format(toZonedTime(subDays(new Date(), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
+  const { start, end } = isoRange(d, tz);
+  const filter = `created_at:>='${start}' created_at:<='${end}' financial_status:paid`;
 
-export function parseOrderRows(raw: Record<string, string>[]): OrderRow[] {
-  return raw
-    .filter((r) => r['order_name'] && r['order_name'] !== 'Total')
-    .map((r) => ({
-      hour: r['hour'] ?? '',
-      product_title_at_time_of_sale: r['product_title_at_time_of_sale'] ?? '',
-      product_title: r['product_title'] ?? '',
-      product_variant_title: r['product_variant_title'] ?? '',
-      order_name: r['order_name'],
-      net_sales: parseFloat(r['net_sales'] ?? '0') || 0,
-      shipping_charges: parseFloat(r['shipping_charges'] ?? '0') || 0,
-      cost_of_goods_sold: parseFloat(r['cost_of_goods_sold'] ?? '0') || 0,
-      quantity_ordered: parseInt(r['quantity_ordered'] ?? '0', 10) || 0,
-    }));
+  const allOrders: GQLOrder[] = [];
+  let cursor: string | null = null;
+
+  while (true) {
+    const data = await shopifyGraphQL<GQLResponse>(ORDERS_QUERY, { filter, cursor });
+    allOrders.push(...data.orders.nodes);
+    if (!data.orders.pageInfo.hasNextPage) break;
+    cursor = data.orders.pageInfo.endCursor;
+  }
+
+  const orderRows: OrderRow[] = [];
+  const paymentRows: PaymentRow[] = [];
+
+  for (const order of allOrders) {
+    const orderDate = toZonedTime(new Date(order.createdAt), tz);
+    const hour = format(orderDate, "yyyy-MM-dd'T'HH:00:00", { timeZone: tz });
+
+    const totalNet = parseFloat(order.totalPriceSet.shopMoney.amount) || 0;
+    const totalRefunded = parseFloat(order.totalRefundedSet.shopMoney.amount) || 0;
+    const netPayment = totalNet - totalRefunded;
+    const shipping = parseFloat(order.totalShippingPriceSet.shopMoney.amount) || 0;
+
+    // Payment row — primary gateway is the one with highest value (use first non-store-credit if multiple)
+    const gateways = order.paymentGatewayNames;
+    const primaryGateway = gateways.includes('shopify_store_credit') && gateways.length > 1
+      ? gateways.find((g) => g !== 'shopify_store_credit') ?? gateways[0]
+      : gateways[0] ?? 'unknown';
+
+    paymentRows.push({
+      order_name: order.name,
+      payment_gateway: primaryGateway,
+      net_payments: netPayment,
+    });
+
+    // Prorate shipping across line items by revenue share
+    const lineItems = order.lineItems.nodes;
+    const totalLineRevenue = lineItems.reduce(
+      (sum, li) => sum + (parseFloat(li.discountedTotalSet.shopMoney.amount) || 0),
+      0,
+    );
+
+    for (const li of lineItems) {
+      const lineRevenue = parseFloat(li.discountedTotalSet.shopMoney.amount) || 0;
+      const revenueShare = totalLineRevenue > 0 ? lineRevenue / totalLineRevenue : 1 / lineItems.length;
+      const lineShipping = shipping * revenueShare;
+      const unitCost = parseFloat(li.variant?.inventoryItem?.unitCost?.amount ?? '0') || 0;
+      const cogs = unitCost * li.quantity;
+
+      orderRows.push({
+        hour,
+        product_title_at_time_of_sale: li.title,
+        product_title: li.title,
+        product_variant_title: li.variantTitle ?? '',
+        order_name: order.name,
+        net_sales: lineRevenue,
+        shipping_charges: lineShipping,
+        cost_of_goods_sold: cogs,
+        quantity_ordered: li.quantity,
+      });
+    }
+  }
+
+  return { orderRows, paymentRows };
 }
