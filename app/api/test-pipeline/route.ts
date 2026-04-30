@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay } from '@/lib/business-rules';
+import { saveDay } from '@/lib/persistence';
 import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
 
@@ -29,11 +30,13 @@ export async function GET(req: NextRequest) {
       }
 
       const result = processDay(orderRows, paymentRows, date);
+      await saveDay(result, orderRows, paymentRows);
 
       return NextResponse.json({
         ok: true,
         date,
         daysBack,
+        saved: true,
         meta: {
           orderLineRows: orderRows.length,
           paymentRows: paymentRows.length,

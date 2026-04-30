@@ -5,6 +5,7 @@ config({ path: resolve(process.cwd(), '.env.local') });
 
 import { fetchOrdersForDate } from '../lib/queries/orders';
 import { processDay } from '../lib/business-rules';
+import { saveDay } from '../lib/persistence';
 import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
 
@@ -30,6 +31,10 @@ async function main() {
     const result = processDay(orderRows, paymentRows, date);
     console.log('\n── ProcessedDay ─────────────────────────────────────────');
     console.log(JSON.stringify(result, null, 2));
+
+    console.log('\n── Saving to Supabase… ──────────────────────────────────');
+    await saveDay(result, orderRows, paymentRows);
+    console.log('  ✓ Saved successfully');
     return;
   }
 
