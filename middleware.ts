@@ -2,6 +2,11 @@ import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function middleware(req: NextRequest) {
+  // Allow the login page through without auth check
+  if (req.nextUrl.pathname.startsWith('/dashboard/admin/login')) {
+    return NextResponse.next();
+  }
+
   const res = NextResponse.next();
 
   const supabase = createServerClient(
@@ -33,5 +38,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/admin', '/dashboard/admin/(?!login)(.*)'],
+  // Match all /dashboard/admin routes; login exclusion handled in function above
+  matcher: ['/dashboard/admin/:path*'],
 };
