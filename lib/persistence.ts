@@ -8,7 +8,7 @@ export async function saveDay(
   orderRows: OrderRow[],
   paymentRows: PaymentRow[],
 ): Promise<void> {
-  const { date, total, physCash, physNonCash, membership, products, memOrders } = processed;
+  const { date, total, physCash, physNonCash, membership, cashNew, cashReturning, nonCashNew, nonCashReturning, products, memOrders } = processed;
 
   // 1. Upsert daily_summary
   const { error: summaryErr } = await supabaseAdmin.from('daily_summary').upsert({
@@ -99,7 +99,37 @@ export async function saveDay(
     if (insMem) throw new Error(`daily_membership_orders insert: ${insMem.message}`);
   }
 
-  // 4. Append to raw_data (audit log — never delete)
+  // 4. Delete-then-insert daily_customer_segments
+  const { error: delSeg } = await supabaseAdmin
+    .from('daily_customer_segments')
+    .delete()
+    .eq('date', date);
+  if (delSeg) throw new Error(`daily_customer_segments delete: ${delSeg.message}`);
+
+  const segmentRows = [
+    { payment_type: 'cash',     customer_type: 'new',       ...cashNew },
+    { payment_type: 'cash',     customer_type: 'returning', ...cashReturning },
+    { payment_type: 'non_cash', customer_type: 'new',       ...nonCashNew },
+    { payment_type: 'non_cash', customer_type: 'returning', ...nonCashReturning },
+  ].map(({ payment_type, customer_type, revenue, netSales, shipping, cogs, profit, margin, orders, qty, aov }) => ({
+    date,
+    payment_type,
+    customer_type,
+    revenue,
+    net_sales: netSales,
+    shipping,
+    cogs,
+    profit,
+    margin,
+    orders,
+    qty,
+    aov,
+  }));
+
+  const { error: insSeg } = await supabaseAdmin.from('daily_customer_segments').insert(segmentRows);
+  if (insSeg) throw new Error(`daily_customer_segments insert: ${insSeg.message}`);
+
+  // 5. Append to raw_data (audit log — never delete)
   const { error: rawErr } = await supabaseAdmin.from('raw_data').insert({
     date,
     order_rows:   orderRows as unknown as Json,

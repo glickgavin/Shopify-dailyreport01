@@ -43,6 +43,12 @@ export interface ProcessedDay {
   physCash: SummaryBlock;
   physNonCash: SummaryBlock;
   membership: SummaryBlock;
+  custNew: SummaryBlock;
+  custReturning: SummaryBlock;
+  cashNew: SummaryBlock;
+  cashReturning: SummaryBlock;
+  nonCashNew: SummaryBlock;
+  nonCashReturning: SummaryBlock;
   products: ProductLine[];
   memOrders: MemberOrder[];
 }
@@ -82,11 +88,23 @@ export function processDay(
   const physCash = emptyBlock();
   const physNonCash = emptyBlock();
   const membership = emptyBlock();
+  const custNew = emptyBlock();
+  const custReturning = emptyBlock();
+  const cashNew = emptyBlock();
+  const cashReturning = emptyBlock();
+  const nonCashNew = emptyBlock();
+  const nonCashReturning = emptyBlock();
 
   const totalOrders = new Set<string>();
   const physCashOrders = new Set<string>();
   const physNonCashOrders = new Set<string>();
   const memOrders = new Set<string>();
+  const custNewOrders = new Set<string>();
+  const custReturningOrders = new Set<string>();
+  const cashNewOrders = new Set<string>();
+  const cashReturningOrders = new Set<string>();
+  const nonCashNewOrders = new Set<string>();
+  const nonCashReturningOrders = new Set<string>();
 
   const productMap = new Map<string, ProductLine & { orderSet: Set<string> }>();
   const memOrderMap = new Map<string, MemberOrder>();
@@ -105,6 +123,7 @@ export function processDay(
     totalOrders.add(row.order_name);
 
     if (type === 'Physical') {
+      const ct = row.customer_type;
       if (group === 'Cash') {
         physCash.netSales += row.net_sales;
         physCash.shipping += row.shipping_charges;
@@ -112,6 +131,15 @@ export function processDay(
         physCash.cogs += row.cost_of_goods_sold;
         physCash.qty += row.quantity_ordered;
         physCashOrders.add(row.order_name);
+
+        const cnBlock = ct === 'new' ? cashNew : cashReturning;
+        const cnOrders = ct === 'new' ? cashNewOrders : cashReturningOrders;
+        cnBlock.netSales += row.net_sales;
+        cnBlock.shipping += row.shipping_charges;
+        cnBlock.revenue += revenue;
+        cnBlock.cogs += row.cost_of_goods_sold;
+        cnBlock.qty += row.quantity_ordered;
+        cnOrders.add(row.order_name);
       } else {
         physNonCash.netSales += row.net_sales;
         physNonCash.shipping += row.shipping_charges;
@@ -119,7 +147,26 @@ export function processDay(
         physNonCash.cogs += row.cost_of_goods_sold;
         physNonCash.qty += row.quantity_ordered;
         physNonCashOrders.add(row.order_name);
+
+        const ncBlock = ct === 'new' ? nonCashNew : nonCashReturning;
+        const ncOrders = ct === 'new' ? nonCashNewOrders : nonCashReturningOrders;
+        ncBlock.netSales += row.net_sales;
+        ncBlock.shipping += row.shipping_charges;
+        ncBlock.revenue += revenue;
+        ncBlock.cogs += row.cost_of_goods_sold;
+        ncBlock.qty += row.quantity_ordered;
+        ncOrders.add(row.order_name);
       }
+
+      // cross-totals by customer type (physical only, to match cashNew+nonCashNew)
+      const custBlock = ct === 'new' ? custNew : custReturning;
+      const custOrderSet = ct === 'new' ? custNewOrders : custReturningOrders;
+      custBlock.netSales += row.net_sales;
+      custBlock.shipping += row.shipping_charges;
+      custBlock.revenue += revenue;
+      custBlock.cogs += row.cost_of_goods_sold;
+      custBlock.qty += row.quantity_ordered;
+      custOrderSet.add(row.order_name);
     } else {
       membership.netSales += row.net_sales;
       membership.shipping += row.shipping_charges;
@@ -176,6 +223,12 @@ export function processDay(
   finalise(physCash, physCashOrders);
   finalise(physNonCash, physNonCashOrders);
   finalise(membership, memOrders);
+  finalise(custNew, custNewOrders);
+  finalise(custReturning, custReturningOrders);
+  finalise(cashNew, cashNewOrders);
+  finalise(cashReturning, cashReturningOrders);
+  finalise(nonCashNew, nonCashNewOrders);
+  finalise(nonCashReturning, nonCashReturningOrders);
 
   // finalise products
   const products: ProductLine[] = [];
@@ -191,5 +244,10 @@ export function processDay(
     memOrderList.push(m);
   });
 
-  return { date, total, physCash, physNonCash, membership, products, memOrders: memOrderList };
+  return {
+    date, total, physCash, physNonCash, membership,
+    custNew, custReturning,
+    cashNew, cashReturning, nonCashNew, nonCashReturning,
+    products, memOrders: memOrderList,
+  };
 }

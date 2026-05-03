@@ -12,6 +12,7 @@ export interface OrderRow {
   shipping_charges: number;
   cost_of_goods_sold: number;
   quantity_ordered: number;
+  customer_type: 'new' | 'returning';
 }
 
 export interface PaymentRow {
@@ -27,6 +28,7 @@ const ORDERS_QUERY = `
       nodes {
         name
         createdAt
+        customer { id numberOfOrders }
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
         totalRefundedSet { shopMoney { amount } }
@@ -59,6 +61,7 @@ const ORDERS_QUERY = `
 interface GQLOrder {
   name: string;
   createdAt: string;
+  customer: { id: string; numberOfOrders: number } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
   totalRefundedSet: { shopMoney: { amount: string } };
@@ -119,6 +122,38 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
   const orderRows: OrderRow[] = [];
   const paymentRows: PaymentRow[] = [];
 
+  // Compute customer_type per order_name
+  const orderCustomerType = new Map<string, 'new' | 'returning'>();
+  const customerOrdersMap = new Map<string, { orderName: string; createdAt: string; numberOfOrders: number }[]>();
+
+  for (const order of allOrders) {
+    if (!order.customer) {
+      orderCustomerType.set(order.name, 'new');
+      continue;
+    }
+    const cid = order.customer.id;
+    if (!customerOrdersMap.has(cid)) customerOrdersMap.set(cid, []);
+    customerOrdersMap.get(cid)!.push({
+      orderName: order.name,
+      createdAt: order.createdAt,
+      numberOfOrders: order.customer.numberOfOrders,
+    });
+  }
+
+  for (const [, customerOrders] of customerOrdersMap) {
+    customerOrders.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const numberOfOrders = customerOrders[0].numberOfOrders;
+    if (numberOfOrders === customerOrders.length) {
+      // All lifetime orders happened today → first is 'new', rest 'returning'
+      orderCustomerType.set(customerOrders[0].orderName, 'new');
+      for (let i = 1; i < customerOrders.length; i++) {
+        orderCustomerType.set(customerOrders[i].orderName, 'returning');
+      }
+    } else {
+      for (const co of customerOrders) orderCustomerType.set(co.orderName, 'returning');
+    }
+  }
+
   for (const order of allOrders) {
     const orderDate = toZonedTime(new Date(order.createdAt), tz);
     const hour = format(orderDate, "yyyy-MM-dd'T'HH:00:00", { timeZone: tz });
@@ -176,6 +211,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         shipping_charges: lineShipping,
         cost_of_goods_sold: cogs,
         quantity_ordered: li.quantity,
+        customer_type: orderCustomerType.get(order.name) ?? 'new',
       });
     }
   }

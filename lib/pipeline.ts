@@ -54,7 +54,12 @@ export async function runPipeline(
 
   if (!silent) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
-    await postDailySummary(processed, `${appUrl}/dashboard/${date}`, prevSummary ?? null, alerts);
+    await postDailySummary(processed, `${appUrl}/dashboard/${date}`, prevSummary ?? null, alerts, {
+      newOrders: processed.custNew.orders,
+      newRevenue: processed.custNew.revenue,
+      returningOrders: processed.custReturning.orders,
+      returningRevenue: processed.custReturning.revenue,
+    });
     console.log(`[pipeline] Slack posted`);
   }
 
