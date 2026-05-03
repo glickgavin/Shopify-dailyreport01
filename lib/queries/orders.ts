@@ -140,7 +140,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     });
   }
 
-  for (const [, customerOrders] of customerOrdersMap) {
+  customerOrdersMap.forEach((customerOrders) => {
     customerOrders.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const numberOfOrders = customerOrders[0].numberOfOrders;
     if (numberOfOrders === customerOrders.length) {
@@ -152,7 +152,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     } else {
       for (const co of customerOrders) orderCustomerType.set(co.orderName, 'returning');
     }
-  }
+  });
 
   for (const order of allOrders) {
     const orderDate = toZonedTime(new Date(order.createdAt), tz);
