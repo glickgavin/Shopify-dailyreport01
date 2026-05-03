@@ -70,14 +70,17 @@ export async function GET(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
     const dashboardUrl = `${appUrl}/dashboard/${targetDate}`;
 
-    console.log(`[cron/daily] Posting Slack summary…`);
-    await postDailySummary(processed, dashboardUrl, prevSummary ?? null, alerts);
-    console.log(`[cron/daily] Slack posted`);
+    const silent = req.nextUrl.searchParams.get('silent') === 'true';
+    if (!silent) {
+      console.log(`[cron/daily] Posting Slack summary…`);
+      await postDailySummary(processed, dashboardUrl, prevSummary ?? null, alerts);
+      console.log(`[cron/daily] Slack posted`);
+    }
 
     // Write success to job_logs
     await supabaseAdmin.from('job_logs').insert({
       date: targetDate,
-      job_type: 'daily_cron',
+      job_type: silent ? 'backfill' : 'daily_cron',
       status: 'success',
       message: `revenue=${processed.total.revenue} orders=${processed.total.orders} alerts=${alerts.length}`,
       meta: { orderRows: orderRows.length, paymentRows: paymentRows.length, alertCount: alerts.length },

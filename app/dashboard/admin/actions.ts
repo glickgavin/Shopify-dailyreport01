@@ -1,11 +1,15 @@
 'use server';
 
-export async function rerunPipeline(date: string): Promise<{ ok: boolean; message: string }> {
+export async function rerunPipeline(
+  date: string,
+  options: { silent?: boolean } = {},
+): Promise<{ ok: boolean; message: string }> {
   const secret = process.env.CRON_SECRET;
   if (!secret) return { ok: false, message: 'CRON_SECRET not configured' };
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
-  const url = `${appUrl}/api/cron/daily?date=${encodeURIComponent(date)}`;
+  const qs = options.silent ? `&silent=true` : '';
+  const url = `${appUrl}/api/cron/daily?date=${encodeURIComponent(date)}${qs}`;
 
   try {
     const res = await fetch(url, {
