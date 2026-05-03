@@ -114,7 +114,7 @@ export default function BackfillForm() {
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
           To
-          <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} required style={inputStyle} />
+          <input type="date" value={endDate} min={startDate} max={defaults.end} onChange={(e) => setEndDate(e.target.value)} required style={inputStyle} />
         </label>
         {startDate && endDate && startDate <= endDate && (
           <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
