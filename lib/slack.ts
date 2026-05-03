@@ -1,6 +1,7 @@
 import { WebClient } from '@slack/web-api';
 import type { KnownBlock } from '@slack/web-api';
 import type { ProcessedDay } from '@/lib/business-rules';
+import type { Alert } from '@/lib/alerts';
 
 type PrevSummary = { total_revenue: number; total_orders: number; total_net_sales: number } | null;
 
@@ -19,6 +20,7 @@ export async function postDailySummary(
   processed: ProcessedDay,
   dashboardUrl: string,
   prev: PrevSummary = null,
+  alerts: Alert[] = [],
 ): Promise<void> {
   const token = process.env.SLACK_BOT_TOKEN;
   const channel = process.env.SLACK_CHANNEL_ID;
@@ -34,7 +36,25 @@ export async function postDailySummary(
   const newCount = memOrders.filter((m) => m.membershipType === 'new').length;
   const recurringCount = memOrders.filter((m) => m.membershipType === 'recurring').length;
 
-  const blocks: KnownBlock[] = [
+  const blocks: KnownBlock[] = [];
+
+  // Prepend alert section if any alerts
+  if (alerts.length > 0) {
+    const redAlerts = alerts.filter((a) => a.level === 'red');
+    const yellowAlerts = alerts.filter((a) => a.level === 'yellow');
+    const alertLines = [
+      ...redAlerts.map((a) => `🚨 ${a.message}`),
+      ...yellowAlerts.map((a) => `⚠️ ${a.message}`),
+    ].join('\n');
+
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*🚨 Alerts*\n${alertLines}` },
+    });
+    blocks.push({ type: 'divider' });
+  }
+
+  blocks.push(
     {
       type: 'header',
       text: { type: 'plain_text', text: `📊 Daily Sales — ${dateLabel}`, emoji: true },
@@ -77,7 +97,7 @@ export async function postDailySummary(
         text: `*Memberships* — ${membership.orders} order${membership.orders !== 1 ? 's' : ''} · ${fmt(membership.revenue)}\n_New: ${newCount} · Recurring: ${recurringCount}_`,
       },
     },
-  ];
+  );
 
   if (prev) {
     blocks.push({
@@ -103,7 +123,7 @@ export async function postDailySummary(
       {
         type: 'button',
         text: { type: 'plain_text', text: 'Export PDF', emoji: true },
-        url: `${dashboardUrl}?export=pdf`,
+        url: `${dashboardUrl.replace('/dashboard/', '/api/export/')}/pdf`,
       },
     ],
   });

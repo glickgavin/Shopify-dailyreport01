@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { addDays, subDays, parseISO, isValid, format } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import RevenueChart from './RevenueChart';
+import Sparkline from './Sparkline';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -14,21 +15,60 @@ const fmtDec = (n: number) =>
 
 const fmtPct = (n: number) => `${Number(n).toFixed(1)}%`;
 
+function calcDelta(now: number, prev: number | null | undefined): number | null {
+  if (!prev) return null;
+  return ((now - prev) / Math.abs(prev)) * 100;
+}
+
 // ── sub-components ────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
+function DeltaBadge({ pct }: { pct: number | null }) {
+  if (pct === null) return null;
+  const up = pct >= 0;
+  return (
+    <span style={{
+      fontSize: '0.72rem',
+      fontFamily: 'var(--font-mono)',
+      fontWeight: 600,
+      color: up ? '#1D9E75' : '#e53e3e',
+      marginLeft: '0.4rem',
+      verticalAlign: 'middle',
+    }}>
+      {up ? '▲' : '▼'}{Math.abs(pct).toFixed(1)}%
+    </span>
+  );
+}
+
+function KpiCard({
+  label, value, sub, delta, sparkData,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  delta?: number | null;
+  sparkData?: number[];
+}) {
   return (
     <div style={{
       background: 'var(--surface)',
       borderRadius: 14,
       border: '1px solid var(--border)',
       padding: '1.25rem 1.5rem',
+      overflow: 'hidden',
     }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>
         {label}
       </div>
-      <div style={{ fontSize: '1.875rem', fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.02em' }}>{value}</div>
+      <div style={{ fontSize: '1.875rem', fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+        {value}
+        {delta !== undefined && <DeltaBadge pct={delta ?? null} />}
+      </div>
       {sub && <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '0.25rem' }}>{sub}</div>}
+      {sparkData && sparkData.length > 1 && (
+        <div style={{ marginTop: '0.75rem', marginLeft: '-1.5rem', marginRight: '-1.5rem', marginBottom: '-1.25rem' }}>
+          <Sparkline data={sparkData} color="#185FA5" />
+        </div>
+      )}
     </div>
   );
 }
@@ -50,17 +90,7 @@ function MiniStat({ label, value, highlight, color }: { label: string; value: st
 }
 
 function SegmentCard({
-  title,
-  revenue,
-  orders,
-  qty,
-  netSales,
-  shipping,
-  cogs,
-  profit,
-  margin,
-  aov,
-  theme,
+  title, revenue, orders, qty, netSales, shipping, cogs, profit, margin, aov, theme,
 }: {
   title: string;
   revenue: number;
@@ -93,14 +123,12 @@ function SegmentCard({
           {title}
         </span>
       </div>
-
       <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: accentDark }}>
         {fmt(revenue)}
       </div>
       <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
         {orders} orders · {qty} units
       </div>
-
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
         <MiniStat label="Net Sales" value={fmtDec(netSales)} />
         <MiniStat label="Shipping" value={fmtDec(shipping)} />
@@ -122,16 +150,26 @@ export default async function DashboardPage({ params }: { params: { date: string
     notFound();
   }
 
-  const [{ data: summary }, { data: products }, { data: memOrders }] = await Promise.all([
+  const prevDate = format(subDays(parseISO(date), 1), 'yyyy-MM-dd');
+  const nextDate = format(addDays(parseISO(date), 1), 'yyyy-MM-dd');
+  const sevenDayStart = format(subDays(parseISO(date), 7), 'yyyy-MM-dd');
+
+  const [
+    { data: summary },
+    { data: products },
+    { data: memOrders },
+    { data: prevSummary },
+    { data: sparkRows },
+  ] = await Promise.all([
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
     supabaseAdmin.from('daily_products').select('*').eq('date', date).order('revenue', { ascending: false }),
     supabaseAdmin.from('daily_membership_orders').select('*').eq('date', date).order('order_name'),
+    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov').eq('date', prevDate).single(),
+    supabaseAdmin.from('daily_summary').select('date,total_revenue').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: true }),
   ]);
 
   if (!summary) notFound();
 
-  const prevDate = format(subDays(parseISO(date), 1), 'yyyy-MM-dd');
-  const nextDate = format(addDays(parseISO(date), 1), 'yyyy-MM-dd');
   const displayDate = format(parseISO(date), 'EEEE, MMMM d, yyyy');
 
   const physProducts = (products ?? []).filter((p) => p.item_type === 'Physical' && p.revenue > 0);
@@ -140,6 +178,10 @@ export default async function DashboardPage({ params }: { params: { date: string
     revenue: Number(p.revenue),
     netSales: Number(p.net_sales),
   }));
+
+  const sparkData = (sparkRows ?? []).map((r) => r.total_revenue);
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
@@ -162,13 +204,62 @@ export default async function DashboardPage({ params }: { params: { date: string
           </h1>
           <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.2)' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Link href={`/dashboard/${prevDate}`} style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6, transition: 'background 0.15s' }} title="Previous day">‹</Link>
+            <Link href={`/dashboard/${prevDate}`} style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Previous day">‹</Link>
             <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.85)', fontWeight: 500, minWidth: 210, textAlign: 'center' }}>{displayDate}</span>
             <Link href={`/dashboard/${nextDate}`} style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Next day">›</Link>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <Link
+            href="/dashboard/history"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.7)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8,
+              padding: '0.4rem 0.875rem',
+              fontSize: '0.8rem',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            History
+          </Link>
+          <a
+            href={`${appUrl}/api/export/${date}/jpg`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.7)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8,
+              padding: '0.4rem 0.875rem',
+              fontSize: '0.8rem',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            JPG
+          </a>
+          <a
+            href={`${appUrl}/api/export/${date}/pdf`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.7)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8,
+              padding: '0.4rem 0.875rem',
+              fontSize: '0.8rem',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            PDF
+          </a>
           <a
             href={`/api/dashboard/${date}`}
             target="_blank"
@@ -192,7 +283,6 @@ export default async function DashboardPage({ params }: { params: { date: string
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
-        {/* ── SECTION LABEL HELPER ─ */}
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
         <SectionLabel>Total Business</SectionLabel>
         <div style={{
@@ -201,12 +291,36 @@ export default async function DashboardPage({ params }: { params: { date: string
           gap: '1rem',
           marginBottom: '2rem',
         }}>
-          <KpiCard label="Net Sales" value={fmt(summary.total_net_sales)} sub={`${summary.total_orders} orders · ${summary.total_qty} units`} />
-          <KpiCard label="Shipping" value={fmt(summary.total_shipping)} />
-          <KpiCard label="Total Revenue" value={fmt(summary.total_revenue)} />
-          <KpiCard label="COGS" value={fmt(summary.total_cogs)} />
-          <KpiCard label="Gross Profit" value={fmt(summary.total_profit)} />
-          <KpiCard label="Margin" value={fmtPct(summary.total_margin)} sub={`AOV ${fmtDec(summary.total_aov)}`} />
+          <KpiCard
+            label="Net Sales"
+            value={fmt(summary.total_net_sales)}
+            sub={`${summary.total_orders} orders · ${summary.total_qty} units`}
+            delta={calcDelta(summary.total_net_sales, prevSummary?.total_net_sales)}
+          />
+          <KpiCard
+            label="Shipping"
+            value={fmt(summary.total_shipping)}
+          />
+          <KpiCard
+            label="Total Revenue"
+            value={fmt(summary.total_revenue)}
+            delta={calcDelta(summary.total_revenue, prevSummary?.total_revenue)}
+            sparkData={sparkData}
+          />
+          <KpiCard
+            label="COGS"
+            value={fmt(summary.total_cogs)}
+          />
+          <KpiCard
+            label="Gross Profit"
+            value={fmt(summary.total_profit)}
+          />
+          <KpiCard
+            label="Margin"
+            value={fmtPct(summary.total_margin)}
+            sub={`AOV ${fmtDec(summary.total_aov)}`}
+            delta={calcDelta(summary.total_margin, prevSummary?.total_margin)}
+          />
         </div>
 
         {/* ── PHYSICAL SEGMENTS ───────────────────────────────────────────── */}
