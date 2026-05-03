@@ -1,5 +1,8 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 import { addDays, subDays, parseISO, isValid, format } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import RevenueChart from './RevenueChart';

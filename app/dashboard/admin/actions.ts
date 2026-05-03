@@ -1,5 +1,6 @@
 'use server';
 
+import { revalidatePath } from 'next/cache';
 import { runPipeline } from '@/lib/pipeline';
 
 export async function rerunPipeline(
@@ -15,6 +16,8 @@ export async function rerunPipeline(
       silent: options.silent ?? false,
       jobType: options.silent ? 'backfill' : 'manual_run',
     });
+    revalidatePath(`/dashboard/${date}`);
+    revalidatePath('/dashboard/history');
     return {
       ok: true,
       message: `Done — revenue ${result.summary.revenue}, orders ${result.summary.orders}`,
