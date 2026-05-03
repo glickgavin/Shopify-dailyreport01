@@ -1,127 +1,140 @@
 # Shopify Daily Report — Architecture
 
+## Production
+
+- **URL:** https://shopifydailyreport01.vercel.app
+- **Cron schedule:** `0 15 * * *` UTC = 7:00 AM PST / 8:00 AM PDT
+- **Cron route:** `GET /api/cron/daily` (Bearer token auth via `CRON_SECRET`)
+- **First successful run:** 2026-05-03
+
+---
+
 ## Overview
 
-An automated system that pulls yesterday's Shopify sales data every morning,
-stores it in Supabase, renders an interactive web dashboard, and posts a
-formatted summary to Slack — all without manual intervention.
+Automated system that fetches yesterday's Shopify orders every morning,
+processes them through business rules, persists to Supabase, renders an
+interactive web dashboard, and posts a Block Kit summary to Slack.
 
 ---
 
 ## System Diagram
 
 ```
-Vercel Cron (10:30am store-local time)
+Vercel Cron (15:00 UTC daily)
         │
         ▼
-POST /api/cron/daily-report   ← authenticated with CRON_SECRET
+GET /api/cron/daily   ← Authorization: Bearer CRON_SECRET
         │
-        ├─► lib/shopify.ts          Shopify Admin REST API
-        │       Fetch: orders, products, refunds (yesterday's window)
+        ├─► lib/queries/orders.ts     Shopify Admin GraphQL API
+        │       Orders query with pagination (250/page)
+        │       Date range: yesterday 00:00–23:59 in STORE_TIMEZONE
         │
-        ├─► lib/transforms.ts       Apply business rules
-        │       - Filter out test orders, staff orders
-        │       - Compute: net revenue, AOV, units sold, refund rate
-        │       - Aggregate: by product, by channel, by hour
+        ├─► lib/business-rules.ts     Apply business rules
+        │       - Classify items: Physical vs Membership
+        │       - Classify payments: Cash vs Non-Cash (store credit)
+        │       - Aggregate: total, physCash, physNonCash, membership blocks
+        │       - Product-level aggregation with order counts
         │
-        ├─► lib/supabase.ts         Supabase (Postgres)
-        │       Upsert: daily_snapshots table (idempotent)
-        │       Store: raw JSON blobs in Supabase Storage
+        ├─► lib/persistence.ts        Supabase (Postgres)
+        │       Upsert: daily_summary (idempotent on date conflict)
+        │       Delete+insert: daily_products, daily_membership_orders
+        │       Append: raw_data (audit log, never deleted)
         │
-        ├─► lib/slack.ts            Slack Web API
-        │       Post: formatted summary message with KPIs
-        │       Attach: screenshot of dashboard (Puppeteer)
+        ├─► lib/slack.ts              Slack Web API (chat.postMessage)
+        │       Block Kit: date header, KPI fields, Cash/Non-Cash sections,
+        │       membership summary, prev-day deltas, action buttons
         │
-        └─► Return 200 JSON summary to Vercel Cron log
+        └─► Return 200 JSON { status, date, summary }
 ```
 
 ---
 
 ## Data Flow
 
-### 1. Fetch (Shopify Admin REST API)
-- Endpoint: `GET /admin/api/{version}/orders.json`
-- Params: `created_at_min`, `created_at_max` covering yesterday 00:00–23:59
-  in store-local timezone
-- Paginated with `Link` header cursors until all orders are retrieved
-- Fields: `id`, `created_at`, `total_price`, `subtotal_price`,
-  `total_discounts`, `total_refunds`, `line_items`, `source_name`,
-  `financial_status`, `fulfillment_status`, `customer`
+### 1. Fetch (Shopify Admin GraphQL API)
+- Query: `orders` with `first: 250, after: $cursor` for pagination
+- Filter: `created_at >= start AND created_at <= end AND financial_status:paid`
+- Date range built from `STORE_TIMEZONE` using `date-fns-tz` offset calculation
+- Fields: name, createdAt, paymentGatewayNames, totalPriceSet, totalRefundedSet,
+  shippingLines, lineItems (with originalTotalSet, discountAllocations, variant.unitCost)
 
 ### 2. Transform (Business Rules)
-- **Exclude** orders with `financial_status: pending` (unpaid)
-- **Exclude** orders tagged `test` or placed by staff accounts
-- **Net revenue** = `total_price` − `total_refunds`
-- **AOV** = net revenue ÷ order count
-- **Refund rate** = refunded orders ÷ total orders
-- **Top products** by units sold and by revenue
-- **Channel breakdown**: online store vs POS vs draft orders
+- **Item type:** title matching `/membership|vip/i` → Membership, else Physical
+- **Payment group:** dominant gateway; `shopify_store_credit` → Non-Cash, else Cash
+- **Net sales per line:** `originalTotalSet − sum(discountAllocations)` (captures order-level discounts)
+- **Shipping:** prorated to each line by revenue share
+- **COGS:** `unitCost × quantity`
+- **Revenue:** `netSales + shipping`
+- **Margin:** `(revenue − cogs) / revenue × 100`
 
 ### 3. Store (Supabase)
 
 #### Tables
 | Table | Purpose |
 |---|---|
-| `daily_snapshots` | One row per store per date; all KPIs |
-| `order_line_items` | Granular per-product-per-day aggregates |
-| `raw_fetches` | Full JSON payload from Shopify (Supabase Storage) |
+| `daily_summary` | One row per date; all KPI blocks (total, physCash, physNonCash, membership) |
+| `daily_products` | Per-product aggregates for the date |
+| `daily_membership_orders` | Per-order detail for membership orders |
+| `raw_data` | Full order + payment row JSON (append-only audit log) |
+| `job_logs` | Reserved for future run logging |
 
 #### Strategy
-- Upsert on `(store_domain, report_date)` — safe to re-run
-- Storage bucket `raw-reports` holds gzipped JSON for audit/replay
+- `daily_summary`: upsert on `date` conflict — safe to re-run
+- `daily_products` + `daily_membership_orders`: delete-then-insert per date
+- `raw_data`: append only, never overwritten
 
-### 4. Dashboard (Next.js App Router)
+### 4. Dashboard (Next.js 14 App Router)
 
-- `/app/dashboard/page.tsx` — server component, reads from Supabase
-- `/app/dashboard/[date]/page.tsx` — historical view for a specific date
-- Client components (Recharts):
-  - Revenue trend (7-day line chart)
-  - Top products (bar chart)
-  - Channel split (pie/donut chart)
-  - Hourly order volume (area chart)
+- `/` — homepage with links to dashboard, history, admin
+- `/dashboard` → redirects to yesterday's date
+- `/dashboard/[date]` — server component; dark top bar with prev/next nav,
+  6-KPI grid, Physical Cash + Non-Cash segment cards, products table,
+  membership card, Recharts bar chart
+- `/api/dashboard/[date]` — JSON API returning same data
+- `RevenueChart.tsx` — `"use client"` Recharts component
 
 ### 5. Slack Notification
 
-- `chat.postMessage` with Block Kit layout
-- Blocks: date header, KPI summary, top 3 products, comparison vs prior week
-- Attached: PNG screenshot of dashboard captured with Puppeteer +
-  `@sparticuz/chromium` (Vercel-compatible headless Chrome)
+- `@slack/web-api` WebClient — `chat.postMessage` to `SLACK_CHANNEL_ID`
+- Block Kit layout: header, KPI fields (4-up), divider, Cash section,
+  Non-Cash section, divider, membership summary, prev-day delta context,
+  View Dashboard + Export PDF action buttons
+- Set `DRY_RUN=true` to log payload instead of sending
 
 ---
 
 ## Scheduling
 
-Vercel Cron triggers `POST /api/cron/daily-report` on a UTC cron expression
-calculated from the store's `STORE_TIMEZONE`. Because Vercel Cron only supports
-UTC, the cron expression is set for the UTC equivalent of 10:30am store-local
-time. **DST note:** update the cron expression manually when DST transitions
-occur (twice a year), or accept up to 1 hour of drift.
+```json
+{
+  "crons": [{ "path": "/api/cron/daily", "schedule": "0 15 * * *" }]
+}
+```
 
----
-
-## Key Design Decisions
-
-| Decision | Rationale |
-|---|---|
-| Idempotent upserts | Safe to re-run the cron; won't double-count |
-| Service-role key server-side only | Avoids RLS bypass in browser |
-| Raw JSON stored in Storage | Allows replay if transform logic changes |
-| Puppeteer screenshot | Slack image attachment gives at-a-glance view without clicking |
-| `date-fns-tz` for timezone math | Handles DST correctly; no moment.js |
-| Zod for API response validation | Catches Shopify schema drift early |
-| Pino for structured logging | Vercel log drains can parse JSON logs |
+`15:00 UTC` = 7:00 AM PST (UTC−8) / 8:00 AM PDT (UTC−7).  
+**DST note:** the run shifts by 1 hour during daylight saving. Update the cron
+expression to `0 14 * * *` from mid-March to early November if 7:00 AM PDT
+is required exactly.
 
 ---
 
 ## Environment Variables
 
-See `.env.example` for the full list with descriptions. Required at runtime:
-
-**Shopify:** `SHOPIFY_STORE_DOMAIN`, `SHOPIFY_ADMIN_API_TOKEN`, `SHOPIFY_API_VERSION`  
-**Supabase:** `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`  
-**Slack:** `SLACK_BOT_TOKEN`, `SLACK_CHANNEL_ID`  
-**Cron:** `CRON_SECRET`  
-**Config:** `STORE_TIMEZONE`, `DRY_RUN`, `NEXT_PUBLIC_APP_URL`
+| Variable | Where used |
+|---|---|
+| `SHOPIFY_STORE_DOMAIN` | Shopify OAuth token fetch |
+| `SHOPIFY_CLIENT_ID` | Shopify OAuth |
+| `SHOPIFY_CLIENT_SECRET` | Shopify OAuth |
+| `SHOPIFY_API_VERSION` | GraphQL endpoint |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase client (browser + server) |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon client |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase admin client (server only) |
+| `SLACK_BOT_TOKEN` | Slack Web API |
+| `SLACK_CHANNEL_ID` | Target Slack channel |
+| `CRON_SECRET` | Protects `/api/cron/daily` |
+| `STORE_TIMEZONE` | e.g. `America/Los_Angeles` |
+| `DRY_RUN` | `true` = log Slack payload, don't send |
+| `NEXT_PUBLIC_APP_URL` | Dashboard base URL in Slack links |
 
 ---
 
@@ -130,47 +143,43 @@ See `.env.example` for the full list with descriptions. Required at runtime:
 ```
 /
 ├── app/
-│   ├── layout.tsx
-│   ├── page.tsx                         # Root redirect → /dashboard
-│   ├── globals.css
+│   ├── layout.tsx                       # DM Sans, DM Mono fonts + CSS vars
+│   ├── page.tsx                         # Homepage
+│   ├── globals.css                      # Design tokens
 │   ├── dashboard/
-│   │   ├── page.tsx                     # Latest report
+│   │   ├── page.tsx                     # Redirect → yesterday
 │   │   └── [date]/
-│   │       └── page.tsx                 # Historical report by date
+│   │       ├── page.tsx                 # Main dashboard server component
+│   │       └── RevenueChart.tsx         # Recharts client component
 │   └── api/
-│       ├── cron/
-│       │   └── daily-report/
-│       │       └── route.ts             # Vercel Cron handler
-│       └── shopify/
-│           └── test/
-│               └── route.ts            # Manual test trigger (dev only)
+│       ├── cron/daily/route.ts          # Vercel Cron handler
+│       ├── dashboard/[date]/route.ts    # JSON API
+│       ├── test-pipeline/route.ts       # Manual pipeline trigger
+│       └── debug-token/route.ts         # Shopify token debug
 ├── lib/
-│   ├── shopify.ts                       # Shopify API client + fetchers
-│   ├── supabase.ts                      # Supabase client (server + browser)
-│   ├── slack.ts                         # Slack notification builder
-│   ├── transforms.ts                    # Business rule transformations
-│   ├── screenshot.ts                    # Puppeteer screenshot helper
-│   ├── logger.ts                        # Pino logger config
+│   ├── shopify.ts                       # OAuth token + GraphQL client
+│   ├── supabase.ts                      # Anon + service-role clients
+│   ├── slack.ts                         # Block Kit message builder
+│   ├── business-rules.ts                # processDay() transform
+│   ├── persistence.ts                   # saveDay() Supabase writes
 │   ├── queries/
-│   │   ├── upsertSnapshot.ts
-│   │   └── getSnapshot.ts
+│   │   ├── orders.ts                    # fetchOrdersForDate()
+│   │   └── payments.ts
 │   └── types/
-│       ├── shopify.ts                   # Zod schemas + inferred types
-│       ├── snapshot.ts                  # DB row types
-│       └── slack.ts                     # Slack block types
+│       └── database.ts                  # Supabase Database type
 ├── scripts/
-│   ├── seed-test-data.ts                # Local dev: insert fake snapshot
-│   └── backfill.ts                      # One-off: fetch & store past N days
+│   ├── backfill.ts                      # --start / --end date range backfill
+│   ├── run-daily.ts                     # Local pipeline + Slack (no HTTP)
+│   ├── test-pipeline.ts                 # Pipeline test (no Slack)
+│   ├── test-slack.ts                    # Slack connectivity test
+│   └── verify-supabase.ts              # Query all tables for a date
 ├── supabase/
 │   └── migrations/
-│       └── 001_initial_schema.sql
+│       └── 0001_init.sql               # All 5 tables + RLS + triggers
 ├── docs/
 │   └── architecture.md                  # ← this file
-├── .env.example
-├── .env.local                           # git-ignored
-├── .gitignore
+├── vercel.json                          # Cron schedule
 ├── next.config.mjs
-├── tailwind.config.ts
 ├── tsconfig.json
 └── package.json
 ```
@@ -180,28 +189,27 @@ See `.env.example` for the full list with descriptions. Required at runtime:
 ## Local Development
 
 ```bash
-# 1. Copy env vars
-cp .env.example .env.local
-# fill in .env.local with real credentials
-
-# 2. Install deps
 pnpm install
-
-# 3. Run dev server
 pnpm dev
 
-# 4. Trigger a manual fetch (without waiting for cron)
-curl -X POST http://localhost:3000/api/cron/daily-report \
-  -H "Authorization: Bearer $CRON_SECRET"
+# Trigger pipeline manually (no cron wait)
+npx tsx scripts/run-daily.ts --date=2026-05-01
+
+# Backfill historical data
+npx tsx scripts/backfill.ts --start=2026-04-19 --end=2026-05-01
+
+# Test Slack connectivity
+npx tsx scripts/test-slack.ts
 ```
 
 ---
 
 ## Deployment Checklist
 
-- [ ] All env vars set in Vercel project settings
-- [ ] `vercel.json` cron schedule configured for correct UTC time
-- [ ] Supabase migration applied (`001_initial_schema.sql`)
-- [ ] Slack app installed to workspace, bot added to channel
-- [ ] Shopify app created, scopes granted, token generated
-- [ ] First manual run via Vercel dashboard to verify end-to-end
+- [x] GitHub repo: `glickgavin/Shopify-dailyreport01`
+- [x] Vercel project linked, all env vars set
+- [x] `vercel.json` cron schedule configured
+- [x] Supabase migration applied (`0001_init.sql`)
+- [x] Slack app created, `chat:write` scope, bot added to `#daily-sales-report`
+- [x] Shopify OAuth app created, scopes granted
+- [x] First manual cron run verified end-to-end
