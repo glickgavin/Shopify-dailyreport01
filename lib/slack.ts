@@ -1,3 +1,5 @@
+import { WebClient } from '@slack/web-api';
+import type { KnownBlock } from '@slack/web-api';
 import type { ProcessedDay } from '@/lib/business-rules';
 
 type PrevSummary = { total_revenue: number; total_orders: number; total_net_sales: number } | null;
@@ -18,7 +20,8 @@ export async function postDailySummary(
   dashboardUrl: string,
   prev: PrevSummary = null,
 ): Promise<void> {
-  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  const token = process.env.SLACK_BOT_TOKEN;
+  const channel = process.env.SLACK_CHANNEL_ID;
   const dryRun = process.env.DRY_RUN === 'true';
 
   const { date, total, physCash, physNonCash, membership, memOrders } = processed;
@@ -31,7 +34,7 @@ export async function postDailySummary(
   const newCount = memOrders.filter((m) => m.membershipType === 'new').length;
   const recurringCount = memOrders.filter((m) => m.membershipType === 'recurring').length;
 
-  const blocks: object[] = [
+  const blocks: KnownBlock[] = [
     {
       type: 'header',
       text: { type: 'plain_text', text: `📊 Daily Sales — ${dateLabel}`, emoji: true },
@@ -107,20 +110,13 @@ export async function postDailySummary(
 
   const payload = { blocks };
 
-  if (dryRun || !webhookUrl) {
+  if (dryRun || !token || !channel) {
     console.log('[slack] DRY_RUN — payload:');
     console.log(JSON.stringify(payload, null, 2));
     return;
   }
 
-  const res = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Slack webhook failed: ${res.status} ${text}`);
-  }
+  const client = new WebClient(token);
+  const result = await client.chat.postMessage({ channel, blocks, text: `Daily Sales — ${dateLabel}` });
+  if (!result.ok) throw new Error(`Slack API error: ${result.error}`);
 }

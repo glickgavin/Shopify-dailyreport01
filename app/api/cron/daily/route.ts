@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { WebClient } from '@slack/web-api';
 import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
@@ -63,12 +64,12 @@ export async function GET(req: NextRequest) {
     console.error(`[cron/daily] Error: ${msg}`);
 
     try {
-      const webhookUrl = process.env.SLACK_WEBHOOK_URL;
-      if (webhookUrl) {
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: `🚨 *Daily cron failed* for ${yesterday}\n\`\`\`${msg}\`\`\`` }),
+      const token = process.env.SLACK_BOT_TOKEN;
+      const channel = process.env.SLACK_CHANNEL_ID;
+      if (token && channel) {
+        await new WebClient(token).chat.postMessage({
+          channel,
+          text: `🚨 *Daily cron failed* for ${yesterday}\n\`\`\`${msg}\`\`\``,
         });
       }
     } catch { /* swallow */ }
