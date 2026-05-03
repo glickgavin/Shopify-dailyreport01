@@ -61,7 +61,7 @@ const ORDERS_QUERY = `
 interface GQLOrder {
   name: string;
   createdAt: string;
-  customer: { id: string; numberOfOrders: number } | null;
+  customer: { id: string; numberOfOrders: string | number } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
   totalRefundedSet: { shopMoney: { amount: string } };
@@ -136,7 +136,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     customerOrdersMap.get(cid)!.push({
       orderName: order.name,
       createdAt: order.createdAt,
-      numberOfOrders: order.customer.numberOfOrders,
+      numberOfOrders: Number(order.customer.numberOfOrders),
     });
   }
 
