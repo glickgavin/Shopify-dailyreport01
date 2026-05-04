@@ -2,7 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { NextRequest, NextResponse } from 'next/server';
 
 export async function middleware(req: NextRequest) {
-  // Allow the login page through without auth check
+  // Allow login page through without auth check
   if (req.nextUrl.pathname.startsWith('/dashboard/admin/login')) {
     return NextResponse.next();
   }
@@ -38,6 +38,6 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Match all /dashboard/admin routes; login exclusion handled in function above
+  // Login exclusion is handled in the function body above
   matcher: ['/dashboard/admin/:path*'],
 };

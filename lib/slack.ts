@@ -5,6 +5,13 @@ import type { Alert } from '@/lib/alerts';
 
 type PrevSummary = { total_revenue: number; total_orders: number; total_net_sales: number } | null;
 
+interface CustomerMix {
+  newOrders: number;
+  newRevenue: number;
+  returningOrders: number;
+  returningRevenue: number;
+}
+
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
@@ -21,6 +28,7 @@ export async function postDailySummary(
   dashboardUrl: string,
   prev: PrevSummary = null,
   alerts: Alert[] = [],
+  customerMix?: CustomerMix,
 ): Promise<void> {
   const token = process.env.SLACK_BOT_TOKEN;
   const channel = process.env.SLACK_CHANNEL_ID;
@@ -98,6 +106,16 @@ export async function postDailySummary(
       },
     },
   );
+
+  if (customerMix) {
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Customer Mix* 👥\nNew: ${customerMix.newOrders} orders · ${fmt(customerMix.newRevenue)}  ·  Returning: ${customerMix.returningOrders} orders · ${fmt(customerMix.returningRevenue)}`,
+      },
+    });
+  }
 
   if (prev) {
     blocks.push({

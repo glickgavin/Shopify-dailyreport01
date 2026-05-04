@@ -1,24 +1,28 @@
 'use server';
 
-export async function rerunPipeline(date: string): Promise<{ ok: boolean; message: string }> {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return { ok: false, message: 'CRON_SECRET not configured' };
+import { revalidatePath } from 'next/cache';
+import { runPipeline } from '@/lib/pipeline';
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
-  const url = `${appUrl}/api/admin/run/${encodeURIComponent(date)}`;
+export async function rerunPipeline(
+  date: string,
+  options: { silent?: boolean } = {},
+): Promise<{ ok: boolean; message: string }> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, message: 'Invalid date format' };
+  }
 
   try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${secret}` },
-      // server-to-server; no caching
-      cache: 'no-store',
+    const result = await runPipeline(date, {
+      silent: options.silent ?? false,
+      jobType: options.silent ? 'backfill' : 'manual_run',
     });
-    const body = await res.json();
-    if (res.ok) {
-      return { ok: true, message: `Done — revenue ${body.summary?.revenue ?? '?'}, orders ${body.summary?.orders ?? '?'}` };
-    }
-    return { ok: false, message: body.error ?? `HTTP ${res.status}` };
+    revalidatePath(`/dashboard/${date}`);
+    revalidatePath('/dashboard/history');
+    return {
+      ok: true,
+      message: `Done — revenue ${result.summary.revenue}, orders ${result.summary.orders}`,
+    };
   } catch (err) {
-    return { ok: false, message: err instanceof Error ? err.message : 'Network error' };
+    return { ok: false, message: err instanceof Error ? err.message : 'Pipeline error' };
   }
 }

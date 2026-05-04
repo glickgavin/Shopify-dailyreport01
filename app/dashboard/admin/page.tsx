@@ -4,6 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase';
 import RerunForm from './RerunForm';
+import BackfillForm from './BackfillForm';
 
 export const revalidate = 0;
 
@@ -85,6 +86,15 @@ export default async function AdminPage() {
             Fetch Shopify data for a specific date, reprocess, and save to Supabase.
           </p>
           <RerunForm />
+        </div>
+
+        {/* Backfill section */}
+        <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.5rem' }}>
+          <SectionLabel>Backfill Date Range</SectionLabel>
+          <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
+            Sequentially re-process a range of dates. Slack notifications are suppressed.
+          </p>
+          <BackfillForm />
         </div>
 
         {/* Job logs */}

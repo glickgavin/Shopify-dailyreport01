@@ -207,6 +207,57 @@ export type Database = {
         };
         Relationships: [];
       };
+      daily_customer_segments: {
+        Row: {
+          id: number;
+          date: string;
+          payment_type: string;
+          customer_type: string;
+          revenue: number;
+          net_sales: number;
+          shipping: number;
+          cogs: number;
+          profit: number;
+          margin: number;
+          orders: number;
+          qty: number;
+          aov: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: number | null;
+          date: string;
+          payment_type: string;
+          customer_type: string;
+          revenue?: number | null;
+          net_sales?: number | null;
+          shipping?: number | null;
+          cogs?: number | null;
+          profit?: number | null;
+          margin?: number | null;
+          orders?: number | null;
+          qty?: number | null;
+          aov?: number | null;
+          created_at?: string | null;
+        };
+        Update: {
+          id?: number | null;
+          date?: string;
+          payment_type?: string;
+          customer_type?: string;
+          revenue?: number | null;
+          net_sales?: number | null;
+          shipping?: number | null;
+          cogs?: number | null;
+          profit?: number | null;
+          margin?: number | null;
+          orders?: number | null;
+          qty?: number | null;
+          aov?: number | null;
+          created_at?: string | null;
+        };
+        Relationships: [];
+      };
       raw_data: {
         Row: {
           id: number;
