@@ -312,6 +312,24 @@ export type Database = {
         };
         Relationships: [];
       };
+      stripe_daily_snapshot: {
+        Row: {
+          date: string;
+          payload: Json;
+          fetched_at: string;
+        };
+        Insert: {
+          date: string;
+          payload: Json;
+          fetched_at?: string;
+        };
+        Update: {
+          date?: string;
+          payload?: Json;
+          fetched_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
