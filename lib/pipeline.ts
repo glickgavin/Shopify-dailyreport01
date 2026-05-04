@@ -53,7 +53,9 @@ export async function runPipeline(
   }
 
   if (!silent) {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
+    // Hardcoded to production URL so Slack links always work, regardless of
+    // which deployment ran the pipeline (preview, branch alias, etc.)
+    const appUrl = 'https://shopifydailyreport01.vercel.app';
     await postDailySummary(processed, `${appUrl}/dashboard/${date}`, prevSummary ?? null, alerts, {
       newOrders: processed.custNew.orders,
       newRevenue: processed.custNew.revenue,

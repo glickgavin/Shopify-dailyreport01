@@ -62,57 +62,52 @@ export async function postDailySummary(
     blocks.push({ type: 'divider' });
   }
 
-  blocks.push(
-    {
-      type: 'header',
-      text: { type: 'plain_text', text: `📊 Daily Sales — ${dateLabel}`, emoji: true },
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*📊 Daily Sales — ${dateLabel}*`,
     },
-    {
-      type: 'section',
-      fields: [
-        { type: 'mrkdwn', text: `*Total Revenue*\n${fmt(total.revenue)}` },
-        { type: 'mrkdwn', text: `*Orders*\n${total.orders}` },
-        { type: 'mrkdwn', text: `*Net Sales*\n${fmt(total.netSales)}` },
-        { type: 'mrkdwn', text: `*AOV*\n${fmt(total.aov)}` },
-      ],
+  });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Total* — Revenue ${fmt(total.revenue)} · Net ${fmt(total.netSales)} · Orders ${total.orders} · AOV ${fmt(total.aov)}`,
     },
-    { type: 'divider' },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: '*Physical — Cash* 🔵' },
-      fields: [
-        { type: 'mrkdwn', text: `*Revenue*\n${fmt(physCash.revenue)}` },
-        { type: 'mrkdwn', text: `*Margin*\n${fmtPct(physCash.margin)}` },
-        { type: 'mrkdwn', text: `*Orders*\n${physCash.orders}` },
-        { type: 'mrkdwn', text: `*AOV*\n${fmt(physCash.aov)}` },
-      ],
+  });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Cash* 🔵 — Revenue ${fmt(physCash.revenue)} · Margin ${fmtPct(physCash.margin)} · Orders ${physCash.orders} · AOV ${fmt(physCash.aov)}`,
     },
-    {
-      type: 'section',
-      text: { type: 'mrkdwn', text: '*Physical — Non-Cash* 🟢' },
-      fields: [
-        { type: 'mrkdwn', text: `*Revenue*\n${fmt(physNonCash.revenue)}` },
-        { type: 'mrkdwn', text: `*Margin*\n${fmtPct(physNonCash.margin)}` },
-        { type: 'mrkdwn', text: `*Orders*\n${physNonCash.orders}` },
-        { type: 'mrkdwn', text: `*AOV*\n${fmt(physNonCash.aov)}` },
-      ],
+  });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Non-Cash* 🟢 — Revenue ${fmt(physNonCash.revenue)} · Margin ${fmtPct(physNonCash.margin)} · Orders ${physNonCash.orders} · AOV ${fmt(physNonCash.aov)}`,
     },
-    { type: 'divider' },
-    {
-      type: 'section',
-      text: {
-        type: 'mrkdwn',
-        text: `*Memberships* — ${membership.orders} order${membership.orders !== 1 ? 's' : ''} · ${fmt(membership.revenue)}\n_New: ${newCount} · Recurring: ${recurringCount}_`,
-      },
+  });
+
+  blocks.push({
+    type: 'section',
+    text: {
+      type: 'mrkdwn',
+      text: `*Memberships* — ${membership.orders} order${membership.orders !== 1 ? 's' : ''} · ${fmt(membership.revenue)} · New: ${newCount} · Recurring: ${recurringCount}`,
     },
-  );
+  });
 
   if (customerMix) {
     blocks.push({
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Customer Mix* 👥\nNew: ${customerMix.newOrders} orders · ${fmt(customerMix.newRevenue)}  ·  Returning: ${customerMix.returningOrders} orders · ${fmt(customerMix.returningRevenue)}`,
+        text: `*Customer Mix* 👥 — New: ${customerMix.newOrders} orders · ${fmt(customerMix.newRevenue)} · Returning: ${customerMix.returningOrders} orders · ${fmt(customerMix.returningRevenue)}`,
       },
     });
   }
