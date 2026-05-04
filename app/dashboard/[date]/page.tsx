@@ -216,8 +216,6 @@ export default async function DashboardPage({ params }: { params: { date: string
 
   const sparkData = (sparkRows ?? []).map((r) => r.total_revenue);
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://shopifydailyreport01.vercel.app';
-
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
 
@@ -262,7 +260,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             History
           </Link>
           <a
-            href={`${appUrl}/api/export/${date}/jpg`}
+            href={`/api/export/${date}/jpg`}
             target="_blank"
             rel="noreferrer"
             style={{
@@ -279,7 +277,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             JPG
           </a>
           <a
-            href={`${appUrl}/api/export/${date}/pdf`}
+            href={`/api/export/${date}/pdf`}
             target="_blank"
             rel="noreferrer"
             style={{
