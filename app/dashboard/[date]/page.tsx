@@ -93,7 +93,7 @@ function MiniStat({ label, value, highlight, color }: { label: string; value: st
 }
 
 function SegmentCard({
-  title, revenue, orders, qty, netSales, shipping, cogs, profit, margin, aov, theme, newReturning,
+  title, revenue, orders, qty, netSales, shipping, cogs, profit, margin, aov, theme, breakdownLabel,
 }: {
   title: string;
   revenue: number;
@@ -105,13 +105,12 @@ function SegmentCard({
   profit: number;
   margin: number;
   aov: number;
-  theme: 'cash' | 'noncash';
-  newReturning?: { newCount: number; retCount: number };
+  theme: 'cash' | 'noncash' | 'membership';
+  breakdownLabel?: string;
 }) {
-  const isCash = theme === 'cash';
-  const accent = isCash ? 'var(--cash-blue)' : 'var(--nc-green)';
-  const accentLight = isCash ? 'var(--cash-blue-light)' : 'var(--nc-green-light)';
-  const accentDark = isCash ? 'var(--cash-blue-dark)' : 'var(--nc-green-dark)';
+  const accent = theme === 'cash' ? 'var(--cash-blue)' : theme === 'noncash' ? 'var(--nc-green)' : '#7c3aed';
+  const accentLight = theme === 'cash' ? 'var(--cash-blue-light)' : theme === 'noncash' ? 'var(--nc-green-light)' : '#ede9fe';
+  const accentDark = theme === 'cash' ? 'var(--cash-blue-dark)' : theme === 'noncash' ? 'var(--nc-green-dark)' : '#5b21b6';
 
   return (
     <div style={{
@@ -130,14 +129,12 @@ function SegmentCard({
       <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: accentDark }}>
         {fmt(revenue)}
       </div>
-      <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: newReturning ? '0.15rem' : '1.25rem' }}>
+      <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: breakdownLabel ? '0.15rem' : '1.25rem' }}>
         {orders} orders · {qty} units
       </div>
-      {newReturning && (
+      {breakdownLabel && (
         <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '1.25rem', fontFamily: 'var(--font-mono)' }}>
-          <span style={{ color: '#1d4ed8', fontWeight: 600 }}>{newReturning.newCount} new</span>
-          {' · '}
-          <span style={{ color: '#6b7280' }}>{newReturning.retCount} returning</span>
+          {breakdownLabel}
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
@@ -204,6 +201,9 @@ export default async function DashboardPage({ params }: { params: { date: string
   const cashRetCount    = cashRetSeg?.orders ?? 0;
   const nonCashNewCount = nonCashNewSeg?.orders ?? 0;
   const nonCashRetCount = nonCashRetSeg?.orders ?? 0;
+
+  const memNew       = (memOrders ?? []).filter((m) => m.membership_type === 'new').length;
+  const memRecurring = (memOrders ?? []).filter((m) => m.membership_type === 'recurring').length;
 
   const displayDate = format(parseISO(date), 'EEEE, MMMM d, yyyy');
 
@@ -320,29 +320,16 @@ export default async function DashboardPage({ params }: { params: { date: string
         <SectionLabel>Total Business</SectionLabel>
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
+          gridTemplateColumns: 'repeat(4, 1fr)',
           gap: '1rem',
           marginBottom: '2rem',
         }}>
           <KpiCard
-            label="Net Sales"
-            value={fmt(summary.total_net_sales)}
-            sub={`${summary.total_orders} orders · ${summary.total_qty} units`}
-            delta={calcDelta(summary.total_net_sales, prevSummary?.total_net_sales)}
-          />
-          <KpiCard
-            label="Shipping"
-            value={fmt(summary.total_shipping)}
-          />
-          <KpiCard
             label="Total Revenue"
             value={fmt(summary.total_revenue)}
+            sub={`${summary.total_orders} orders · ${summary.total_qty} units`}
             delta={calcDelta(summary.total_revenue, prevSummary?.total_revenue)}
             sparkData={sparkData}
-          />
-          <KpiCard
-            label="COGS"
-            value={fmt(summary.total_cogs)}
           />
           <KpiCard
             label="Gross Profit"
@@ -351,13 +338,16 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="Margin"
             value={fmtPct(summary.total_margin)}
-            sub={`AOV ${fmtDec(summary.total_aov)}`}
             delta={calcDelta(summary.total_margin, prevSummary?.total_margin)}
+          />
+          <KpiCard
+            label="AOV"
+            value={fmtDec(summary.total_aov)}
           />
         </div>
 
-        {/* ── PHYSICAL SEGMENTS ───────────────────────────────────────────── */}
-        <SectionLabel>Physical Sales</SectionLabel>
+        {/* ── SALES SEGMENTS ──────────────────────────────────────────────── */}
+        <SectionLabel>Sales Segments</SectionLabel>
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
           <SegmentCard
             title="Physical Cash"
@@ -371,7 +361,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             profit={summary.phys_cash_profit}
             margin={summary.phys_cash_margin}
             aov={summary.phys_cash_aov}
-            newReturning={hasSegments ? { newCount: cashNewCount, retCount: cashRetCount } : undefined}
+            breakdownLabel={hasSegments ? `${cashNewCount} new · ${cashRetCount} returning` : undefined}
           />
           <SegmentCard
             title="Physical Non-Cash"
@@ -385,156 +375,22 @@ export default async function DashboardPage({ params }: { params: { date: string
             profit={summary.phys_non_cash_profit}
             margin={summary.phys_non_cash_margin}
             aov={summary.phys_non_cash_aov}
-            newReturning={hasSegments ? { newCount: nonCashNewCount, retCount: nonCashRetCount } : undefined}
+            breakdownLabel={hasSegments ? `${nonCashNewCount} new · ${nonCashRetCount} returning` : undefined}
           />
-        </div>
-
-        {/* ── PRODUCTS TABLE ──────────────────────────────────────────────── */}
-        <SectionLabel>Products</SectionLabel>
-        <div style={{
-          background: 'var(--surface)',
-          borderRadius: 14,
-          border: '1px solid var(--border)',
-          overflow: 'hidden',
-          marginBottom: '2rem',
-        }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                {['Product', 'Variant', 'Type', 'Qty', 'Orders', 'Net Sales', 'Shipping', 'COGS', 'Revenue'].map((h) => (
-                  <th key={h} style={{
-                    padding: '0.75rem 1rem',
-                    textAlign: h === 'Product' || h === 'Variant' || h === 'Type' ? 'left' : 'right',
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '0.68rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.07em',
-                    color: 'var(--muted)',
-                    fontWeight: 500,
-                  }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {(products ?? []).map((p, i) => (
-                <tr
-                  key={`${p.title}-${p.variant}`}
-                  style={{
-                    borderBottom: i < (products ?? []).length - 1 ? '1px solid var(--border)' : 'none',
-                    background: i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent',
-                  }}
-                >
-                  <td style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>{p.title}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--muted)' }}>{p.variant || '—'}</td>
-                  <td style={{ padding: '0.75rem 1rem' }}>
-                    <span style={{
-                      fontSize: '0.7rem',
-                      fontFamily: 'var(--font-mono)',
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: 6,
-                      background: p.item_type === 'Membership' ? 'var(--nc-green-light)' : 'var(--cash-blue-light)',
-                      color: p.item_type === 'Membership' ? 'var(--nc-green-dark)' : 'var(--cash-blue-dark)',
-                      fontWeight: 500,
-                    }}>
-                      {p.item_type === 'Membership' ? 'MEM' : 'PHY'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.qty}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.orders}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.shipping)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.cogs)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
-                <td colSpan={3} style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)' }}>Total</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_qty}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_orders}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_net_sales)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_shipping)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_cogs)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_revenue)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        {/* ── MEMBERSHIP ──────────────────────────────────────────────────── */}
-        <SectionLabel>Membership</SectionLabel>
-        <div style={{
-          background: 'var(--surface)',
-          borderRadius: 14,
-          border: '1.5px solid var(--nc-green)',
-          padding: '1.5rem',
-          marginBottom: '2rem',
-        }}>
-          <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-            {[
-              { label: 'Revenue', value: fmt(summary.mem_revenue) },
-              { label: 'Net Sales', value: fmtDec(summary.mem_net_sales) },
-              { label: 'Orders', value: String(summary.mem_orders) },
-              { label: 'Units', value: String(summary.mem_qty) },
-              { label: 'Margin', value: fmtPct(summary.mem_margin) },
-              { label: 'AOV', value: fmtDec(summary.mem_aov) },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ textAlign: 'center', minWidth: 90 }}>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--nc-green-dark)', marginBottom: '0.25rem' }}>{label}</div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--nc-green-dark)' }}>{value}</div>
-              </div>
-            ))}
-          </div>
-
-          {(memOrders ?? []).length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Order', 'Type', 'Net Sales', 'Shipping', 'Revenue'].map((h) => (
-                    <th key={h} style={{
-                      padding: '0.5rem 0.75rem',
-                      textAlign: h === 'Order' || h === 'Type' ? 'left' : 'right',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.65rem',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      color: 'var(--nc-green-dark)',
-                      fontWeight: 500,
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {(memOrders ?? []).map((m, i) => (
-                  <tr
-                    key={m.order_name}
-                    style={{ borderBottom: i < (memOrders ?? []).length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}
-                  >
-                    <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{m.order_name}</td>
-                    <td style={{ padding: '0.5rem 0.75rem' }}>
-                      <span style={{
-                        fontSize: '0.65rem',
-                        fontFamily: 'var(--font-mono)',
-                        padding: '0.15rem 0.4rem',
-                        borderRadius: 5,
-                        background: m.membership_type === 'recurring' ? 'var(--nc-green-light)' : 'var(--surface2)',
-                        color: m.membership_type === 'recurring' ? 'var(--nc-green-dark)' : 'var(--muted)',
-                        fontWeight: 500,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}>
-                        {m.membership_type}
-                      </span>
-                    </td>
-                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{fmtDec(m.net_sales)}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{fmtDec(m.shipping)}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: 600 }}>{fmtDec(m.revenue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <SegmentCard
+            title="Membership"
+            theme="membership"
+            revenue={summary.mem_revenue}
+            orders={summary.mem_orders}
+            qty={summary.mem_qty}
+            netSales={summary.mem_net_sales}
+            shipping={summary.mem_shipping}
+            cogs={summary.mem_cogs}
+            profit={summary.mem_profit}
+            margin={summary.mem_margin}
+            aov={summary.mem_aov}
+            breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
+          />
         </div>
 
         {/* ── CUSTOMER MIX ────────────────────────────────────────────────── */}
@@ -619,6 +475,79 @@ export default async function DashboardPage({ params }: { params: { date: string
             </div>
           </>
         )}
+
+        {/* ── PRODUCTS TABLE ──────────────────────────────────────────────── */}
+        <SectionLabel>Products</SectionLabel>
+        <div style={{
+          background: 'var(--surface)',
+          borderRadius: 14,
+          border: '1px solid var(--border)',
+          overflow: 'hidden',
+          marginBottom: '2rem',
+        }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                {['Product', 'Variant', 'Type', 'Qty', 'Orders', 'Net Sales', 'Shipping', 'COGS', 'Revenue'].map((h) => (
+                  <th key={h} style={{
+                    padding: '0.75rem 1rem',
+                    textAlign: h === 'Product' || h === 'Variant' || h === 'Type' ? 'left' : 'right',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.68rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.07em',
+                    color: 'var(--muted)',
+                    fontWeight: 500,
+                  }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(products ?? []).map((p, i) => (
+                <tr
+                  key={`${p.title}-${p.variant}`}
+                  style={{
+                    borderBottom: i < (products ?? []).length - 1 ? '1px solid var(--border)' : 'none',
+                    background: i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent',
+                  }}
+                >
+                  <td style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>{p.title}</td>
+                  <td style={{ padding: '0.75rem 1rem', color: 'var(--muted)' }}>{p.variant || '—'}</td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <span style={{
+                      fontSize: '0.7rem',
+                      fontFamily: 'var(--font-mono)',
+                      padding: '0.2rem 0.5rem',
+                      borderRadius: 6,
+                      background: p.item_type === 'Membership' ? 'var(--nc-green-light)' : 'var(--cash-blue-light)',
+                      color: p.item_type === 'Membership' ? 'var(--nc-green-dark)' : 'var(--cash-blue-dark)',
+                      fontWeight: 500,
+                    }}>
+                      {p.item_type === 'Membership' ? 'MEM' : 'PHY'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.qty}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.orders}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.shipping)}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.cogs)}</td>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
+                <td colSpan={3} style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)' }}>Total</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_qty}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_orders}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_net_sales)}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_shipping)}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_cogs)}</td>
+                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_revenue)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
 
         {/* ── CHART ───────────────────────────────────────────────────────── */}
         {chartData.length > 0 && (
