@@ -7,9 +7,11 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
-  const auth = req.headers.get('authorization');
   const secret = process.env.CRON_SECRET;
-  if (!secret || auth !== `Bearer ${secret}`) {
+  const headerAuth = req.headers.get('authorization');
+  const querySecret = req.nextUrl.searchParams.get('secret');
+  const authorized = secret && (headerAuth === `Bearer ${secret}` || querySecret === secret);
+  if (!authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
