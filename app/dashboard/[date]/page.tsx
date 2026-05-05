@@ -12,6 +12,35 @@ import {
   DeltaBadge, KpiCard, MiniStat, SegmentCard, SectionLabel,
 } from '../_components/cards';
 
+// ── ads fetch (external read-only Supabase) ───────────────────────────────────
+const ADS_URL  = 'https://byobvmimvacxuwumhbyw.supabase.co';
+const ADS_KEY  = 'sb_publishable_PbK4JVIxW8ugyqQBYd11BA_-vGQKKa_';
+
+interface AdsRow {
+  report_date: string;
+  spend: number;
+  purchases: number;
+  cpa: number;
+  atcs: number;
+  link_clicks: number;
+  click_to_atc: number;
+  atc_to_purchase: number;
+}
+
+async function fetchAds(date: string): Promise<AdsRow | null> {
+  try {
+    const res = await fetch(
+      `${ADS_URL}/rest/v1/meta_ads_daily_report?report_date=eq.${date}&limit=1`,
+      { headers: { apikey: ADS_KEY, Authorization: `Bearer ${ADS_KEY}` }, next: { revalidate: 0 } },
+    );
+    if (!res.ok) return null;
+    const rows: AdsRow[] = await res.json();
+    return rows[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default async function DashboardPage({ params }: { params: { date: string } }) {
@@ -32,6 +61,8 @@ export default async function DashboardPage({ params }: { params: { date: string
     { data: prevSummary },
     { data: sparkRows },
     { data: segments },
+    { data: stripeSnap },
+    ads,
   ] = await Promise.all([
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
     supabaseAdmin.from('daily_products').select('*').eq('date', date).order('revenue', { ascending: false }),
@@ -39,6 +70,8 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov').eq('date', prevDate).single(),
     supabaseAdmin.from('daily_summary').select('date,total_revenue').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: true }),
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
+    supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
+    fetchAds(date),
   ]);
 
   if (!summary) notFound();
@@ -78,6 +111,22 @@ export default async function DashboardPage({ params }: { params: { date: string
   }));
 
   const sparkData = (sparkRows ?? []).map((r) => r.total_revenue);
+
+  // Stripe snapshot
+  type StripeSummary = {
+    direct_success_count: number;
+    direct_success_total_cents: number;
+    direct_success_unique_customers: number;
+    refunds_count: number;
+    refunds_total_cents: number;
+    failed_count: number;
+    failed_total_cents: number;
+    shopify_filtered_count: number;
+    top_failure_reasons: { reason: string; count: number }[];
+  };
+  const stripeSummary = stripeSnap
+    ? ((stripeSnap.payload as unknown as { summary: StripeSummary }).summary)
+    : null;
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
@@ -221,6 +270,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="AOV"
             value={fmtDec(summary.total_aov)}
+            delta={calcDelta(summary.total_aov, prevSummary?.phys_cash_aov)}
           />
         </div>
 
@@ -228,44 +278,44 @@ export default async function DashboardPage({ params }: { params: { date: string
         <SectionLabel>Sales Segments</SectionLabel>
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
           <SegmentCard
-            title="Physical Cash"
             theme="cash"
+            title="Cash"
             revenue={summary.phys_cash_revenue}
-            orders={summary.phys_cash_orders}
-            qty={summary.phys_cash_qty}
             netSales={summary.phys_cash_net_sales}
             shipping={summary.phys_cash_shipping}
             cogs={summary.phys_cash_cogs}
             profit={summary.phys_cash_profit}
             margin={summary.phys_cash_margin}
+            orders={summary.phys_cash_orders}
+            qty={summary.phys_cash_qty}
             aov={summary.phys_cash_aov}
-            breakdownLabel={hasSegments ? `${cashNewCount} new · ${cashRetCount} returning` : undefined}
+            breakdownLabel={`${cashNewCount} new · ${cashRetCount} returning`}
           />
           <SegmentCard
-            title="Physical Non-Cash"
             theme="noncash"
+            title="Non-Cash"
             revenue={summary.phys_non_cash_revenue}
-            orders={summary.phys_non_cash_orders}
-            qty={summary.phys_non_cash_qty}
             netSales={summary.phys_non_cash_net_sales}
             shipping={summary.phys_non_cash_shipping}
             cogs={summary.phys_non_cash_cogs}
             profit={summary.phys_non_cash_profit}
             margin={summary.phys_non_cash_margin}
+            orders={summary.phys_non_cash_orders}
+            qty={summary.phys_non_cash_qty}
             aov={summary.phys_non_cash_aov}
-            breakdownLabel={hasSegments ? `${nonCashNewCount} new · ${nonCashRetCount} returning` : undefined}
+            breakdownLabel={`${nonCashNewCount} new · ${nonCashRetCount} returning`}
           />
           <SegmentCard
-            title="Membership"
             theme="membership"
+            title="Membership"
             revenue={summary.mem_revenue}
-            orders={summary.mem_orders}
-            qty={summary.mem_qty}
             netSales={summary.mem_net_sales}
             shipping={summary.mem_shipping}
             cogs={summary.mem_cogs}
             profit={summary.mem_profit}
             margin={summary.mem_margin}
+            orders={summary.mem_orders}
+            qty={summary.mem_qty}
             aov={summary.mem_aov}
             breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
           />
@@ -354,6 +404,132 @@ export default async function DashboardPage({ params }: { params: { date: string
           </>
         )}
 
+        {/* ── STRIPE ──────────────────────────────────────────────────────── */}
+        {stripeSummary && (
+          <>
+            <SectionLabel>Stripe Payments</SectionLabel>
+            <div style={{
+              background: 'var(--surface)',
+              borderRadius: 14,
+              border: '1.5px solid #6366f1',
+              padding: '1.5rem',
+              marginBottom: '2rem',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                {/* Successful */}
+                <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #bbf7d0' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#15803d', marginBottom: '0.5rem' }}>Successful (direct)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#15803d', marginBottom: '0.25rem' }}>
+                    {fmt(stripeSummary.direct_success_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#166534' }}>
+                    {stripeSummary.direct_success_count} charges · {stripeSummary.direct_success_unique_customers} customers
+                  </div>
+                </div>
+                {/* Refunds */}
+                <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
+                    {fmt(stripeSummary.refunds_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                    {stripeSummary.refunds_count} refunds
+                  </div>
+                </div>
+                {/* Failed */}
+                <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Failed charges</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
+                    {stripeSummary.failed_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
+                    {fmt(stripeSummary.failed_total_cents / 100)} attempted
+                  </div>
+                </div>
+              </div>
+
+              {/* Top failure reasons */}
+              {stripeSummary.top_failure_reasons.length > 0 && (
+                <div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>Top Decline Reasons</div>
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                    {stripeSummary.top_failure_reasons.map(({ reason, count }) => (
+                      <div key={reason} style={{
+                        background: 'var(--surface2)',
+                        border: '1px solid var(--border)',
+                        borderRadius: 6,
+                        padding: '0.3rem 0.65rem',
+                        fontSize: '0.75rem',
+                        display: 'flex',
+                        gap: '0.4rem',
+                        alignItems: 'center',
+                      }}>
+                        <span style={{ fontWeight: 700, color: '#dc2626', fontFamily: 'var(--font-mono)' }}>{count}×</span>
+                        <span style={{ color: 'var(--fg)' }}>{reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: '1rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── META ADS ────────────────────────────────────────────────────── */}
+        {ads && (
+          <>
+            <SectionLabel>Meta Advertising</SectionLabel>
+            <div style={{
+              background: 'var(--surface)',
+              borderRadius: 14,
+              border: '1.5px solid #3b82f6',
+              padding: '1.5rem',
+              marginBottom: '2rem',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+                {[
+                  { label: 'Ad Spend',   value: fmt(ads.spend),                    accent: '#1d4ed8' },
+                  { label: 'Purchases',  value: String(ads.purchases),              accent: '#15803d' },
+                  { label: 'CPA',        value: fmtDec(ads.cpa),                   accent: '#b45309' },
+                  { label: 'Link Clicks',value: String(ads.link_clicks ?? '—'),     accent: '#6b7280' },
+                ].map(({ label, value, accent }) => (
+                  <div key={label} style={{ background: 'var(--surface2)', borderRadius: 10, padding: '0.875rem 1rem', border: '1px solid var(--border)' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, marginBottom: '0.4rem' }}>{label}</div>
+                    <div style={{ fontSize: '1.35rem', fontWeight: 700, color: accent }}>{value}</div>
+                  </div>
+                ))}
+              </div>
+              {/* Funnel metrics */}
+              <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>Funnel</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--muted)' }}>Click → ATC</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#1d4ed8' }}>
+                    {ads.click_to_atc != null ? `${(ads.click_to_atc * 100).toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+                <div style={{ color: 'var(--muted)' }}>→</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                  <span style={{ color: 'var(--muted)' }}>ATC → Purchase</span>
+                  <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#15803d' }}>
+                    {ads.atc_to_purchase != null ? `${(ads.atc_to_purchase * 100).toFixed(1)}%` : '—'}
+                  </span>
+                </div>
+                {ads.atcs != null && (
+                  <>
+                    <div style={{ color: 'var(--muted)' }}>·</div>
+                    <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{ads.atcs} ATCs</div>
+                  </>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* ── PRODUCTS TABLE ──────────────────────────────────────────────── */}
         <SectionLabel>Products</SectionLabel>
         <div style={{
@@ -371,7 +547,7 @@ export default async function DashboardPage({ params }: { params: { date: string
                     padding: '0.75rem 1rem',
                     textAlign: h === 'Product' || h === 'Variant' || h === 'Type' ? 'left' : 'right',
                     fontFamily: 'var(--font-mono)',
-                    fontSize: '0.68rem',
+                    fontSize: '0.65rem',
                     textTransform: 'uppercase',
                     letterSpacing: '0.07em',
                     color: 'var(--muted)',
@@ -382,52 +558,38 @@ export default async function DashboardPage({ params }: { params: { date: string
             </thead>
             <tbody>
               {(products ?? []).map((p, i) => (
-                <tr
-                  key={`${p.title}-${p.variant}`}
-                  style={{
-                    borderBottom: i < (products ?? []).length - 1 ? '1px solid var(--border)' : 'none',
-                    background: i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent',
-                  }}
-                >
-                  <td style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>{p.title}</td>
-                  <td style={{ padding: '0.75rem 1rem', color: 'var(--muted)' }}>{p.variant || '—'}</td>
-                  <td style={{ padding: '0.75rem 1rem' }}>
+                <tr key={p.id} style={{
+                  borderBottom: i < (products ?? []).length - 1 ? '1px solid var(--border)' : 'none',
+                  background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)',
+                }}>
+                  <td style={{ padding: '0.625rem 1rem', fontWeight: 500 }}>{p.title}</td>
+                  <td style={{ padding: '0.625rem 1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>{p.variant ?? '—'}</td>
+                  <td style={{ padding: '0.625rem 1rem' }}>
                     <span style={{
-                      fontSize: '0.7rem',
+                      fontSize: '0.65rem',
                       fontFamily: 'var(--font-mono)',
-                      padding: '0.2rem 0.5rem',
-                      borderRadius: 6,
-                      background: p.item_type === 'Membership' ? 'var(--nc-green-light)' : 'var(--cash-blue-light)',
-                      color: p.item_type === 'Membership' ? 'var(--nc-green-dark)' : 'var(--cash-blue-dark)',
-                      fontWeight: 500,
-                    }}>
-                      {p.item_type === 'Membership' ? 'MEM' : 'PHY'}
-                    </span>
+                      padding: '0.15rem 0.4rem',
+                      borderRadius: 5,
+                      background: p.item_type === 'Physical' ? '#dbeafe' : p.item_type === 'Membership' ? '#ede9fe' : '#dcfce7',
+                      color: p.item_type === 'Physical' ? '#1d4ed8' : p.item_type === 'Membership' ? '#5b21b6' : '#15803d',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.05em',
+                    }}>{p.item_type}</span>
                   </td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.qty}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.orders}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.shipping)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.cogs)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.qty}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.orders}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(p.net_sales)}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{fmtDec(p.shipping)}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{fmtDec(p.cogs)}</td>
+                  <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
                 </tr>
               ))}
             </tbody>
-            <tfoot>
-              <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
-                <td colSpan={3} style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)' }}>Total</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_qty}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{summary.total_orders}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_net_sales)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_shipping)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_cogs)}</td>
-                <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(summary.total_revenue)}</td>
-              </tr>
-            </tfoot>
           </table>
         </div>
 
-        {/* ── CHART ───────────────────────────────────────────────────────── */}
+        {/* ── REVENUE CHART ───────────────────────────────────────────────── */}
         {chartData.length > 0 && (
           <>
             <SectionLabel>Revenue by Product</SectionLabel>
@@ -447,4 +609,3 @@ export default async function DashboardPage({ params }: { params: { date: string
     </div>
   );
 }
-

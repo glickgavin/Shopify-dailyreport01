@@ -2,11 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/daily",
-      "schedule": "0 15 * * *"
+      "schedule": "15 7 * * *"
     },
     {
       "path": "/api/cron/stripe",
-      "schedule": "30 15 * * *"
+      "schedule": "30 7 * * *"
     }
   ]
 }
