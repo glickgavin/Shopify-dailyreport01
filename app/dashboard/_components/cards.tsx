@@ -147,6 +147,59 @@ export function SegmentCard({
   );
 }
 
+// ── TintCard ──────────────────────────────────────────────────────────────────
+// Themed KPI card with custom background/border/text colours.
+// delta.inverted=true → green on decrease, red on increase (for cost metrics)
+
+export function TintCard({
+  label, value, sub, bg, border, textColor, subColor, delta,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  bg: string;
+  border: string;
+  textColor: string;
+  subColor: string;
+  delta?: { pct: number | null; inverted?: boolean };
+}) {
+  let badge: React.ReactNode = null;
+  if (delta && delta.pct !== null) {
+    const up = delta.pct >= 0;
+    const good = delta.inverted ? !up : up;
+    badge = (
+      <span style={{
+        fontSize: '0.7rem',
+        fontFamily: 'var(--font-mono)',
+        fontWeight: 600,
+        color: good ? '#1D9E75' : '#e53e3e',
+        marginLeft: '0.35rem',
+        verticalAlign: 'middle',
+      }}>
+        {up ? '▲' : '▼'}{Math.abs(delta.pct).toFixed(1)}%
+      </span>
+    );
+  }
+
+  return (
+    <div style={{
+      background: bg,
+      borderRadius: 12,
+      border: `1.5px solid ${border}`,
+      padding: '14px 16px',
+      overflow: 'hidden',
+    }}>
+      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: subColor, marginBottom: '0.4rem' }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: textColor, lineHeight: 1.15 }}>
+        {value}{badge}
+      </div>
+      {sub && <div style={{ fontSize: '0.72rem', color: subColor, marginTop: '0.3rem' }}>{sub}</div>}
+    </div>
+  );
+}
+
 // ── SectionLabel ──────────────────────────────────────────────────────────────
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {

@@ -1,6 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import type { KnownBlock } from '@slack/web-api';
-import type { ProcessedDay } from '@/lib/business-rules';
+import type { ProcessedDay, DerivedKPIs } from '@/lib/business-rules';
 import type { Alert } from '@/lib/alerts';
 
 type PrevSummary = { total_revenue: number; total_orders: number; total_net_sales: number } | null;
@@ -29,6 +29,7 @@ export async function postDailySummary(
   prev: PrevSummary = null,
   alerts: Alert[] = [],
   customerMix?: CustomerMix,
+  derived?: DerivedKPIs,
 ): Promise<void> {
   const token = process.env.SLACK_BOT_TOKEN;
   const channel = process.env.SLACK_CHANNEL_ID;
@@ -69,6 +70,19 @@ export async function postDailySummary(
       text: `*📊 Daily Sales — ${dateLabel}*`,
     },
   });
+
+  if (derived) {
+    const profitStr = derived.dailyProfit < 0
+      ? `🚨 *−${fmt(Math.abs(derived.dailyProfit))}*`
+      : fmt(derived.dailyProfit);
+    blocks.push({
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `💰 Cash In: *${fmt(derived.cashIn)}*  ·  📈 Daily Profit: ${profitStr}`,
+      },
+    });
+  }
 
   blocks.push({
     type: 'section',

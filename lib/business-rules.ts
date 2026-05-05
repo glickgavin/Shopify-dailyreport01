@@ -79,6 +79,40 @@ function finalise(block: SummaryBlock, orderSet: Set<string>): SummaryBlock {
   return block;
 }
 
+export interface DerivedKPIs {
+  cashIn: number;
+  adCost: number;
+  adPurchases: number;
+  cpaAd: number | null;
+  cpaBlended: number | null;
+  dailyProfit: number;
+}
+
+export function computeDerivedKPIs(
+  processed: ProcessedDay,
+  adSpend: number | null,
+  adPurchases: number | null,
+  stripeDirectCents: number | null,
+  stripeRefundCents: number | null,
+): DerivedKPIs {
+  const stripeRevenue = (stripeDirectCents ?? 0) / 100;
+  const stripeRefunds = (stripeRefundCents ?? 0) / 100;
+
+  let cashIn = processed.physCash.revenue + processed.membership.revenue + stripeRevenue - stripeRefunds;
+  if (cashIn < 0) {
+    console.warn(`[computeDerivedKPIs] cashIn is negative (${cashIn.toFixed(2)}), clamping to 0`);
+    cashIn = 0;
+  }
+
+  const adCost  = adSpend     ?? 0;
+  const adPurch = adPurchases ?? 0;
+  const cpaAd       = adCost > 0 && adPurch > 0                  ? adCost / adPurch               : null;
+  const cpaBlended  = adCost > 0 && processed.total.orders > 0   ? adCost / processed.total.orders : null;
+  const dailyProfit = processed.total.profit - adCost;
+
+  return { cashIn, adCost, adPurchases: adPurch, cpaAd, cpaBlended, dailyProfit };
+}
+
 export function processDay(
   orderRows: OrderRow[],
   paymentRows: PaymentRow[],

@@ -2,11 +2,12 @@ import { WebClient } from '@slack/web-api';
 import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
-import { processDay } from '@/lib/business-rules';
+import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
 import { saveDay } from '@/lib/persistence';
 import { postDailySummary } from '@/lib/slack';
 import { checkAlerts } from '@/lib/alerts';
 import { supabaseAdmin } from '@/lib/supabase';
+import { fetchAds } from '@/lib/ads';
 
 export interface PipelineResult {
   date: string;
@@ -41,27 +42,55 @@ export async function runPipeline(
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });
 
-  const [{ data: prevSummary }, { data: historySummary }, { data: todaySummary }] = await Promise.all([
+  const [
+    { data: prevSummary },
+    { data: historySummary },
+    { data: todaySummary },
+    { data: stripeSnap },
+    adsData,
+  ] = await Promise.all([
     supabaseAdmin.from('daily_summary').select('total_revenue, total_orders, total_net_sales').eq('date', prevDate).single(),
     supabaseAdmin.from('daily_summary').select('*').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: false }),
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
+    supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
+    fetchAds(date),
   ]);
+
+  // Stripe snapshot summary (may be null if stripe cron hasn't run yet for this date)
+  type StripeSummary = { direct_success_total_cents: number; refunds_total_cents: number };
+  const stripeSummary = stripeSnap
+    ? (stripeSnap.payload as unknown as { summary: StripeSummary }).summary
+    : null;
+
+  const derived = computeDerivedKPIs(
+    processed,
+    adsData?.spend ?? null,
+    adsData?.purchases ?? null,
+    stripeSummary?.direct_success_total_cents ?? null,
+    stripeSummary?.refunds_total_cents        ?? null,
+  );
 
   const alerts = todaySummary ? checkAlerts(todaySummary, historySummary ?? []) : [];
   if (alerts.length > 0) {
     console.log(`[pipeline] Alerts: ${alerts.map((a) => `${a.level}:${a.rule}`).join(', ')}`);
   }
+  console.log(`[pipeline] Derived — cashIn=${derived.cashIn.toFixed(2)} adCost=${derived.adCost} dailyProfit=${derived.dailyProfit.toFixed(2)}`);
 
   if (!silent) {
-    // Hardcoded to production URL so Slack links always work, regardless of
-    // which deployment ran the pipeline (preview, branch alias, etc.)
     const appUrl = 'https://shopifydailyreport01.vercel.app';
-    await postDailySummary(processed, `${appUrl}/dashboard/${date}`, prevSummary ?? null, alerts, {
-      newOrders: processed.custNew.orders,
-      newRevenue: processed.custNew.revenue,
-      returningOrders: processed.custReturning.orders,
-      returningRevenue: processed.custReturning.revenue,
-    });
+    await postDailySummary(
+      processed,
+      `${appUrl}/dashboard/${date}`,
+      prevSummary ?? null,
+      alerts,
+      {
+        newOrders: processed.custNew.orders,
+        newRevenue: processed.custNew.revenue,
+        returningOrders: processed.custReturning.orders,
+        returningRevenue: processed.custReturning.revenue,
+      },
+      derived,
+    );
     console.log(`[pipeline] Slack posted`);
   }
 

@@ -5,41 +5,13 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 import { addDays, subDays, parseISO, isValid, format } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
+import { fetchAds } from '@/lib/ads';
+import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
-import Sparkline from '../_components/Sparkline';
 import {
   fmt, fmtDec, fmtPct, calcDelta,
-  DeltaBadge, KpiCard, MiniStat, SegmentCard, SectionLabel,
+  KpiCard, SegmentCard, SectionLabel, TintCard,
 } from '../_components/cards';
-
-// ── ads fetch (external read-only Supabase) ───────────────────────────────────
-const ADS_URL  = 'https://byobvmimvacxuwumhbyw.supabase.co';
-const ADS_KEY  = 'sb_publishable_PbK4JVIxW8ugyqQBYd11BA_-vGQKKa_';
-
-interface AdsRow {
-  report_date: string;
-  spend: number;
-  purchases: number;
-  cpa: number;
-  atcs: number;
-  link_clicks: number;
-  click_to_atc: number;
-  atc_to_purchase: number;
-}
-
-async function fetchAds(date: string): Promise<AdsRow | null> {
-  try {
-    const res = await fetch(
-      `${ADS_URL}/rest/v1/meta_ads_daily_report?report_date=eq.${date}&limit=1`,
-      { headers: { apikey: ADS_KEY, Authorization: `Bearer ${ADS_KEY}` }, next: { revalidate: 0 } },
-    );
-    if (!res.ok) return null;
-    const rows: AdsRow[] = await res.json();
-    return rows[0] ?? null;
-  } catch {
-    return null;
-  }
-}
 
 // ── page ─────────────────────────────────────────────────────────────────────
 
@@ -62,16 +34,20 @@ export default async function DashboardPage({ params }: { params: { date: string
     { data: sparkRows },
     { data: segments },
     { data: stripeSnap },
+    { data: prevStripeSnap },
     ads,
+    prevAds,
   ] = await Promise.all([
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
     supabaseAdmin.from('daily_products').select('*').eq('date', date).order('revenue', { ascending: false }),
     supabaseAdmin.from('daily_membership_orders').select('*').eq('date', date).order('order_name'),
-    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov').eq('date', prevDate).single(),
+    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov,total_profit,phys_cash_revenue,mem_revenue').eq('date', prevDate).single(),
     supabaseAdmin.from('daily_summary').select('date,total_revenue').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: true }),
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
+    supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', prevDate).single(),
     fetchAds(date),
+    fetchAds(prevDate),
   ]);
 
   if (!summary) notFound();
@@ -112,7 +88,7 @@ export default async function DashboardPage({ params }: { params: { date: string
 
   const sparkData = (sparkRows ?? []).map((r) => r.total_revenue);
 
-  // Stripe snapshot
+  // Stripe snapshot helpers
   type StripeSummary = {
     direct_success_count: number;
     direct_success_total_cents: number;
@@ -126,6 +102,44 @@ export default async function DashboardPage({ params }: { params: { date: string
   };
   const stripeSummary = stripeSnap
     ? ((stripeSnap.payload as unknown as { summary: StripeSummary }).summary)
+    : null;
+  const prevStripeSummary = prevStripeSnap
+    ? ((prevStripeSnap.payload as unknown as { summary: StripeSummary }).summary)
+    : null;
+
+  // Derived KPIs — computed from Shopify summary + Stripe + Ads
+  // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
+  const summaryAsProcessed = {
+    total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
+    physCash:   { revenue: summary.phys_cash_revenue  },
+    membership: { revenue: summary.mem_revenue        },
+  } as Parameters<typeof computeDerivedKPIs>[0];
+
+  const derived = computeDerivedKPIs(
+    summaryAsProcessed,
+    ads?.spend ?? null,
+    ads?.purchases ?? null,
+    stripeSummary?.direct_success_total_cents ?? null,
+    stripeSummary?.refunds_total_cents        ?? null,
+  );
+
+  const prevDerived = prevSummary ? computeDerivedKPIs(
+    {
+      total:      { revenue: prevSummary.total_revenue, profit: prevSummary.total_profit ?? 0, orders: prevSummary.total_orders ?? 0 },
+      physCash:   { revenue: prevSummary.phys_cash_revenue ?? 0 },
+      membership: { revenue: prevSummary.mem_revenue       ?? 0 },
+    } as Parameters<typeof computeDerivedKPIs>[0],
+    prevAds?.spend    ?? null,
+    prevAds?.purchases ?? null,
+    prevStripeSummary?.direct_success_total_cents ?? null,
+    prevStripeSummary?.refunds_total_cents        ?? null,
+  ) : null;
+
+  const cpaDelta = derived.cpaAd !== null && prevDerived?.cpaAd != null
+    ? calcDelta(derived.cpaAd, prevDerived.cpaAd)
+    : null;
+  const cpaBlendedDelta = derived.cpaBlended !== null && prevDerived?.cpaBlended != null
+    ? calcDelta(derived.cpaBlended, prevDerived.cpaBlended)
     : null;
 
   return (
@@ -245,11 +259,12 @@ export default async function DashboardPage({ params }: { params: { date: string
 
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
         <SectionLabel>Total Business</SectionLabel>
+
+        {/* Row 1 */}
         <div style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: '1rem',
-          marginBottom: '2rem',
+          gap: 10,
         }}>
           <KpiCard
             label="Total Revenue"
@@ -271,6 +286,57 @@ export default async function DashboardPage({ params }: { params: { date: string
             label="AOV"
             value={fmtDec(summary.total_aov)}
             delta={calcDelta(summary.total_aov, prevSummary?.phys_cash_aov)}
+          />
+        </div>
+
+        {/* Row 2 */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(5, 1fr)',
+          gap: 10,
+          marginTop: 10,
+          marginBottom: '2rem',
+        }}>
+          {/* Cash In */}
+          <TintCard
+            label="Cash In"
+            value={fmt(derived.cashIn)}
+            sub="Shopify + Members + Stripe"
+            bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
+          />
+          {/* Ad Cost */}
+          <TintCard
+            label="Ad Cost"
+            value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
+            sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
+            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+          />
+          {/* CPA — Ad */}
+          <TintCard
+            label="CPA — Ad"
+            value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
+            sub="attributed orders"
+            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            delta={derived.cpaAd !== null ? { pct: cpaDelta, inverted: true } : undefined}
+          />
+          {/* CPA — Blended */}
+          <TintCard
+            label="CPA — Blended"
+            value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
+            sub={`all ${summary.total_orders} orders`}
+            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            delta={derived.cpaBlended !== null ? { pct: cpaBlendedDelta, inverted: true } : undefined}
+          />
+          {/* Daily Profit */}
+          <TintCard
+            label="Daily Profit"
+            value={derived.dailyProfit < 0
+              ? `−${fmt(Math.abs(derived.dailyProfit))}`
+              : fmt(derived.dailyProfit)}
+            sub="GP − ad spend"
+            bg="#EEEDFE" border="#AFA9EC"
+            textColor={derived.dailyProfit < 0 ? '#A32D2D' : '#26215C'}
+            subColor="#3C3489"
           />
         </div>
 
