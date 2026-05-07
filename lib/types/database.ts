@@ -330,6 +330,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      analytics_event_categories: {
+        Row: { id: number; name: string; color: string | null; icon: string | null; created_at: string };
+        Insert: { id?: number; name: string; color?: string | null; icon?: string | null; created_at?: string };
+        Update: { id?: number; name?: string; color?: string | null; icon?: string | null; created_at?: string };
+        Relationships: [];
+      };
+      analytics_event_definitions: {
+        Row: { id: number; event_type: string; display_name: string; description: string | null; category_id: number | null; is_conversion: boolean; is_purchase: boolean; revenue_property: string | null; created_at: string; updated_at: string };
+        Insert: { id?: number; event_type: string; display_name: string; description?: string | null; category_id?: number | null; is_conversion?: boolean; is_purchase?: boolean; revenue_property?: string | null; created_at?: string; updated_at?: string };
+        Update: { id?: number; event_type?: string; display_name?: string; description?: string | null; category_id?: number | null; is_conversion?: boolean; is_purchase?: boolean; revenue_property?: string | null; updated_at?: string };
+        Relationships: [];
+      };
+      analytics_event_aliases: {
+        Row: { id: number; alias: string; definition_id: number; created_at: string };
+        Insert: { id?: number; alias: string; definition_id: number; created_at?: string };
+        Update: { id?: number; alias?: string; definition_id?: number };
+        Relationships: [];
+      };
+      analytics_path_definitions: {
+        Row: { id: number; path_pattern: string; canonical_name: string; description: string | null; created_at: string; updated_at: string };
+        Insert: { id?: number; path_pattern: string; canonical_name: string; description?: string | null; created_at?: string; updated_at?: string };
+        Update: { id?: number; path_pattern?: string; canonical_name?: string; description?: string | null; updated_at?: string };
+        Relationships: [];
+      };
+      analytics_path_observations: {
+        Row: { id: number; raw_path: string; definition_id: number | null; first_seen_at: string; last_seen_at: string; hit_count: number };
+        Insert: { id?: number; raw_path: string; definition_id?: number | null; first_seen_at?: string; last_seen_at?: string; hit_count?: number };
+        Update: { id?: number; raw_path?: string; definition_id?: number | null; last_seen_at?: string; hit_count?: number };
+        Relationships: [];
+      };
+      analytics_property_definitions: {
+        Row: { id: number; property_key: string; display_name: string; description: string | null; data_type: string; created_at: string; updated_at: string };
+        Insert: { id?: number; property_key: string; display_name: string; description?: string | null; data_type?: string; created_at?: string; updated_at?: string };
+        Update: { id?: number; property_key?: string; display_name?: string; description?: string | null; data_type?: string; updated_at?: string };
+        Relationships: [];
+      };
+      analytics_property_aliases: {
+        Row: { id: number; alias_key: string; definition_id: number; created_at: string };
+        Insert: { id?: number; alias_key: string; definition_id: number; created_at?: string };
+        Update: { id?: number; alias_key?: string; definition_id?: number };
+        Relationships: [];
+      };
+      analytics_funnels: {
+        Row: { id: number; name: string; description: string | null; steps: Json; created_at: string; updated_at: string };
+        Insert: { id?: number; name: string; description?: string | null; steps?: Json; created_at?: string; updated_at?: string };
+        Update: { id?: number; name?: string; description?: string | null; steps?: Json; updated_at?: string };
+        Relationships: [];
+      };
+      analytics_behaviors: {
+        Row: { id: number; name: string; description: string | null; predicates: Json; created_at: string; updated_at: string };
+        Insert: { id?: number; name: string; description?: string | null; predicates?: Json; created_at?: string; updated_at?: string };
+        Update: { id?: number; name?: string; description?: string | null; predicates?: Json; updated_at?: string };
+        Relationships: [];
+      };
     };
     Views: {
       [_ in never]: never;
