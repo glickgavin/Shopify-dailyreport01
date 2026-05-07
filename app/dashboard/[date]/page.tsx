@@ -329,7 +329,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           />
           {/* Daily Profit */}
           <TintCard
-            label="Daily Profit"
+            label="GP − Ads"
             value={derived.dailyProfit < 0
               ? `−${fmt(Math.abs(derived.dailyProfit))}`
               : fmt(derived.dailyProfit)}

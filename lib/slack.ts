@@ -79,9 +79,20 @@ export async function postDailySummary(
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `💰 Cash In: *${fmt(derived.cashIn)}*  ·  📈 Daily Profit: ${profitStr}`,
+        text: `💰 Cash In: *${fmt(derived.cashIn)}*  ·  📈 GP − Ads: ${profitStr}`,
       },
     });
+    if (derived.adCost > 0) {
+      const cpaAdStr      = derived.cpaAd      !== null ? `$${derived.cpaAd.toFixed(2)}`      : '—';
+      const cpaBlendedStr = derived.cpaBlended !== null ? `$${derived.cpaBlended.toFixed(2)}` : '—';
+      blocks.push({
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `📣 Ad Spend: *${fmt(derived.adCost)}*  ·  CPA Ad: ${cpaAdStr}  ·  CPA Blended: ${cpaBlendedStr} (${derived.adPurchases} attr. / ${total.orders} total orders)`,
+        },
+      });
+    }
   }
 
   blocks.push({
