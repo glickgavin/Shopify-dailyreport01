@@ -101,7 +101,7 @@ export default async function EventExplorerPage({ searchParams }: Props) {
         <table style={{ width: '100%', fontSize: '0.82rem', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Time', 'Event Type', 'Page Path', 'Device', 'Session'].map(h => (
+              {['Time', 'Event Name', 'Category', 'Page Path', 'Device', 'Session'].map(h => (
                 <th key={h} style={{ padding: '0.75rem 1rem', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
               ))}
             </tr>
@@ -113,7 +113,12 @@ export default async function EventExplorerPage({ searchParams }: Props) {
                   {e.created_at ? new Date(e.created_at).toLocaleString() : '—'}
                 </td>
                 <td style={{ padding: '0.6rem 1rem', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{e.event_type}</td>
-                <td style={{ padding: '0.6rem 1rem', color: 'var(--muted)', maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.page_path ?? '—'}</td>
+                <td style={{ padding: '0.6rem 1rem' }}>
+                  {e.event_category ? (
+                    <span style={{ padding: '0.15rem 0.5rem', borderRadius: 4, background: '#e2e8f0', fontSize: '0.75rem', fontWeight: 500 }}>{e.event_category}</span>
+                  ) : '—'}
+                </td>
+                <td style={{ padding: '0.6rem 1rem', color: 'var(--muted)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.page_path ?? '—'}</td>
                 <td style={{ padding: '0.6rem 1rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{e.device_type ?? '—'}</td>
                 <td style={{ padding: '0.6rem 1rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.session_id ?? '—'}</td>
               </tr>
