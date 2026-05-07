@@ -99,7 +99,7 @@ export async function fetchEventsDirect(opts: FetchOptions = {}): Promise<Analyt
   if (opts.sessionId) params.set('session_id', opts.sessionId);
 
   const res = await fetch(`${API_URL}?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
+    headers: { 'x-api-key': API_KEY },
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`Analytics direct fetch failed: ${res.status}`);

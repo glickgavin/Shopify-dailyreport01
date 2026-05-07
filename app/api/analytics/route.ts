@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   const res = await fetch(upstream.toString(), {
-    headers: { Authorization: `Bearer ${API_KEY}` },
+    headers: { 'x-api-key': API_KEY },
     next: { revalidate: 0 },
   });
 
