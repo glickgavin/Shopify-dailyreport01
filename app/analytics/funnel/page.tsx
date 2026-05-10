@@ -45,6 +45,8 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
     .select('id,name,description,steps')
     .order('created_at', { ascending: false });
 
+  console.log('[funnel] supabase_url=', process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 40), 'rows=', savedFunnels?.length, 'error=', funnelsError?.message);
+
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
   const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? activeFunnel.steps as FunnelStep[] : [];
@@ -98,10 +100,13 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
             <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</div>
             {funnelsError ? (
               <p style={{ padding: '1rem', color: '#991b1b', fontSize: '0.75rem', wordBreak: 'break-all' }}>
-                DB error: {funnelsError.message}
+                DB error: {funnelsError.message}<br/>URL: {process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 50)}
               </p>
             ) : funnels.length === 0 ? (
-              <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>None yet. Create one below.</p>
+              <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>
+                None yet. Create one below.<br/>
+                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>DB: {process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(8, 28)}</span>
+              </p>
             ) : (
               funnels.map(f => (
                 <a
