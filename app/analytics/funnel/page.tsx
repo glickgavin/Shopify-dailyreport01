@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { resolveDateRange } from '@/lib/analytics/dateRange';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin, supabase } from '@/lib/supabase';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
 import FunnelEditor from './FunnelEditor';
@@ -45,10 +45,18 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
     .select('id,name,description,steps')
     .order('created_at', { ascending: false });
 
+  // DEBUG: also try with anon client
+  const { data: anonFunnels, error: anonErr } = await supabase
+    .from('analytics_funnels')
+    .select('id')
+    .limit(5);
+
   const dbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '(not set)';
   const dbRows = savedFunnels?.length ?? 'null';
   const dbErr = funnelsError?.message ?? 'none';
-  console.error('[funnel-debug] url=' + dbUrl + ' rows=' + dbRows + ' err=' + dbErr);
+  const anonRows = anonFunnels?.length ?? 'null';
+  const anonErrMsg = anonErr?.message ?? 'none';
+  console.error('[funnel-debug] url=' + dbUrl + ' adminRows=' + dbRows + ' adminErr=' + dbErr + ' anonRows=' + anonRows + ' anonErr=' + anonErrMsg);
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
@@ -98,7 +106,9 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
 
       {/* DEBUG BANNER — remove once funnels load correctly */}
       <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '0.6rem 1rem', marginTop: '1rem', fontSize: '0.75rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-        DB: {dbUrl} | rows: {String(dbRows)} | err: {dbErr}
+        DB: {dbUrl}<br/>
+        admin rows: {String(dbRows)} | admin err: {dbErr}<br/>
+        anon rows: {String(anonRows)} | anon err: {anonErrMsg}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, marginTop: '1.5rem' }}>
