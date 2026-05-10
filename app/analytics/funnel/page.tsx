@@ -45,7 +45,10 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
     .select('id,name,description,steps')
     .order('created_at', { ascending: false });
 
-  console.log('[funnel] supabase_url=', process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 40), 'rows=', savedFunnels?.length, 'error=', funnelsError?.message);
+  const dbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '(not set)';
+  const dbRows = savedFunnels?.length ?? 'null';
+  const dbErr = funnelsError?.message ?? 'none';
+  console.error('[funnel-debug] url=' + dbUrl + ' rows=' + dbRows + ' err=' + dbErr);
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
@@ -92,6 +95,11 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
       {error && (
         <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '0.75rem 1rem', marginTop: '1rem', color: '#991b1b', fontSize: '0.85rem' }}>{error}</div>
       )}
+
+      {/* DEBUG BANNER — remove once funnels load correctly */}
+      <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '0.6rem 1rem', marginTop: '1rem', fontSize: '0.75rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+        DB: {dbUrl} | rows: {String(dbRows)} | err: {dbErr}
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, marginTop: '1.5rem' }}>
         {/* Saved funnels */}
