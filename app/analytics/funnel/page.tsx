@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { resolveDateRange } from '@/lib/analytics/dateRange';
-import { supabaseAdmin, supabase } from '@/lib/supabase';
+import { supabaseAdmin } from '@/lib/supabase';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
 import FunnelEditor from './FunnelEditor';
@@ -39,30 +39,15 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const { startDate, endDate, preset, label } = resolveDateRange(sp.preset, sp.from, sp.to);
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
 
-  // Load saved funnels
   const { data: savedFunnels, error: funnelsError } = await supabaseAdmin
     .from('analytics_funnels')
     .select('id,name,description,steps')
     .order('created_at', { ascending: false });
 
-  // DEBUG: also try with anon client
-  const { data: anonFunnels, error: anonErr } = await supabase
-    .from('analytics_funnels')
-    .select('id')
-    .limit(5);
-
-  const dbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '(not set)';
-  const dbRows = savedFunnels?.length ?? 'null';
-  const dbErr = funnelsError?.message ?? 'none';
-  const anonRows = anonFunnels?.length ?? 'null';
-  const anonErrMsg = anonErr?.message ?? 'none';
-  console.error('[funnel-debug] url=' + dbUrl + ' adminRows=' + dbRows + ' adminErr=' + dbErr + ' anonRows=' + anonRows + ' anonErr=' + anonErrMsg);
-
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
   const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? activeFunnel.steps as FunnelStep[] : [];
 
-  // Convert funnel steps to predicate objects for the Postgres function
   const predicates = steps.map(s => ({ kind: 'event_type', op: 'is', value: s.event_type }));
 
   let funnelRows: FunnelRpcRow[] = [];
@@ -104,26 +89,17 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '0.75rem 1rem', marginTop: '1rem', color: '#991b1b', fontSize: '0.85rem' }}>{error}</div>
       )}
 
-      {/* DEBUG BANNER — remove once funnels load correctly */}
-      <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 8, padding: '0.6rem 1rem', marginTop: '1rem', fontSize: '0.75rem', fontFamily: 'monospace', wordBreak: 'break-all' }}>
-        DB: {dbUrl}<br/>
-        admin rows: {String(dbRows)} | admin err: {dbErr}<br/>
-        anon rows: {String(anonRows)} | anon err: {anonErrMsg}
-      </div>
-
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, marginTop: '1.5rem' }}>
-        {/* Saved funnels */}
         <div>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</div>
             {funnelsError ? (
               <p style={{ padding: '1rem', color: '#991b1b', fontSize: '0.75rem', wordBreak: 'break-all' }}>
-                DB error: {funnelsError.message}<br/>URL: {process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 50)}
+                Error loading funnels: {funnelsError.message}
               </p>
             ) : funnels.length === 0 ? (
               <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>
-                None yet. Create one below.<br/>
-                <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>DB: {process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(8, 28)}</span>
+                None yet. Create one below.
               </p>
             ) : (
               funnels.map(f => (
@@ -150,7 +126,6 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
           </div>
         </div>
 
-        {/* Funnel visualization */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '1.5rem' }}>
           {!activeFunnel ? (
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Select or create a funnel to see results.</p>
