@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { runForwardSync } from '@/app/api/cron/analytics-sync/route';
+import { runForwardSync } from '@/lib/analytics/forward-sync';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;

@@ -2,6 +2,7 @@ export interface AnalyticsEvent {
   id?: string | number;
   event_type: string;
   event_name?: string;
+  event_category?: string | null;
   page_path?: string;
   page_url?: string;
   session_id?: string;
