@@ -26,6 +26,19 @@ export async function fetchAds(date: string): Promise<AdsRow | null> {
   }
 }
 
+export async function fetchAdsRangeRaw(startDate: string, endDate: string): Promise<AdsRow[]> {
+  try {
+    const res = await fetch(
+      `${ADS_URL}/rest/v1/meta_ads_daily_report?report_date=gte.${startDate}&report_date=lte.${endDate}&order=report_date`,
+      { headers: { apikey: ADS_KEY, Authorization: `Bearer ${ADS_KEY}` }, cache: 'no-store' },
+    );
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
 export async function fetchAdsRange(startDate: string, endDate: string): Promise<AdsRow | null> {
   try {
     const res = await fetch(
