@@ -1,30 +1,76 @@
 'use client';
 import { useState, useTransition } from 'react';
 import { saveFunnel, deleteFunnel } from './actions';
+import type { Predicate, PredicateKind, PredicateOp } from '@/lib/analytics/predicates';
+import type { FunnelStep, AvailableDefinition } from './page';
 
-interface Step { event_type: string; label?: string }
+const KINDS: PredicateKind[] = ['event_type', 'page_path', 'device_type', 'property'];
+const OPS: PredicateOp[] = ['is', 'is_not', 'contains', 'not_contains', 'exists', 'not_exists'];
 
 interface Props {
-  currentSteps: Step[];
+  currentSteps: FunnelStep[];
   funnelId?: number;
   funnelName?: string;
+  availableDefinitions: AvailableDefinition[];
 }
 
-export default function FunnelEditor({ currentSteps, funnelId, funnelName }: Props) {
+const inputStyle = {
+  padding: '0.35rem 0.5rem', borderRadius: 6,
+  border: '1px solid var(--border)', background: 'var(--surface)',
+  color: 'var(--text)', fontSize: '0.82rem', fontFamily: 'inherit',
+  boxSizing: 'border-box' as const,
+};
+
+const selStyle = {
+  padding: '0.3rem 0.5rem', borderRadius: 6, border: '1px solid var(--border)',
+  background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem', fontFamily: 'inherit',
+};
+
+const needsValue = (op: PredicateOp) => op !== 'exists' && op !== 'not_exists';
+
+function emptyStep(): FunnelStep {
+  return { label: '', predicates: [{ kind: 'event_type', op: 'is', value: '' }] };
+}
+
+export default function FunnelEditor({ currentSteps, funnelId, funnelName, availableDefinitions }: Props) {
   const [name, setName] = useState(funnelName ?? '');
-  const [steps, setSteps] = useState<Step[]>(currentSteps.length ? currentSteps : [{ event_type: '' }]);
+  const [steps, setSteps] = useState<FunnelStep[]>(currentSteps.length ? currentSteps : [emptyStep()]);
   const [isPending, startTransition] = useTransition();
   const [msg, setMsg] = useState('');
 
-  const addStep = () => setSteps(s => [...s, { event_type: '' }]);
-  const removeStep = (i: number) => setSteps(s => s.filter((_, idx) => idx !== i));
-  const updateStep = (i: number, key: keyof Step, value: string) =>
-    setSteps(s => s.map((step, idx) => idx === i ? { ...step, [key]: value } : step));
+  const updateStepLabel = (i: number, val: string) =>
+    setSteps(ss => ss.map((s, idx) => idx === i ? { ...s, label: val } : s));
+
+  const updatePredicate = (si: number, pi: number, patch: Partial<Predicate>) =>
+    setSteps(ss => ss.map((s, idx) =>
+      idx === si ? { ...s, predicates: s.predicates.map((p, pidx) => pidx === pi ? { ...p, ...patch } : p) } : s
+    ));
+
+  const addPredicate = (si: number) =>
+    setSteps(ss => ss.map((s, idx) =>
+      idx === si ? { ...s, predicates: [...s.predicates, { kind: 'event_type', op: 'is', value: '' }] } : s
+    ));
+
+  const removePredicate = (si: number, pi: number) =>
+    setSteps(ss => ss.map((s, idx) =>
+      idx === si ? { ...s, predicates: s.predicates.filter((_, pidx) => pidx !== pi) } : s
+    ));
+
+  const addStep = () => setSteps(ss => [...ss, emptyStep()]);
+  const removeStep = (i: number) => setSteps(ss => ss.filter((_, idx) => idx !== i));
+
+  const applyDefinition = (si: number, defLabel: string) => {
+    const def = availableDefinitions.find(d => d.label === defLabel);
+    if (!def) return;
+    setSteps(ss => ss.map((s, idx) =>
+      idx === si ? { label: def.label, predicates: def.predicates.map(p => ({ ...p })) } : s
+    ));
+  };
 
   const handleSave = () => {
     if (!name.trim()) { setMsg('Name required'); return; }
-    const validSteps = steps.filter(s => s.event_type.trim());
-    if (!validSteps.length) { setMsg('At least one step required'); return; }
+    const validSteps = steps.filter(s => s.predicates.some(p => (p.value ?? '').trim() || p.op === 'exists' || p.op === 'not_exists'));
+    if (!validSteps.length) { setMsg('At least one step with a condition required'); return; }
     startTransition(async () => {
       const result = await saveFunnel({ id: funnelId, name, steps: validSteps });
       setMsg(result.error ?? 'Saved!');
@@ -40,13 +86,6 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName }: Pro
     });
   };
 
-  const inputStyle = {
-    width: '100%', padding: '0.35rem 0.5rem', borderRadius: 6,
-    border: '1px solid var(--border)', background: 'var(--surface)',
-    color: 'var(--text)', fontSize: '0.82rem', fontFamily: 'inherit',
-    boxSizing: 'border-box' as const,
-  };
-
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem' }}>
       <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.75rem' }}>
@@ -56,23 +95,77 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName }: Pro
         value={name}
         onChange={e => setName(e.target.value)}
         placeholder="Funnel name"
-        style={{ ...inputStyle, marginBottom: 8 }}
+        style={{ ...inputStyle, width: '100%', marginBottom: 10 }}
       />
-      {steps.map((step, i) => (
-        <div key={i} style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
-          <span style={{ fontSize: '0.75rem', color: 'var(--muted)', padding: '0.4rem 0', minWidth: 16 }}>{i + 1}.</span>
-          <input
-            value={step.event_type}
-            onChange={e => updateStep(i, 'event_type', e.target.value)}
-            placeholder="event_type"
-            style={{ ...inputStyle, fontFamily: 'var(--font-mono)' }}
-          />
+
+      {steps.map((step, si) => (
+        <div key={si} style={{ marginBottom: 10, border: '1px solid var(--border)', borderRadius: 8, padding: '0.6rem 0.75rem', background: 'var(--background)' }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 6 }}>
+            <span style={{ fontSize: '0.72rem', color: 'var(--muted)', minWidth: 16, fontWeight: 600 }}>{si + 1}.</span>
+            <input
+              value={step.label}
+              onChange={e => updateStepLabel(si, e.target.value)}
+              placeholder="Step label"
+              style={{ ...inputStyle, flex: 1 }}
+            />
+            {availableDefinitions.length > 0 && (
+              <select
+                value=""
+                onChange={e => { if (e.target.value) applyDefinition(si, e.target.value); }}
+                style={{ ...selStyle, maxWidth: 120 }}
+                title="Pick an event definition to auto-fill"
+              >
+                <option value="">Pick event…</option>
+                {availableDefinitions.map(d => (
+                  <option key={d.label} value={d.label}>{d.label}</option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={() => removeStep(si)}
+              style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.9rem', padding: '0 0.2rem' }}
+            >×</button>
+          </div>
+
+          {/* Predicates */}
+          {step.predicates.map((p, pi) => (
+            <div key={pi} style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 20 }}>
+              <select value={p.kind} onChange={e => updatePredicate(si, pi, { kind: e.target.value as PredicateKind })} style={selStyle}>
+                {KINDS.map(k => <option key={k} value={k}>{k}</option>)}
+              </select>
+              {p.kind === 'property' && (
+                <input
+                  value={p.key ?? ''}
+                  onChange={e => updatePredicate(si, pi, { key: e.target.value })}
+                  placeholder="prop key"
+                  style={{ width: 72, padding: '0.3rem 0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem' }}
+                />
+              )}
+              <select value={p.op} onChange={e => updatePredicate(si, pi, { op: e.target.value as PredicateOp })} style={selStyle}>
+                {OPS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              {needsValue(p.op) && (
+                <input
+                  value={p.value ?? ''}
+                  onChange={e => updatePredicate(si, pi, { value: e.target.value })}
+                  placeholder="value"
+                  style={{ flex: 1, minWidth: 60, padding: '0.3rem 0.4rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: '0.78rem' }}
+                />
+              )}
+              {step.predicates.length > 1 && (
+                <button onClick={() => removePredicate(si, pi)} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.9rem' }}>×</button>
+              )}
+            </div>
+          ))}
           <button
-            onClick={() => removeStep(i)}
-            style={{ padding: '0 0.4rem', background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '0.9rem' }}
-          >×</button>
+            onClick={() => addPredicate(si)}
+            style={{ fontSize: '0.72rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.1rem 0 0 20px' }}
+          >
+            + AND condition
+          </button>
         </div>
       ))}
+
       <button
         onClick={addStep}
         style={{ fontSize: '0.78rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.25rem 0', marginBottom: 8 }}

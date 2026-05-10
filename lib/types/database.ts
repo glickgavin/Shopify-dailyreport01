@@ -104,6 +104,7 @@ export type Database = {
           id: number
           is_conversion: boolean
           is_purchase: boolean
+          predicates: Json
           revenue_property: string | null
           updated_at: string
         }
@@ -116,6 +117,7 @@ export type Database = {
           id?: number
           is_conversion?: boolean
           is_purchase?: boolean
+          predicates?: Json
           revenue_property?: string | null
           updated_at?: string
         }
@@ -128,6 +130,7 @@ export type Database = {
           id?: number
           is_conversion?: boolean
           is_purchase?: boolean
+          predicates?: Json
           revenue_property?: string | null
           updated_at?: string
         }

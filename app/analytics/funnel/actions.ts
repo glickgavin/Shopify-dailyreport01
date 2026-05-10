@@ -1,12 +1,11 @@
 'use server';
 import { revalidateTag } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
-
-interface Step { event_type: string; label?: string }
+import type { FunnelStep } from './page';
 
 export async function saveFunnel({
   id, name, steps,
-}: { id?: number; name: string; steps: Step[] }): Promise<{ error?: string }> {
+}: { id?: number; name: string; steps: FunnelStep[] }): Promise<{ error?: string }> {
   if (id) {
     const { error } = await supabaseAdmin
       .from('analytics_funnels')

@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { unstable_cache } from 'next/cache';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
+import type { Predicate } from '@/lib/analytics/predicates';
 import FunnelEditor from './FunnelEditor';
 
 interface Props {
@@ -15,9 +16,9 @@ interface Props {
   }>;
 }
 
-interface FunnelStep {
-  event_type: string;
-  label?: string;
+export interface FunnelStep {
+  label: string;
+  predicates: Predicate[];
 }
 
 interface FunnelRow {
@@ -35,6 +36,11 @@ interface FunnelRpcRow {
   conversion_from_start: number | null;
 }
 
+export interface AvailableDefinition {
+  label: string;
+  predicates: Predicate[];
+}
+
 const getFunnels = unstable_cache(
   async () => supabaseAdmin
     .from('analytics_funnels')
@@ -44,26 +50,72 @@ const getFunnels = unstable_cache(
   { revalidate: 60, tags: ['analytics_funnels_list'] },
 );
 
+function normalizeSteps(raw: unknown[]): FunnelStep[] {
+  return raw.map(s => {
+    const step = s as Record<string, unknown>;
+    if ('predicates' in step && Array.isArray(step.predicates)) {
+      return { label: (step.label as string) ?? '', predicates: step.predicates as Predicate[] };
+    }
+    // backward-compat: old format { event_type, label? }
+    const et = (step.event_type as string) ?? '';
+    return {
+      label: (step.label as string) ?? et,
+      predicates: [{ kind: 'event_type' as const, op: 'is' as const, value: et }],
+    };
+  });
+}
+
 export default async function FunnelBuilderPage({ searchParams }: Props) {
   const sp = await searchParams;
   const { startDate, endDate, preset, label } = resolveDateRange(sp.preset, sp.from, sp.to);
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
 
-  const { data: savedFunnels, error: funnelsError } = await getFunnels();
+  const [{ data: savedFunnels, error: funnelsError }, { data: eventDefs }] = await Promise.all([
+    getFunnels(),
+    supabaseAdmin
+      .from('analytics_event_definitions')
+      .select('event_type,display_name,predicates')
+      .order('display_name'),
+  ]);
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
-  const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? activeFunnel.steps as FunnelStep[] : [];
+  const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? normalizeSteps(activeFunnel.steps as unknown[]) : [];
 
-  const predicates = steps.map(s => ({ kind: 'event_type', op: 'is', value: s.event_type }));
+  // Build available definitions for the step picker
+  const configuredDefs: AvailableDefinition[] = (eventDefs ?? []).map(d => ({
+    label: d.display_name,
+    predicates: Array.isArray(d.predicates) && (d.predicates as unknown[]).length > 0
+      ? d.predicates as unknown as Predicate[]
+      : [{ kind: 'event_type' as const, op: 'is' as const, value: d.event_type }],
+  }));
+
+  // Distinct raw event names from mirror (last 90 days), excluding already-configured ones
+  const cutoff = new Date(Date.now() - 90 * 86400_000).toISOString();
+  const { data: mirrorNames } = await supabaseAdmin
+    .from('analytics_events_mirror')
+    .select('event_name')
+    .gte('created_at', cutoff);
+
+  const configuredEventTypes = new Set((eventDefs ?? []).map(d => d.event_type));
+  const rawNames = Array.from(new Set((mirrorNames ?? []).map((r: { event_name: string }) => r.event_name)))
+    .filter(n => !configuredEventTypes.has(n))
+    .sort();
+
+  const rawDefs: AvailableDefinition[] = rawNames.map(n => ({
+    label: n,
+    predicates: [{ kind: 'event_type' as const, op: 'is' as const, value: n }],
+  }));
+
+  const availableDefinitions: AvailableDefinition[] = [...configuredDefs, ...rawDefs];
 
   let funnelRows: FunnelRpcRow[] = [];
   let error: string | null = null;
 
-  if (predicates.length > 0) {
+  if (steps.length > 0) {
     try {
       const { data, error: rpcErr } = await supabaseAdmin.rpc('analytics_funnel', {
-        p_steps: predicates,
+        p_steps: steps as unknown as import('@/lib/types/database').Json,
         p_from: startDate + 'T00:00:00.000Z',
         p_to: endDate + 'T23:59:59.999Z',
         p_window_hours: 24,
@@ -132,7 +184,12 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
           </div>
 
           <div style={{ marginTop: 12 }}>
-            <FunnelEditor currentSteps={steps} funnelId={activeFunnel?.id} funnelName={activeFunnel?.name} />
+            <FunnelEditor
+              currentSteps={steps}
+              funnelId={activeFunnel?.id}
+              funnelName={activeFunnel?.name}
+              availableDefinitions={availableDefinitions}
+            />
           </div>
         </div>
 
@@ -152,7 +209,7 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
                         <span style={{ color: 'var(--muted)', marginRight: 6 }}>{i + 1}.</span>
-                        {step?.label ?? step?.event_type ?? row.step_label}
+                        {step?.label || row.step_label}
                       </span>
                       <span style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
                         {row.users.toLocaleString()}
@@ -174,6 +231,15 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                         <span style={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600 }}>{pct}%</span>
                       </div>
                     </div>
+                    {step?.predicates && step.predicates.length > 1 && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                        {step.predicates.map((p, pi) => (
+                          <span key={pi} style={{ marginRight: 8 }}>
+                            {p.kind}{p.key ? `[${p.key}]` : ''} {p.op} {p.value ?? ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
