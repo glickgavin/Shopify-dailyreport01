@@ -111,7 +111,7 @@ begin
   return query
     with counts as (
       select s.idx,
-             count(distinct fp.session_id) as users
+             count(distinct fp.session_id) as cnt
       from (
         select generate_series(0, v_step_count - 1) as idx
       ) s
@@ -119,7 +119,7 @@ begin
       group by s.idx
     ),
     step0_count as (
-      select users from counts where idx = 0
+      select cnt as n from counts where idx = 0
     )
     select
       c.idx,
@@ -128,16 +128,16 @@ begin
         (p_steps->c.idx)->>'kind',
         'Step ' || (c.idx + 1)
       ),
-      c.users,
+      c.cnt,
       case
         when c.idx = 0 then null
-        when lag(c.users) over (order by c.idx) > 0
-        then round(c.users::numeric / lag(c.users) over (order by c.idx) * 100, 1)
+        when lag(c.cnt) over (order by c.idx) > 0
+        then round(c.cnt::numeric / lag(c.cnt) over (order by c.idx) * 100, 1)
         else 0
       end,
       case
-        when (select users from step0_count) > 0
-        then round(c.users::numeric / (select users from step0_count) * 100, 1)
+        when (select n from step0_count) > 0
+        then round(c.cnt::numeric / (select n from step0_count) * 100, 1)
         else 0
       end
     from counts c
