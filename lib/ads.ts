@@ -1,5 +1,5 @@
-const ADS_URL = 'https://byobvmimvacxuwumhbyw.supabase.co';
-const ADS_KEY  = 'sb_publishable_PbK4JVIxW8ugyqQBYd11BA_-vGQKKa_';
+const ADS_URL = process.env.ADS_SUPABASE_URL ?? 'https://byobvmimvacxuwumhbyw.supabase.co';
+const ADS_KEY  = process.env.ADS_SUPABASE_KEY ?? 'sb_publishable_PbK4JVIxW8ugyqQBYd11BA_-vGQKKa_';
 
 export interface AdsRow {
   report_date: string;

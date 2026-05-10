@@ -1,4 +1,5 @@
 'use server';
+import { revalidateTag } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { Predicate } from '@/lib/analytics/predicates';
 
@@ -11,16 +12,19 @@ export async function saveBehavior({
       .from('analytics_behaviors')
       .update({ name, predicates: payload, updated_at: new Date().toISOString() })
       .eq('id', id);
+    if (!error) revalidateTag('analytics_behaviors_list');
     return { error: error?.message };
   } else {
     const { error } = await supabaseAdmin
       .from('analytics_behaviors')
       .insert({ name, predicates: payload });
+    if (!error) revalidateTag('analytics_behaviors_list');
     return { error: error?.message };
   }
 }
 
 export async function deleteBehavior(id: number): Promise<{ error?: string }> {
   const { error } = await supabaseAdmin.from('analytics_behaviors').delete().eq('id', id);
+  if (!error) revalidateTag('analytics_behaviors_list');
   return { error: error?.message };
 }

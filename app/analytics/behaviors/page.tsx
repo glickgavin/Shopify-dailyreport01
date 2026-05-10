@@ -1,9 +1,8 @@
 export const dynamic = 'force-dynamic';
 
-import { fetchEventsDirect } from '@/lib/analytics/client';
 import { resolveDateRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
-import { matchesAllPredicates } from '@/lib/analytics/predicates';
+import { unstable_cache } from 'next/cache';
 import type { Predicate } from '@/lib/analytics/predicates';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
@@ -19,18 +18,58 @@ interface Props {
 
 interface BehaviorRow { id: number; name: string; description: string | null; predicates: unknown }
 
+interface BehaviorRpcResult {
+  matched_sessions: number;
+  matched_events: number;
+  events_per_session: number;
+  by_device: { key: string; sessions: number }[] | null;
+  by_source: { key: string; sessions: number }[] | null;
+}
+
+function zTest(a: number, b: number, nTotal: number): { z: number; significant: boolean } | null {
+  if (!nTotal) return null;
+  const pA = a / nTotal, pB = b / nTotal;
+  const pPool = (a + b) / (2 * nTotal);
+  const se = Math.sqrt(pPool * (1 - pPool) * (2 / nTotal));
+  if (se === 0) return null;
+  const z = Math.abs(pA - pB) / se;
+  return { z, significant: z > 1.96 };
+}
+
+async function runBehaviorRpc(
+  predicates: Predicate[],
+  startDate: string,
+  endDate: string
+): Promise<BehaviorRpcResult | null> {
+  if (!predicates.length) return null;
+  const { data, error } = await supabaseAdmin.rpc('analytics_behavior', {
+    p_conditions: predicates as unknown as import('@/lib/types/database').Json,
+    p_from: startDate + 'T00:00:00.000Z',
+    p_to: endDate + 'T23:59:59.999Z',
+  });
+  if (error) {
+    throw new Error(error.message + (error.details ? ' — ' + error.details : '') + (error.hint ? ' (hint: ' + error.hint + ')' : ''));
+  }
+  const rows = data as BehaviorRpcResult[] | null;
+  return rows?.[0] ?? null;
+}
+
+const getBehaviors = unstable_cache(
+  async () => supabaseAdmin
+    .from('analytics_behaviors')
+    .select('id,name,description,predicates')
+    .order('created_at', { ascending: false }),
+  ['analytics_behaviors_list'],
+  { revalidate: 60, tags: ['analytics_behaviors_list'] },
+);
+
 export default async function BehaviorLabPage({ searchParams }: Props) {
   const sp = await searchParams;
   const { startDate, endDate, preset, label } = resolveDateRange(sp.preset, sp.from, sp.to);
-  const devices = sp.devices ? sp.devices.split(',').filter(Boolean) : [];
-  const excludePreview = sp.exclude_preview === 'true';
   const behaviorId = sp.behavior_id ? parseInt(sp.behavior_id) : null;
   const compareId = sp.compare_id ? parseInt(sp.compare_id) : null;
 
-  const { data: savedBehaviors } = await supabaseAdmin
-    .from('analytics_behaviors')
-    .select('id,name,description,predicates')
-    .order('created_at', { ascending: false });
+  const { data: savedBehaviors } = await getBehaviors();
 
   const behaviors = (savedBehaviors ?? []) as BehaviorRow[];
   const activeBehavior = behaviorId ? behaviors.find(b => b.id === behaviorId) : behaviors[0];
@@ -38,45 +77,33 @@ export default async function BehaviorLabPage({ searchParams }: Props) {
   const activePredicates: Predicate[] = Array.isArray(activeBehavior?.predicates) ? activeBehavior.predicates as Predicate[] : [];
   const comparePredicates: Predicate[] = Array.isArray(compareBehavior?.predicates) ? compareBehavior.predicates as Predicate[] : [];
 
-  let events: Awaited<ReturnType<typeof fetchEventsDirect>> = [];
+  let activeStats: BehaviorRpcResult | null = null;
+  let compareStats: BehaviorRpcResult | null = null;
+  let totalSessions = 0;
   let error: string | null = null;
-  if (activePredicates.length > 0) {
-    try {
-      events = await fetchEventsDirect({ startDate, endDate, limit: 5000 });
-    } catch (e) {
-      error = String(e);
+
+  try {
+    [activeStats, compareStats] = await Promise.all([
+      runBehaviorRpc(activePredicates, startDate, endDate),
+      comparePredicates.length ? runBehaviorRpc(comparePredicates, startDate, endDate) : Promise.resolve(null),
+    ]);
+
+    // Get total sessions for percentage calculation
+    if (activeStats || compareStats) {
+      const { data: tot } = await supabaseAdmin
+        .from('analytics_events_mirror')
+        .select('session_id')
+        .gte('created_at', startDate)
+        .lte('created_at', endDate + 'T23:59:59.999Z')
+        .not('session_id', 'is', null);
+      totalSessions = new Set((tot ?? []).map((r: { session_id: string }) => r.session_id)).size;
     }
+  } catch (e) {
+    error = e instanceof Error ? e.message : JSON.stringify(e);
   }
 
-  const filtered = events
-    .filter(e => !excludePreview || !e.is_preview)
-    .filter(e => !devices.length || (e.device_type && devices.includes(e.device_type)));
-
-  // Count matching sessions for a set of predicates
-  function countMatchingSessions(predicates: Predicate[]): { sessions: number; events: number } {
-    if (!predicates.length) return { sessions: 0, events: 0 };
-    const matchingEvents = filtered.filter(e => matchesAllPredicates(e, predicates));
-    const sessions = new Set(matchingEvents.map(e => e.session_id).filter(Boolean)).size;
-    return { sessions, events: matchingEvents.length };
-  }
-
-  const activeStats = countMatchingSessions(activePredicates);
-  const compareStats = comparePredicates.length ? countMatchingSessions(comparePredicates) : null;
-  const totalSessions = new Set(filtered.map(e => e.session_id).filter(Boolean)).size;
-
-  // Significance test (z-test for proportions)
-  function zTest(a: number, b: number, nA: number, nB: number): { z: number; significant: boolean } | null {
-    if (!nA || !nB) return null;
-    const pA = a / nA, pB = b / nB;
-    const pPool = (a + b) / (nA + nB);
-    const se = Math.sqrt(pPool * (1 - pPool) * (1 / nA + 1 / nB));
-    if (se === 0) return null;
-    const z = Math.abs(pA - pB) / se;
-    return { z, significant: z > 1.96 };
-  }
-
-  const sigTest = compareStats
-    ? zTest(activeStats.sessions, compareStats.sessions, totalSessions, totalSessions)
+  const sigTest = activeStats && compareStats
+    ? zTest(activeStats.matched_sessions, compareStats.matched_sessions, totalSessions)
     : null;
 
   return (
@@ -90,8 +117,8 @@ export default async function BehaviorLabPage({ searchParams }: Props) {
         preset={preset as Preset}
         from={sp.from}
         to={sp.to}
-        devices={devices}
-        excludePreview={excludePreview}
+        devices={[]}
+        excludePreview={false}
       />
 
       {error && (
@@ -168,13 +195,13 @@ export default async function BehaviorLabPage({ searchParams }: Props) {
                     <div key={lbl} style={{ padding: '1rem', borderRadius: 8, border: `2px solid ${color}20`, background: `${color}08` }}>
                       <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: 4 }}>{lbl}</div>
                       <div style={{ fontSize: '1.75rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color }}>
-                        {stats.sessions.toLocaleString()}
+                        {(stats?.matched_sessions ?? 0).toLocaleString()}
                       </div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
-                        sessions · {totalSessions > 0 ? `${Math.round((stats.sessions / totalSessions) * 100)}% of total` : '—'}
+                        sessions · {totalSessions > 0 ? `${Math.round(((stats?.matched_sessions ?? 0) / totalSessions) * 100)}% of total` : '—'}
                       </div>
                       <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: 2 }}>
-                        {stats.events.toLocaleString()} matching events
+                        {(stats?.matched_events ?? 0).toLocaleString()} matching events
                       </div>
                     </div>
                   ))}

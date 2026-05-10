@@ -1,10 +1,11 @@
 export const dynamic = 'force-dynamic';
 
-import { fetchEventsDirect } from '@/lib/analytics/client';
 import { resolveDateRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
+import { unstable_cache } from 'next/cache';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
+import type { Predicate } from '@/lib/analytics/predicates';
 import FunnelEditor from './FunnelEditor';
 
 interface Props {
@@ -15,9 +16,9 @@ interface Props {
   }>;
 }
 
-interface FunnelStep {
-  event_type: string;
-  label?: string;
+export interface FunnelStep {
+  label: string;
+  predicates: Predicate[];
 }
 
 interface FunnelRow {
@@ -27,69 +28,109 @@ interface FunnelRow {
   steps: unknown;
 }
 
+interface FunnelRpcRow {
+  step_index: number;
+  step_label: string;
+  users: number;
+  conversion_from_prev: number | null;
+  conversion_from_start: number | null;
+}
+
+export interface AvailableDefinition {
+  label: string;
+  predicates: Predicate[];
+}
+
+const getFunnels = unstable_cache(
+  async () => supabaseAdmin
+    .from('analytics_funnels')
+    .select('id,name,description,steps')
+    .order('created_at', { ascending: false }),
+  ['analytics_funnels_list'],
+  { revalidate: 60, tags: ['analytics_funnels_list'] },
+);
+
+function normalizeSteps(raw: unknown[]): FunnelStep[] {
+  return raw.map(s => {
+    const step = s as Record<string, unknown>;
+    if ('predicates' in step && Array.isArray(step.predicates)) {
+      return { label: (step.label as string) ?? '', predicates: step.predicates as Predicate[] };
+    }
+    // backward-compat: old format { event_type, label? }
+    const et = (step.event_type as string) ?? '';
+    return {
+      label: (step.label as string) ?? et,
+      predicates: [{ kind: 'event_type' as const, op: 'is' as const, value: et }],
+    };
+  });
+}
+
 export default async function FunnelBuilderPage({ searchParams }: Props) {
   const sp = await searchParams;
   const { startDate, endDate, preset, label } = resolveDateRange(sp.preset, sp.from, sp.to);
-  const devices = sp.devices ? sp.devices.split(',').filter(Boolean) : [];
-  const excludePreview = sp.exclude_preview === 'true';
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
 
-  // Load saved funnels
-  const { data: savedFunnels } = await supabaseAdmin
-    .from('analytics_funnels')
-    .select('id,name,description,steps')
-    .order('created_at', { ascending: false });
+  const [{ data: savedFunnels, error: funnelsError }, { data: eventDefs }] = await Promise.all([
+    getFunnels(),
+    supabaseAdmin
+      .from('analytics_event_definitions')
+      .select('event_type,display_name,predicates')
+      .order('display_name'),
+  ]);
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
-  const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? activeFunnel.steps as FunnelStep[] : [];
+  const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? normalizeSteps(activeFunnel.steps as unknown[]) : [];
 
-  // Fetch events if we have a funnel with steps
-  let events: Awaited<ReturnType<typeof fetchEventsDirect>> = [];
+  // Build available definitions for the step picker
+  const configuredDefs: AvailableDefinition[] = (eventDefs ?? []).map(d => ({
+    label: d.display_name,
+    predicates: Array.isArray(d.predicates) && (d.predicates as unknown[]).length > 0
+      ? d.predicates as unknown as Predicate[]
+      : [{ kind: 'event_type' as const, op: 'is' as const, value: d.event_type }],
+  }));
+
+  // Distinct raw event names from mirror (last 90 days), excluding already-configured ones
+  const cutoff = new Date(Date.now() - 90 * 86400_000).toISOString();
+  const { data: mirrorNames } = await supabaseAdmin
+    .from('analytics_events_mirror')
+    .select('event_name')
+    .gte('created_at', cutoff);
+
+  const configuredEventTypes = new Set((eventDefs ?? []).map(d => d.event_type));
+  const rawNames = Array.from(new Set((mirrorNames ?? []).map((r: { event_name: string }) => r.event_name)))
+    .filter(n => !configuredEventTypes.has(n))
+    .sort();
+
+  const rawDefs: AvailableDefinition[] = rawNames.map(n => ({
+    label: n,
+    predicates: [{ kind: 'event_type' as const, op: 'is' as const, value: n }],
+  }));
+
+  const availableDefinitions: AvailableDefinition[] = [...configuredDefs, ...rawDefs];
+
+  let funnelRows: FunnelRpcRow[] = [];
   let error: string | null = null;
+
   if (steps.length > 0) {
     try {
-      events = await fetchEventsDirect({ startDate, endDate, limit: 5000 });
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  const filtered = events
-    .filter(e => !excludePreview || !e.is_preview)
-    .filter(e => !devices.length || (e.device_type && devices.includes(e.device_type)));
-
-  // Compute funnel: sessions that completed each step in order
-  function computeFunnel(allEvents: typeof filtered, funnelSteps: FunnelStep[]): number[] {
-    if (!funnelSteps.length) return [];
-    // Group by session
-    const sessionMap = new Map<string, typeof filtered>();
-    for (const e of allEvents) {
-      const sid = e.session_id ?? 'anon';
-      const arr = sessionMap.get(sid) ?? [];
-      arr.push(e);
-      sessionMap.set(sid, arr);
-    }
-
-    const counts = new Array(funnelSteps.length).fill(0);
-    for (const [, sessEvents] of Array.from(sessionMap)) {
-      const sorted = sessEvents.slice().sort((a: typeof sessEvents[0], b: typeof sessEvents[0]) =>
-        new Date(a.created_at ?? a.timestamp ?? 0).getTime() - new Date(b.created_at ?? b.timestamp ?? 0).getTime()
-      );
-      let stepIdx = 0;
-      for (const e of sorted) {
-        if (stepIdx >= funnelSteps.length) break;
-        if (e.event_type === funnelSteps[stepIdx].event_type) {
-          counts[stepIdx]++;
-          stepIdx++;
-        }
+      const { data, error: rpcErr } = await supabaseAdmin.rpc('analytics_funnel', {
+        p_steps: steps as unknown as import('@/lib/types/database').Json,
+        p_from: startDate + 'T00:00:00.000Z',
+        p_to: endDate + 'T23:59:59.999Z',
+        p_window_hours: 24,
+      });
+      if (rpcErr) {
+        error = rpcErr.message + (rpcErr.details ? ' — ' + rpcErr.details : '') + (rpcErr.hint ? ' (hint: ' + rpcErr.hint + ')' : '');
+      } else {
+        funnelRows = (data ?? []) as FunnelRpcRow[];
       }
+    } catch (e) {
+      error = e instanceof Error ? e.message : JSON.stringify(e);
     }
-    return counts;
   }
 
-  const counts = computeFunnel(filtered, steps);
-  const maxCount = counts[0] ?? 1;
+  const maxUsers = funnelRows[0]?.users ?? 1;
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1000 }}>
@@ -102,8 +143,8 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         preset={preset as Preset}
         from={sp.from}
         to={sp.to}
-        devices={devices}
-        excludePreview={excludePreview}
+        devices={[]}
+        excludePreview={false}
       />
 
       {error && (
@@ -111,12 +152,17 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, marginTop: '1.5rem' }}>
-        {/* Saved funnels */}
         <div>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</div>
-            {funnels.length === 0 ? (
-              <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>None yet. Create one below.</p>
+            {funnelsError ? (
+              <p style={{ padding: '1rem', color: '#991b1b', fontSize: '0.75rem', wordBreak: 'break-all' }}>
+                Error loading funnels: {funnelsError.message}
+              </p>
+            ) : funnels.length === 0 ? (
+              <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>
+                None yet. Create one below.
+              </p>
             ) : (
               funnels.map(f => (
                 <a
@@ -137,13 +183,16 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
             )}
           </div>
 
-          {/* Create / edit funnel */}
           <div style={{ marginTop: 12 }}>
-            <FunnelEditor currentSteps={steps} funnelId={activeFunnel?.id} funnelName={activeFunnel?.name} />
+            <FunnelEditor
+              currentSteps={steps}
+              funnelId={activeFunnel?.id}
+              funnelName={activeFunnel?.name}
+              availableDefinitions={availableDefinitions}
+            />
           </div>
         </div>
 
-        {/* Funnel visualization */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '1.5rem' }}>
           {!activeFunnel ? (
             <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Select or create a funnel to see results.</p>
@@ -152,22 +201,21 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
           ) : (
             <>
               <div style={{ fontSize: '0.95rem', fontWeight: 600, marginBottom: '1.25rem' }}>{activeFunnel.name}</div>
-              {steps.map((step, i) => {
-                const count = counts[i] ?? 0;
-                const pct = i === 0 ? 100 : maxCount > 0 ? Math.round((count / maxCount) * 100) : 0;
-                const convPct = i === 0 ? null : (counts[i - 1] ?? 0) > 0 ? Math.round(((count) / (counts[i - 1] ?? 1)) * 100) : 0;
+              {funnelRows.map((row, i) => {
+                const step = steps[i];
+                const pct = maxUsers > 0 ? Math.round((row.users / maxUsers) * 100) : 0;
                 return (
                   <div key={i} style={{ marginBottom: '1rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
                         <span style={{ color: 'var(--muted)', marginRight: 6 }}>{i + 1}.</span>
-                        {step.label ?? step.event_type}
+                        {step?.label || row.step_label}
                       </span>
                       <span style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-                        {count.toLocaleString()}
-                        {convPct !== null && (
-                          <span style={{ color: convPct > 50 ? '#1D9E75' : '#e53e3e', marginLeft: 8, fontSize: '0.78rem' }}>
-                            {convPct}% step conv.
+                        {row.users.toLocaleString()}
+                        {row.conversion_from_prev !== null && (
+                          <span style={{ color: (row.conversion_from_prev ?? 0) > 50 ? '#1D9E75' : '#e53e3e', marginLeft: 8, fontSize: '0.78rem' }}>
+                            {row.conversion_from_prev}% step conv.
                           </span>
                         )}
                       </span>
@@ -183,13 +231,22 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                         <span style={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600 }}>{pct}%</span>
                       </div>
                     </div>
+                    {step?.predicates && step.predicates.length > 1 && (
+                      <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+                        {step.predicates.map((p, pi) => (
+                          <span key={pi} style={{ marginRight: 8 }}>
+                            {p.kind}{p.key ? `[${p.key}]` : ''} {p.op} {p.value ?? ''}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              {counts[0] > 0 && steps.length > 1 && (
+              {funnelRows.length > 1 && funnelRows[0]?.users > 0 && (
                 <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#f0fdf4', borderRadius: 8, border: '1px solid #86efac', fontSize: '0.82rem', color: '#166534' }}>
-                  Overall conversion: {Math.round(((counts[counts.length - 1] ?? 0) / counts[0]) * 100)}%
-                  ({(counts[counts.length - 1] ?? 0).toLocaleString()} of {counts[0].toLocaleString()} completed all steps)
+                  Overall conversion: {funnelRows[funnelRows.length - 1]?.conversion_from_start ?? 0}%
+                  ({(funnelRows[funnelRows.length - 1]?.users ?? 0).toLocaleString()} of {funnelRows[0].users.toLocaleString()} completed all steps)
                 </div>
               )}
             </>

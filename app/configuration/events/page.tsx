@@ -7,7 +7,7 @@ import EventDefinitionEditor from './EventDefinitionEditor';
 export default async function ConfigEventsPage() {
   const [{ data: categories }, { data: definitions }] = await Promise.all([
     supabaseAdmin.from('analytics_event_categories').select('*').order('name'),
-    supabaseAdmin.from('analytics_event_definitions').select('*').order('event_type'),
+    supabaseAdmin.from('analytics_event_definitions').select('id,event_type,display_name,description,category_id,is_conversion,is_purchase,revenue_property,predicates').order('event_type'),
   ]);
 
   const cats = categories ?? [];
@@ -58,7 +58,7 @@ export default async function ConfigEventsPage() {
               <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                    {['Event Type', 'Display Name', 'Category', 'Flags'].map(h => (
+                    {['Event Type', 'Display Name', 'Category', 'Conditions', 'Flags'].map(h => (
                       <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: 'var(--muted)', fontSize: '0.72rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: 0, background: 'var(--surface)' }}>{h}</th>
                     ))}
                   </tr>
@@ -71,6 +71,11 @@ export default async function ConfigEventsPage() {
                         <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}>{d.event_type}</td>
                         <td style={{ padding: '0.5rem 0.75rem' }}>{d.display_name}</td>
                         <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{cat?.name ?? '—'}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>
+                          {Array.isArray(d.predicates) && (d.predicates as unknown[]).length > 0
+                            ? `${(d.predicates as unknown[]).length} cond.`
+                            : '—'}
+                        </td>
                         <td style={{ padding: '0.5rem 0.75rem' }}>
                           {d.is_purchase && <span style={{ marginRight: 4, fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: '#dcfce7', color: '#166534' }}>purchase</span>}
                           {d.is_conversion && <span style={{ fontSize: '0.7rem', padding: '0.1rem 0.4rem', borderRadius: 4, background: '#dbeafe', color: '#1e40af' }}>conversion</span>}

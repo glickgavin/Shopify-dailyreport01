@@ -1,5 +1,6 @@
 'use server';
 import { supabaseAdmin } from '@/lib/supabase';
+import type { Predicate } from '@/lib/analytics/predicates';
 
 interface EventDefInput {
   event_type: string;
@@ -9,12 +10,14 @@ interface EventDefInput {
   is_conversion: boolean;
   is_purchase: boolean;
   revenue_property: string | null;
+  predicates: Predicate[];
 }
 
 export async function saveEventDefinition(input: EventDefInput): Promise<{ error?: string }> {
+  const payload = { ...input, predicates: input.predicates as unknown as import('@/lib/types/database').Json };
   const { error } = await supabaseAdmin
     .from('analytics_event_definitions')
-    .upsert({ ...input }, { onConflict: 'event_type' });
+    .upsert(payload, { onConflict: 'event_type' });
   return { error: error?.message };
 }
 

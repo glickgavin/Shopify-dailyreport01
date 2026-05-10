@@ -7,6 +7,14 @@
     {
       "path": "/api/cron/daily",
       "schedule": "15 7 * * *"
+    },
+    {
+      "path": "/api/cron/analytics-sync",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/analytics-backfill",
+      "schedule": "30 * * * *"
     }
   ]
 }

@@ -29,6 +29,7 @@ const NAV = [
       { href: '/configuration/paths', label: 'Paths' },
       { href: '/configuration/properties', label: 'Properties' },
       { href: '/configuration/unmapped', label: 'Unmapped' },
+      { href: '/configuration/sync', label: 'Sync Status' },
     ],
   },
 ];
