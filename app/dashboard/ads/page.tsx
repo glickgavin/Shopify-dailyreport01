@@ -292,7 +292,7 @@ export default async function AdReportPage() {
               </tbody>
             </table>
             <div style={{ padding: '0.5rem 1rem', background: 'var(--surface2)', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              CPA (Meta) = ad spend ÷ Meta-attributed purchases · CPA (Blended) = ad spend ÷ all Shopify orders · ROAS = Shopify revenue ÷ ad spend · "vs Prior" compares CPA (Meta) to equivalent prior period
+              CPA (Meta) = ad spend ÷ Meta-attributed purchases · CPA (Blended) = ad spend ÷ all Shopify orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
             </div>
           </div>
 
