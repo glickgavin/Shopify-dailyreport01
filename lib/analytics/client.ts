@@ -1,3 +1,41 @@
+// Raw shape returned by the edge function
+interface RawEvent {
+  event_name?: string;
+  event_type?: string;
+  event_category?: string;
+  session_id?: string;
+  visitor_id?: string;
+  page_path?: string;
+  page_url?: string;
+  device_type?: string | null;
+  is_preview?: boolean;
+  properties?: Record<string, unknown>;
+  created_at?: string;
+  timestamp?: string;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  referrer?: string | null;
+  revenue?: number | null;
+  currency?: string | null;
+  order_id?: string | null;
+  product_id?: string | null;
+  quantity?: number | null;
+  [key: string]: unknown;
+}
+
+// Normalize: map event_name → event_type so all downstream code works
+function normalize(raw: RawEvent[]): AnalyticsEvent[] {
+  return raw.map(e => ({
+    ...e,
+    event_type: e.event_type ?? e.event_name ?? '',
+    event_name: e.event_name ?? e.event_type ?? '',
+    event_category: e.event_category ?? null,
+  }));
+}
+
 export interface AnalyticsEvent {
   id?: string | number;
   event_type: string;
@@ -45,7 +83,7 @@ function buildUrl(opts: FetchOptions): string {
   if (opts.endDate) params.set('end_date', opts.endDate);
   if (opts.limit !== undefined) params.set('limit', String(opts.limit));
   if (opts.offset !== undefined) params.set('offset', String(opts.offset));
-  if (opts.eventType) params.set('event_type', opts.eventType);
+  if (opts.eventType) params.set('event_name', opts.eventType);
   if (opts.pagePath) params.set('page_path', opts.pagePath);
   if (opts.deviceType) params.set('device_type', opts.deviceType);
   if (opts.isPreview !== undefined) params.set('is_preview', String(opts.isPreview));
@@ -58,7 +96,8 @@ export async function fetchEvents(opts: FetchOptions = {}): Promise<AnalyticsEve
   const res = await fetch(url, { cache: 'no-store' });
   if (!res.ok) throw new Error(`Analytics fetch failed: ${res.status}`);
   const data = await res.json();
-  return Array.isArray(data) ? data : (data.events ?? data.data ?? []);
+  const arr: RawEvent[] = Array.isArray(data) ? data : (data.events ?? data.data ?? []);
+  return normalize(arr);
 }
 
 export async function fetchAllEvents(opts: Omit<FetchOptions, 'offset'> = {}): Promise<AnalyticsEvent[]> {
@@ -102,19 +141,20 @@ async function fetchEventsRemote(opts: FetchOptions): Promise<AnalyticsEvent[]> 
   if (opts.endDate) params.set('end_date', opts.endDate);
   if (opts.limit !== undefined) params.set('limit', String(opts.limit));
   if (opts.offset !== undefined) params.set('offset', String(opts.offset));
-  if (opts.eventType) params.set('event_type', opts.eventType);
+  if (opts.eventType) params.set('event_name', opts.eventType);
   if (opts.pagePath) params.set('page_path', opts.pagePath);
   if (opts.deviceType) params.set('device_type', opts.deviceType);
   if (opts.isPreview !== undefined) params.set('is_preview', String(opts.isPreview));
   if (opts.sessionId) params.set('session_id', opts.sessionId);
 
   const res = await fetch(`${API_URL}?${params.toString()}`, {
-    headers: { Authorization: `Bearer ${API_KEY}` },
+    headers: { 'x-api-key': API_KEY },
     cache: 'no-store',
   });
   if (!res.ok) throw new Error(`Analytics direct fetch failed: ${res.status}`);
   const data = await res.json();
-  return Array.isArray(data) ? data : (data.events ?? data.data ?? []);
+  const arr: RawEvent[] = Array.isArray(data) ? data : (data.events ?? data.data ?? []);
+  return normalize(arr);
 }
 
 export async function fetchDistinctEventTypes(opts: { startDate?: string; endDate?: string } = {}): Promise<string[]> {
