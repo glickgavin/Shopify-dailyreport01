@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { resolveDateRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
+import { unstable_cache } from 'next/cache';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
 import FunnelEditor from './FunnelEditor';
@@ -34,15 +35,21 @@ interface FunnelRpcRow {
   conversion_from_start: number | null;
 }
 
+const getFunnels = unstable_cache(
+  async () => supabaseAdmin
+    .from('analytics_funnels')
+    .select('id,name,description,steps')
+    .order('created_at', { ascending: false }),
+  ['analytics_funnels_list'],
+  { revalidate: 60, tags: ['analytics_funnels_list'] },
+);
+
 export default async function FunnelBuilderPage({ searchParams }: Props) {
   const sp = await searchParams;
   const { startDate, endDate, preset, label } = resolveDateRange(sp.preset, sp.from, sp.to);
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
 
-  const { data: savedFunnels, error: funnelsError } = await supabaseAdmin
-    .from('analytics_funnels')
-    .select('id,name,description,steps')
-    .order('created_at', { ascending: false });
+  const { data: savedFunnels, error: funnelsError } = await getFunnels();
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
   const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];

@@ -1,4 +1,5 @@
 'use server';
+import { revalidateTag } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 
 interface Step { event_type: string; label?: string }
@@ -11,16 +12,19 @@ export async function saveFunnel({
       .from('analytics_funnels')
       .update({ name, steps: steps as unknown as import('@/lib/types/database').Json, updated_at: new Date().toISOString() })
       .eq('id', id);
+    if (!error) revalidateTag('analytics_funnels_list');
     return { error: error?.message };
   } else {
     const { error } = await supabaseAdmin
       .from('analytics_funnels')
       .insert({ name, steps: steps as unknown as import('@/lib/types/database').Json });
+    if (!error) revalidateTag('analytics_funnels_list');
     return { error: error?.message };
   }
 }
 
 export async function deleteFunnel(id: number): Promise<{ error?: string }> {
   const { error } = await supabaseAdmin.from('analytics_funnels').delete().eq('id', id);
+  if (!error) revalidateTag('analytics_funnels_list');
   return { error: error?.message };
 }
