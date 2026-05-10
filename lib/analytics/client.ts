@@ -83,8 +83,17 @@ export function applyDeviceFilter(events: AnalyticsEvent[], devices: string[]): 
   return events.filter(e => e.device_type && devices.includes(e.device_type));
 }
 
-// Server-side direct fetch (bypasses Next.js proxy — uses env key directly)
+// Server-side fetch — uses local mirror by default; set ANALYTICS_USE_REMOTE=true to fall back to remote API
 export async function fetchEventsDirect(opts: FetchOptions = {}): Promise<AnalyticsEvent[]> {
+  if (process.env.ANALYTICS_USE_REMOTE === 'true') {
+    return fetchEventsRemote(opts);
+  }
+  const { fetchEventsLocal } = await import('./queries');
+  return fetchEventsLocal(opts);
+}
+
+// Remote fallback (original implementation — kept for debugging via ANALYTICS_USE_REMOTE=true)
+async function fetchEventsRemote(opts: FetchOptions): Promise<AnalyticsEvent[]> {
   const API_URL = process.env.ANALYTICS_API_URL!;
   const API_KEY = process.env.ANALYTICS_API_KEY!;
   const params = new URLSearchParams();
