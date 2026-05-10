@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { resolveDateRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
+import { unstable_cache } from 'next/cache';
 import type { Predicate } from '@/lib/analytics/predicates';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
@@ -46,10 +47,21 @@ async function runBehaviorRpc(
     p_from: startDate + 'T00:00:00.000Z',
     p_to: endDate + 'T23:59:59.999Z',
   });
-  if (error) throw error;
+  if (error) {
+    throw new Error(error.message + (error.details ? ' — ' + error.details : '') + (error.hint ? ' (hint: ' + error.hint + ')' : ''));
+  }
   const rows = data as BehaviorRpcResult[] | null;
   return rows?.[0] ?? null;
 }
+
+const getBehaviors = unstable_cache(
+  async () => supabaseAdmin
+    .from('analytics_behaviors')
+    .select('id,name,description,predicates')
+    .order('created_at', { ascending: false }),
+  ['analytics_behaviors_list'],
+  { revalidate: 60, tags: ['analytics_behaviors_list'] },
+);
 
 export default async function BehaviorLabPage({ searchParams }: Props) {
   const sp = await searchParams;
@@ -57,10 +69,7 @@ export default async function BehaviorLabPage({ searchParams }: Props) {
   const behaviorId = sp.behavior_id ? parseInt(sp.behavior_id) : null;
   const compareId = sp.compare_id ? parseInt(sp.compare_id) : null;
 
-  const { data: savedBehaviors } = await supabaseAdmin
-    .from('analytics_behaviors')
-    .select('id,name,description,predicates')
-    .order('created_at', { ascending: false });
+  const { data: savedBehaviors } = await getBehaviors();
 
   const behaviors = (savedBehaviors ?? []) as BehaviorRow[];
   const activeBehavior = behaviorId ? behaviors.find(b => b.id === behaviorId) : behaviors[0];
@@ -90,7 +99,7 @@ export default async function BehaviorLabPage({ searchParams }: Props) {
       totalSessions = new Set((tot ?? []).map((r: { session_id: string }) => r.session_id)).size;
     }
   } catch (e) {
-    error = String(e);
+    error = e instanceof Error ? e.message : JSON.stringify(e);
   }
 
   const sigTest = activeStats && compareStats
