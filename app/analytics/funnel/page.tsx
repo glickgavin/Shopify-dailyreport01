@@ -68,10 +68,13 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         p_to: endDate + 'T23:59:59.999Z',
         p_window_hours: 24,
       });
-      if (rpcErr) throw rpcErr;
-      funnelRows = (data ?? []) as FunnelRpcRow[];
+      if (rpcErr) {
+        error = rpcErr.message + (rpcErr.details ? ' — ' + rpcErr.details : '') + (rpcErr.hint ? ' (hint: ' + rpcErr.hint + ')' : '');
+      } else {
+        funnelRows = (data ?? []) as FunnelRpcRow[];
+      }
     } catch (e) {
-      error = String(e);
+      error = e instanceof Error ? e.message : JSON.stringify(e);
     }
   }
 
