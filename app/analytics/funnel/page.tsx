@@ -40,7 +40,7 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
 
   // Load saved funnels
-  const { data: savedFunnels } = await supabaseAdmin
+  const { data: savedFunnels, error: funnelsError } = await supabaseAdmin
     .from('analytics_funnels')
     .select('id,name,description,steps')
     .order('created_at', { ascending: false });
@@ -96,7 +96,11 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         <div>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</div>
-            {funnels.length === 0 ? (
+            {funnelsError ? (
+              <p style={{ padding: '1rem', color: '#991b1b', fontSize: '0.75rem', wordBreak: 'break-all' }}>
+                DB error: {funnelsError.message}
+              </p>
+            ) : funnels.length === 0 ? (
               <p style={{ padding: '1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>None yet. Create one below.</p>
             ) : (
               funnels.map(f => (
