@@ -82,22 +82,25 @@ const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 export default async function AdReportPage() {
   const todayStr     = format(new Date(), 'yyyy-MM-dd');
   const yestStr      = format(subDays(new Date(), 1),  'yyyy-MM-dd');
-  const d2str        = format(subDays(new Date(), 2),  'yyyy-MM-dd');
-  const d6str        = format(subDays(new Date(), 6),  'yyyy-MM-dd');
-  const d7str        = format(subDays(new Date(), 7),  'yyyy-MM-dd');
-  const d13str       = format(subDays(new Date(), 13), 'yyyy-MM-dd');
-  const d29str       = format(subDays(new Date(), 29), 'yyyy-MM-dd');
-  const d30str       = format(subDays(new Date(), 30), 'yyyy-MM-dd');
-  const d59str       = format(subDays(new Date(), 59), 'yyyy-MM-dd');
-  const d64str       = format(subDays(new Date(), 64), 'yyyy-MM-dd');
+  const d2str        = format(subDays(new Date(), 2),  'yyyy-MM-dd'); // day-before-yesterday (yesterday prior)
+  const d3str        = format(subDays(new Date(), 3),  'yyyy-MM-dd'); // 3d start
+  const d4str        = format(subDays(new Date(), 4),  'yyyy-MM-dd'); // 3d prior end
+  const d6str        = format(subDays(new Date(), 6),  'yyyy-MM-dd'); // 3d prior start
+  const d7str        = format(subDays(new Date(), 7),  'yyyy-MM-dd'); // 7d start
+  const d8str        = format(subDays(new Date(), 8),  'yyyy-MM-dd'); // 7d prior end
+  const d14str       = format(subDays(new Date(), 14), 'yyyy-MM-dd'); // 7d prior start
+  const d30str       = format(subDays(new Date(), 30), 'yyyy-MM-dd'); // 30d start + DoW start
+  const d31str       = format(subDays(new Date(), 31), 'yyyy-MM-dd'); // 30d prior end
+  const d60str       = format(subDays(new Date(), 60), 'yyyy-MM-dd'); // 30d prior start
+  const d65str       = format(subDays(new Date(), 65), 'yyyy-MM-dd'); // fetch window start
 
-  // Fetch 65 days of raw data (covers chart + all prior periods)
+  // Fetch 66 days of raw data (covers chart + all prior periods including 30d prior start at day-60)
   const [adsRaw, { data: summaryRaw }] = await Promise.all([
-    fetchAdsRangeRaw(d64str, todayStr),
+    fetchAdsRangeRaw(d65str, todayStr),
     supabaseAdmin
       .from('daily_summary')
       .select('date,total_orders,total_revenue')
-      .gte('date', d64str)
+      .gte('date', d65str)
       .lte('date', todayStr)
       .order('date', { ascending: true }),
   ]);
@@ -113,23 +116,23 @@ export default async function AdReportPage() {
     },
     {
       label: 'Yesterday',
-      curr: periodStats(sliceAds(adsRaw, yestStr,  yestStr),  sliceSummary(sumRows, yestStr,  yestStr)),
-      prev: periodStats(sliceAds(adsRaw, format(subDays(new Date(), 2), 'yyyy-MM-dd'), format(subDays(new Date(), 2), 'yyyy-MM-dd')), sliceSummary(sumRows, format(subDays(new Date(), 2), 'yyyy-MM-dd'), format(subDays(new Date(), 2), 'yyyy-MM-dd'))),
+      curr: periodStats(sliceAds(adsRaw, yestStr, yestStr), sliceSummary(sumRows, yestStr, yestStr)),
+      prev: periodStats(sliceAds(adsRaw, d2str,   d2str),   sliceSummary(sumRows, d2str,   d2str)),
     },
     {
       label: '3 Days',
-      curr: periodStats(sliceAds(adsRaw, d2str,  todayStr), sliceSummary(sumRows, d2str,  todayStr)),
-      prev: periodStats(sliceAds(adsRaw, format(subDays(new Date(), 5), 'yyyy-MM-dd'), d2str),  sliceSummary(sumRows, format(subDays(new Date(), 5), 'yyyy-MM-dd'), d2str)),
+      curr: periodStats(sliceAds(adsRaw, d3str, yestStr), sliceSummary(sumRows, d3str, yestStr)),
+      prev: periodStats(sliceAds(adsRaw, d6str, d4str),   sliceSummary(sumRows, d6str, d4str)),
     },
     {
       label: '7 Days',
-      curr: periodStats(sliceAds(adsRaw, d6str,  todayStr), sliceSummary(sumRows, d6str,  todayStr)),
-      prev: periodStats(sliceAds(adsRaw, d13str, d7str),    sliceSummary(sumRows, d13str, d7str)),
+      curr: periodStats(sliceAds(adsRaw, d7str,  yestStr), sliceSummary(sumRows, d7str,  yestStr)),
+      prev: periodStats(sliceAds(adsRaw, d14str, d8str),   sliceSummary(sumRows, d14str, d8str)),
     },
     {
       label: '30 Days',
-      curr: periodStats(sliceAds(adsRaw, d29str, todayStr), sliceSummary(sumRows, d29str, todayStr)),
-      prev: periodStats(sliceAds(adsRaw, d59str, d30str),   sliceSummary(sumRows, d59str, d30str)),
+      curr: periodStats(sliceAds(adsRaw, d30str, yestStr), sliceSummary(sumRows, d30str, yestStr)),
+      prev: periodStats(sliceAds(adsRaw, d60str, d31str),  sliceSummary(sumRows, d60str, d31str)),
     },
   ];
 
@@ -161,7 +164,7 @@ export default async function AdReportPage() {
   }
 
   // ── funnel (7d) ───────────────────────────────────────────────────────────
-  const funnel7d = sliceAds(adsRaw, d6str, todayStr);
+  const funnel7d = sliceAds(adsRaw, d7str, yestStr);
   const fSpend     = funnel7d.reduce((s, r) => s + r.spend,    0);
   const fPurchases = funnel7d.reduce((s, r) => s + r.purchases, 0);
   const fAtcs      = funnel7d.reduce((s, r) => s + (r.atcs        ?? 0), 0);
@@ -172,7 +175,7 @@ export default async function AdReportPage() {
   const fAtoP      = hasAtcs && fAtcs > 0 ? fPurchases / fAtcs : null;
 
   // ── day-of-week breakdown (last 30d) ──────────────────────────────────────
-  const dow30 = sliceAds(adsRaw, d29str, todayStr);
+  const dow30 = sliceAds(adsRaw, d30str, yestStr);
   const dowMap = new Map<number, { spend: number; purchases: number; days: number }>();
   for (let d = 0; d <= 6; d++) dowMap.set(d, { spend: 0, purchases: 0, days: 0 });
   for (const r of dow30) {

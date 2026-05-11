@@ -22,21 +22,25 @@ function computeRange(
   to: string | undefined,
 ): { startDate: string; endDate: string; label: string; days: number } {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const yestStr  = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 
   if (preset === 'today') {
     return { startDate: todayStr, endDate: todayStr, label: 'Today', days: 1 };
   }
   if (preset === 'yesterday') {
-    const d = format(subDays(new Date(), 1), 'yyyy-MM-dd');
-    return { startDate: d, endDate: d, label: 'Yesterday', days: 1 };
+    return { startDate: yestStr, endDate: yestStr, label: 'Yesterday', days: 1 };
   }
   if (preset === '3d') {
-    const s = format(subDays(new Date(), 2), 'yyyy-MM-dd');
-    return { startDate: s, endDate: todayStr, label: 'Past 3 Days', days: 3 };
+    const s = format(subDays(new Date(), 3), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 3 Days', days: 3 };
+  }
+  if (preset === '7d') {
+    const s = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 7 Days', days: 7 };
   }
   if (preset === '30d') {
-    const s = format(subDays(new Date(), 29), 'yyyy-MM-dd');
-    return { startDate: s, endDate: todayStr, label: 'Past 30 Days', days: 30 };
+    const s = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 30 Days', days: 30 };
   }
   if (preset === 'custom' && from && to) {
     const fParsed = parseISO(from);
@@ -50,8 +54,8 @@ function computeRange(
     }
   }
   // default: 7d
-  const s = format(subDays(new Date(), 6), 'yyyy-MM-dd');
-  return { startDate: s, endDate: todayStr, label: 'Past 7 Days', days: 7 };
+  const s = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+  return { startDate: s, endDate: yestStr, label: 'Past 7 Days', days: 7 };
 }
 
 // ── aggregation ───────────────────────────────────────────────────────────────

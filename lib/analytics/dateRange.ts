@@ -29,15 +29,15 @@ export function resolveDateRange(
     case 'yesterday':
       start = yesterday; end = yesterday; p = 'yesterday'; break;
     case '3d':
-      start = toDateStr(subtractDays(now, 2)); end = today; p = '3d'; break;
+      start = toDateStr(subtractDays(now, 3)); end = yesterday; p = '3d'; break;
     case '7d':
-      start = toDateStr(subtractDays(now, 6)); end = today; p = '7d'; break;
+      start = toDateStr(subtractDays(now, 7)); end = yesterday; p = '7d'; break;
     case '30d':
-      start = toDateStr(subtractDays(now, 29)); end = today; p = '30d'; break;
+      start = toDateStr(subtractDays(now, 30)); end = yesterday; p = '30d'; break;
     case 'custom':
       start = from ?? today; end = to ?? today; p = 'custom'; break;
     default:
-      start = toDateStr(subtractDays(now, 6)); end = today; p = '7d'; break;
+      start = toDateStr(subtractDays(now, 7)); end = yesterday; p = '7d'; break;
   }
 
   const label = start === end
