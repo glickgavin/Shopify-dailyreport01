@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { subDays, format, parseISO, isValid } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
+import { fetchAdsRange } from '@/lib/ads';
+import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct,
-  KpiCard, SegmentCard, SectionLabel,
+  KpiCard, TintCard, SegmentCard, SectionLabel,
 } from '../_components/cards';
 
 export const dynamic = 'force-dynamic';
@@ -20,23 +22,26 @@ function computeRange(
   to: string | undefined,
 ): { startDate: string; endDate: string; label: string; days: number } {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const yestStr  = format(subDays(new Date(), 1), 'yyyy-MM-dd');
 
   if (preset === 'today') {
     return { startDate: todayStr, endDate: todayStr, label: 'Today', days: 1 };
   }
   if (preset === 'yesterday') {
-    const d = format(subDays(new Date(), 1), 'yyyy-MM-dd');
-    return { startDate: d, endDate: d, label: 'Yesterday', days: 1 };
+    return { startDate: yestStr, endDate: yestStr, label: 'Yesterday', days: 1 };
   }
   if (preset === '3d') {
-    const s = format(subDays(new Date(), 2), 'yyyy-MM-dd');
-    return { startDate: s, endDate: todayStr, label: 'Past 3 Days', days: 3 };
+    const s = format(subDays(new Date(), 3), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 3 Days', days: 3 };
+  }
+  if (preset === '7d') {
+    const s = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 7 Days', days: 7 };
   }
   if (preset === '30d') {
-    const s = format(subDays(new Date(), 29), 'yyyy-MM-dd');
-    return { startDate: s, endDate: todayStr, label: 'Past 30 Days', days: 30 };
+    const s = format(subDays(new Date(), 30), 'yyyy-MM-dd');
+    return { startDate: s, endDate: yestStr, label: 'Past 30 Days', days: 30 };
   }
-  // custom range
   if (preset === 'custom' && from && to) {
     const fParsed = parseISO(from);
     const tParsed = parseISO(to);
@@ -49,8 +54,8 @@ function computeRange(
     }
   }
   // default: 7d
-  const s = format(subDays(new Date(), 6), 'yyyy-MM-dd');
-  return { startDate: s, endDate: todayStr, label: 'Past 7 Days', days: 7 };
+  const s = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+  return { startDate: s, endDate: yestStr, label: 'Past 7 Days', days: 7 };
 }
 
 // ── aggregation ───────────────────────────────────────────────────────────────
@@ -92,6 +97,56 @@ function aggSummaryRows(rows: Record<string, number>[], prefixes: { revenue: str
   return finalise(a);
 }
 
+// ── stripe aggregation ────────────────────────────────────────────────────────
+
+type StripeSummary = {
+  direct_success_count: number;
+  direct_success_total_cents: number;
+  direct_success_unique_customers: number;
+  refunds_count: number;
+  refunds_total_cents: number;
+  failed_count: number;
+  failed_total_cents: number;
+  shopify_filtered_count: number;
+  top_failure_reasons: { reason: string; count: number }[];
+};
+
+function aggStripeSnapshots(snaps: { payload: unknown }[]): StripeSummary | null {
+  if (!snaps.length) return null;
+  const agg: StripeSummary = {
+    direct_success_count: 0,
+    direct_success_total_cents: 0,
+    direct_success_unique_customers: 0,
+    refunds_count: 0,
+    refunds_total_cents: 0,
+    failed_count: 0,
+    failed_total_cents: 0,
+    shopify_filtered_count: 0,
+    top_failure_reasons: [],
+  };
+  const reasonMap = new Map<string, number>();
+  for (const snap of snaps) {
+    const s = (snap.payload as { summary: StripeSummary }).summary;
+    if (!s) continue;
+    agg.direct_success_count         += s.direct_success_count ?? 0;
+    agg.direct_success_total_cents   += s.direct_success_total_cents ?? 0;
+    agg.direct_success_unique_customers += s.direct_success_unique_customers ?? 0;
+    agg.refunds_count                += s.refunds_count ?? 0;
+    agg.refunds_total_cents          += s.refunds_total_cents ?? 0;
+    agg.failed_count                 += s.failed_count ?? 0;
+    agg.failed_total_cents           += s.failed_total_cents ?? 0;
+    agg.shopify_filtered_count       += s.shopify_filtered_count ?? 0;
+    for (const r of s.top_failure_reasons ?? []) {
+      reasonMap.set(r.reason, (reasonMap.get(r.reason) ?? 0) + r.count);
+    }
+  }
+  agg.top_failure_reasons = Array.from(reasonMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([reason, count]) => ({ reason, count }));
+  return agg;
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default async function RangePage({
@@ -107,6 +162,8 @@ export default async function RangePage({
     { data: productRows },
     { data: segmentRows },
     { data: memTypeRows },
+    { data: stripeSnaps },
+    ads,
   ] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
@@ -128,6 +185,12 @@ export default async function RangePage({
       .select('membership_type')
       .gte('date', startDate)
       .lte('date', endDate),
+    supabaseAdmin
+      .from('stripe_daily_snapshot')
+      .select('payload')
+      .gte('date', startDate)
+      .lte('date', endDate),
+    fetchAdsRange(startDate, endDate),
   ]);
 
   const rows = summaryRows ?? [];
@@ -176,22 +239,35 @@ export default async function RangePage({
   const totalRetOrders   = cashRet.orders  + nonCashRet.orders;
   const totalNewRevenue  = cashNew.revenue + nonCashNew.revenue;
   const totalRetRevenue  = cashRet.revenue + nonCashRet.revenue;
-  const totalNewCogs     = (cashNew.cogs   ?? 0) + (nonCashNew.cogs ?? 0);
-  const totalRetCogs     = (cashRet.cogs   ?? 0) + (nonCashRet.cogs ?? 0);
+  const totalNewCogs     = cashNew.cogs + nonCashNew.cogs;
+  const totalRetCogs     = cashRet.cogs + nonCashRet.cogs;
   const totalNewAov      = totalNewOrders > 0 ? totalNewRevenue / totalNewOrders : 0;
   const totalRetAov      = totalRetOrders > 0 ? totalRetRevenue / totalRetOrders : 0;
   const totalNewMargin   = totalNewRevenue > 0 ? ((totalNewRevenue - totalNewCogs) / totalNewRevenue) * 100 : 0;
   const totalRetMargin   = totalRetRevenue > 0 ? ((totalRetRevenue - totalRetCogs) / totalRetRevenue) * 100 : 0;
   const hasSegments      = (segmentRows ?? []).length > 0;
 
-  const cashNewOrders    = cashNew.orders;
-  const cashRetOrders    = cashRet.orders;
-  const nonCashNewOrders = nonCashNew.orders;
-  const nonCashRetOrders = nonCashRet.orders;
-
   // ── membership new/recurring ──────────────────────────────────────────────
   const memNew       = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;
   const memRecurring = (memTypeRows ?? []).filter((m) => m.membership_type === 'recurring').length;
+
+  // ── stripe aggregation ────────────────────────────────────────────────────
+  const stripeSummary = aggStripeSnapshots((stripeSnaps ?? []) as { payload: unknown }[]);
+
+  // ── derived KPIs ──────────────────────────────────────────────────────────
+  const summaryAsProcessed = {
+    total:      { revenue: total.revenue, profit: total.profit, orders: total.orders },
+    physCash:   { revenue: physCash.revenue },
+    membership: { revenue: membership.revenue },
+  } as Parameters<typeof computeDerivedKPIs>[0];
+
+  const derived = computeDerivedKPIs(
+    summaryAsProcessed,
+    ads?.spend ?? null,
+    ads?.purchases ?? null,
+    stripeSummary?.direct_success_total_cents ?? null,
+    stripeSummary?.refunds_total_cents ?? null,
+  );
 
   // ── aggregate products ────────────────────────────────────────────────────
   const productMap = new Map<string, {
@@ -316,6 +392,21 @@ export default async function RangePage({
               </button>
             </form>
           </div>
+          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)' }} />
+          {/* Range label in top bar */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>{label}</span>
+            {days > 1 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
+                {days}d · {startDate} → {endDate}
+              </span>
+            )}
+            {days === 1 && (
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
+                {startDate}
+              </span>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
@@ -337,41 +428,25 @@ export default async function RangePage({
         </div>
       </div>
 
-      {/* ── RANGE LABEL ───────────────────────────────────────────────────── */}
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1.5rem 1.5rem 0' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', marginBottom: '0.25rem' }}>
-          <span style={{ fontFamily: 'var(--font-serif)', fontSize: '1.5rem', fontWeight: 400 }}>
-            {label}
-          </span>
-          {days > 1 && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--muted)' }}>
-              {days} days · {startDate} → {endDate}
-            </span>
-          )}
-          {days === 1 && (
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.75rem', color: 'var(--muted)' }}>
-              {startDate}
-            </span>
-          )}
+      {/* ── NO DATA ───────────────────────────────────────────────────────── */}
+      {rows.length === 0 && (
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem', color: 'var(--muted)', fontSize: '0.9rem' }}>
+          No data found for this range.
         </div>
-        {rows.length === 0 && (
-          <div style={{ color: 'var(--muted)', fontSize: '0.9rem', marginBottom: '2rem' }}>
-            No data found for this range.
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ── MAIN CONTENT ──────────────────────────────────────────────────── */}
       {rows.length > 0 && (
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '1.5rem' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
           {/* ── TOTAL KPIs ──────────────────────────────────────────────── */}
           <SectionLabel>Total Business</SectionLabel>
+
+          {/* Row 1 — 4 KPI cards */}
           <div style={{
             display: 'grid',
             gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: '1rem',
-            marginBottom: '2rem',
+            gap: 10,
           }}>
             <KpiCard
               label="Total Revenue"
@@ -392,11 +467,55 @@ export default async function RangePage({
             />
           </div>
 
+          {/* Row 2 — 5 TintCards */}
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(5, 1fr)',
+            gap: 10,
+            marginTop: 10,
+            marginBottom: '2rem',
+          }}>
+            <TintCard
+              label="Cash In"
+              value={fmt(derived.cashIn)}
+              sub="Shopify + Members + Stripe"
+              bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
+            />
+            <TintCard
+              label="Ad Cost"
+              value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
+              sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
+              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            />
+            <TintCard
+              label="CPA — Ad"
+              value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
+              sub="attributed orders"
+              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            />
+            <TintCard
+              label="CPA — Blended"
+              value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
+              sub={`all ${total.orders} orders`}
+              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            />
+            <TintCard
+              label="GP − Ads"
+              value={derived.dailyProfit < 0
+                ? `−${fmt(Math.abs(derived.dailyProfit))}`
+                : fmt(derived.dailyProfit)}
+              sub="GP − ad spend"
+              bg="#EEEDFE" border="#AFA9EC"
+              textColor={derived.dailyProfit < 0 ? '#A32D2D' : '#26215C'}
+              subColor="#3C3489"
+            />
+          </div>
+
           {/* ── SALES SEGMENTS ──────────────────────────────────────────── */}
           <SectionLabel>Sales Segments</SectionLabel>
           <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
             <SegmentCard
-              title="Physical Cash"
+              title="Cash"
               theme="cash"
               revenue={physCash.revenue}
               orders={physCash.orders}
@@ -407,10 +526,10 @@ export default async function RangePage({
               profit={physCash.profit}
               margin={physCash.margin}
               aov={physCash.aov}
-              breakdownLabel={hasSegments ? `${cashNewOrders} new · ${cashRetOrders} returning` : undefined}
+              breakdownLabel={hasSegments ? `${cashNew.orders} new · ${cashRet.orders} returning` : undefined}
             />
             <SegmentCard
-              title="Physical Non-Cash"
+              title="Non-Cash"
               theme="noncash"
               revenue={physNonCash.revenue}
               orders={physNonCash.orders}
@@ -421,7 +540,7 @@ export default async function RangePage({
               profit={physNonCash.profit}
               margin={physNonCash.margin}
               aov={physNonCash.aov}
-              breakdownLabel={hasSegments ? `${nonCashNewOrders} new · ${nonCashRetOrders} returning` : undefined}
+              breakdownLabel={hasSegments ? `${nonCashNew.orders} new · ${nonCashRet.orders} returning` : undefined}
             />
             <SegmentCard
               title="Membership"
@@ -515,6 +634,125 @@ export default async function RangePage({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            </>
+          )}
+
+          {/* ── STRIPE ──────────────────────────────────────────────────── */}
+          {stripeSummary && (
+            <>
+              <SectionLabel>Stripe Payments</SectionLabel>
+              <div style={{
+                background: 'var(--surface)',
+                borderRadius: 14,
+                border: '1.5px solid #6366f1',
+                padding: '1.5rem',
+                marginBottom: '2rem',
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+                  <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #bbf7d0' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#15803d', marginBottom: '0.5rem' }}>Successful (direct)</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#15803d', marginBottom: '0.25rem' }}>
+                      {fmt(stripeSummary.direct_success_total_cents / 100)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#166534' }}>
+                      {stripeSummary.direct_success_count} charges · {stripeSummary.direct_success_unique_customers} customers
+                    </div>
+                  </div>
+                  <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
+                      {fmt(stripeSummary.refunds_total_cents / 100)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                      {stripeSummary.refunds_count} refunds
+                    </div>
+                  </div>
+                  <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Failed charges</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
+                      {stripeSummary.failed_count}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
+                      {fmt(stripeSummary.failed_total_cents / 100)} attempted
+                    </div>
+                  </div>
+                </div>
+                {stripeSummary.top_failure_reasons.length > 0 && (
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>Top Decline Reasons</div>
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      {stripeSummary.top_failure_reasons.map(({ reason, count }) => (
+                        <div key={reason} style={{
+                          background: 'var(--surface2)',
+                          border: '1px solid var(--border)',
+                          borderRadius: 6,
+                          padding: '0.3rem 0.65rem',
+                          fontSize: '0.75rem',
+                          display: 'flex',
+                          gap: '0.4rem',
+                          alignItems: 'center',
+                        }}>
+                          <span style={{ fontWeight: 700, color: '#dc2626', fontFamily: 'var(--font-mono)' }}>{count}×</span>
+                          <span style={{ color: 'var(--fg)' }}>{reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div style={{ marginTop: '1rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                  {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* ── META ADS ────────────────────────────────────────────────── */}
+          {ads && (
+            <>
+              <SectionLabel>Meta Advertising</SectionLabel>
+              <div style={{
+                background: 'var(--surface)',
+                borderRadius: 14,
+                border: '1.5px solid #3b82f6',
+                padding: '1.5rem',
+                marginBottom: '2rem',
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+                  {[
+                    { label: 'Ad Spend',    value: fmt(ads.spend),                   accent: '#1d4ed8' },
+                    { label: 'Purchases',   value: String(ads.purchases),             accent: '#15803d' },
+                    { label: 'CPA',         value: fmtDec(ads.cpa),                  accent: '#b45309' },
+                    { label: 'Link Clicks', value: String(ads.link_clicks ?? '—'),    accent: '#6b7280' },
+                  ].map(({ label, value, accent }) => (
+                    <div key={label} style={{ background: 'var(--surface2)', borderRadius: 10, padding: '0.875rem 1rem', border: '1px solid var(--border)' }}>
+                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, marginBottom: '0.4rem' }}>{label}</div>
+                      <div style={{ fontSize: '1.35rem', fontWeight: 700, color: accent }}>{value}</div>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>Funnel</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--muted)' }}>Click → ATC</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#1d4ed8' }}>
+                      {ads.click_to_atc != null ? `${(ads.click_to_atc * 100).toFixed(1)}%` : '—'}
+                    </span>
+                  </div>
+                  <div style={{ color: 'var(--muted)' }}>→</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <span style={{ color: 'var(--muted)' }}>ATC → Purchase</span>
+                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#15803d' }}>
+                      {ads.atc_to_purchase != null ? `${(ads.atc_to_purchase * 100).toFixed(1)}%` : '—'}
+                    </span>
+                  </div>
+                  {ads.atcs != null && (
+                    <>
+                      <div style={{ color: 'var(--muted)' }}>·</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{ads.atcs} ATCs</div>
+                    </>
+                  )}
+                </div>
               </div>
             </>
           )}
