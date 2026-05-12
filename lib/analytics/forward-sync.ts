@@ -110,34 +110,34 @@ export async function runForwardSync(kind: 'forward' | 'manual') {
     }
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
+  } finally {
+    // Always finalize — ensures rows are written even on timeout or thrown error
+    await Promise.allSettled([
+      maxCreatedAt && !lastError
+        ? supabaseAdmin.from('analytics_sync_state').update({
+            last_synced_created_at: maxCreatedAt,
+            last_run_at: new Date().toISOString(),
+            last_run_status: 'ok',
+            last_run_rows: totalFetched,
+            last_run_error: null,
+          }).eq('id', 1)
+        : supabaseAdmin.from('analytics_sync_state').update({
+            last_run_at: new Date().toISOString(),
+            last_run_status: lastError ? 'error' : 'ok',
+            last_run_rows: totalFetched,
+            last_run_error: lastError,
+          }).eq('id', 1),
+      supabaseAdmin.from('analytics_sync_runs').update({
+        finished_at: new Date().toISOString(),
+        rows_fetched: totalFetched,
+        rows_inserted: totalInserted,
+        pages_fetched: pagesCount,
+        http_status: lastHttpStatus,
+        error: lastError,
+        watermark_after_created_at: maxCreatedAt,
+      }).eq('id', runId),
+    ]);
   }
-
-  if (maxCreatedAt && !lastError) {
-    await supabaseAdmin.from('analytics_sync_state').update({
-      last_synced_created_at: maxCreatedAt,
-      last_run_at: new Date().toISOString(),
-      last_run_status: 'ok',
-      last_run_rows: totalFetched,
-      last_run_error: null,
-    }).eq('id', 1);
-  } else {
-    await supabaseAdmin.from('analytics_sync_state').update({
-      last_run_at: new Date().toISOString(),
-      last_run_status: lastError ? 'error' : 'ok',
-      last_run_rows: totalFetched,
-      last_run_error: lastError,
-    }).eq('id', 1);
-  }
-
-  await supabaseAdmin.from('analytics_sync_runs').update({
-    finished_at: new Date().toISOString(),
-    rows_fetched: totalFetched,
-    rows_inserted: totalInserted,
-    pages_fetched: pagesCount,
-    http_status: lastHttpStatus,
-    error: lastError,
-    watermark_after_created_at: maxCreatedAt,
-  }).eq('id', runId);
 
   const ok = !lastError;
   return NextResponse.json({ ok, rows: totalFetched, inserted: totalInserted, pages: pagesCount, error: lastError });
