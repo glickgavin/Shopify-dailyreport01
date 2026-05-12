@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { Json } from '@/lib/types/database';
-import { format } from 'date-fns';
+import { format, addDays } from 'date-fns';
 
-const PAGE_SIZE = 5000;
-const MAX_PAGES = 6;
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 30;
 
 export async function runForwardSync(kind: 'forward' | 'manual') {
   const API_URL = process.env.ANALYTICS_API_URL;
@@ -23,7 +23,9 @@ export async function runForwardSync(kind: 'forward' | 'manual') {
     ? format(new Date(stateRow.last_synced_created_at), 'yyyy-MM-dd')
     : format(new Date(Date.now() - 5 * 60 * 1000), 'yyyy-MM-dd');
 
-  const today = format(new Date(), 'yyyy-MM-dd');
+  // Upstream treats end_date as `<= end_date 00:00`, so we need
+  // tomorrow to actually include today's events.
+  const endDate = format(addDays(new Date(), 1), 'yyyy-MM-dd');
 
   const runId = crypto.randomUUID();
   await supabaseAdmin.from('analytics_sync_runs').insert({
@@ -43,7 +45,7 @@ export async function runForwardSync(kind: 'forward' | 'manual') {
     for (let offset = 0; pagesCount < MAX_PAGES; offset += PAGE_SIZE) {
       const url = new URL(API_URL);
       url.searchParams.set('start_date', watermarkDate);
-      url.searchParams.set('end_date', today);
+      url.searchParams.set('end_date', endDate);
       url.searchParams.set('limit', String(PAGE_SIZE));
       url.searchParams.set('offset', String(offset));
 
