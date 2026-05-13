@@ -410,6 +410,25 @@ export default async function RangePage({
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <a
+            href={preset === 'custom' && from && to
+              ? `/api/export/range/pdf?preset=custom&from=${from}&to=${to}`
+              : `/api/export/range/pdf?preset=${preset ?? '7d'}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.7)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8,
+              padding: '0.4rem 0.875rem',
+              fontSize: '0.8rem',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            PDF
+          </a>
           <Link
             href="/dashboard/history"
             style={{
