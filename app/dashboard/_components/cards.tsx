@@ -200,6 +200,51 @@ export function TintCard({
   );
 }
 
+// ── StripeSegmentCard ─────────────────────────────────────────────────────────
+
+export function StripeSegmentCard({
+  grossCents, refundCents, charges, refunds, uniqueCustomers,
+}: {
+  grossCents: number;
+  refundCents: number;
+  charges: number;
+  refunds: number;
+  uniqueCustomers: number;
+}) {
+  const gross  = grossCents  / 100;
+  const refund = refundCents / 100;
+  const net    = gross - refund;
+
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      borderRadius: 14,
+      border: '1.5px solid #6366f1',
+      padding: '1.5rem',
+      flex: 1,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#6366f1' }} />
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4338ca', fontWeight: 500 }}>
+          Stripe
+        </span>
+      </div>
+      <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: '#4338ca' }}>
+        {fmt(net)}
+      </div>
+      <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
+        {charges} charges · {refunds} refund{refunds !== 1 ? 's' : ''}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
+        <MiniStat label="Gross"    value={fmtDec(gross)}  />
+        <MiniStat label="Refunds"  value={fmtDec(refund)} />
+        <MiniStat label="Net"      value={fmtDec(net)}    />
+        <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="#eef2ff" />
+      </div>
+    </div>
+  );
+}
+
 // ── SectionLabel ──────────────────────────────────────────────────────────────
 
 export function SectionLabel({ children }: { children: React.ReactNode }) {

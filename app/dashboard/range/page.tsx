@@ -6,7 +6,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct,
-  KpiCard, TintCard, SegmentCard, SectionLabel,
+  KpiCard, TintCard, SegmentCard, StripeSegmentCard, SectionLabel,
 } from '../_components/cards';
 
 export const dynamic = 'force-dynamic';
@@ -255,6 +255,8 @@ export default async function RangePage({
   const stripeSummary = aggStripeSnapshots((stripeSnaps ?? []) as { payload: unknown }[]);
 
   // ── derived KPIs ──────────────────────────────────────────────────────────
+  const productOrders = physCash.orders + physNonCash.orders;
+
   const summaryAsProcessed = {
     total:      { revenue: total.revenue, profit: total.profit, orders: total.orders },
     physCash:   { revenue: physCash.revenue },
@@ -267,6 +269,7 @@ export default async function RangePage({
     ads?.purchases ?? null,
     stripeSummary?.direct_success_total_cents ?? null,
     stripeSummary?.refunds_total_cents ?? null,
+    productOrders,
   );
 
   // ── aggregate products ────────────────────────────────────────────────────
@@ -447,6 +450,13 @@ export default async function RangePage({
         </div>
       </div>
 
+      <style>{`
+        @media (max-width: 768px) {
+          .desktop-only { display: none !important; }
+          .segments-row { flex-direction: column !important; }
+        }
+      `}</style>
+
       {/* ── NO DATA ───────────────────────────────────────────────────────── */}
       {rows.length === 0 && (
         <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem', color: 'var(--muted)', fontSize: '0.9rem' }}>
@@ -470,7 +480,7 @@ export default async function RangePage({
             <KpiCard
               label="Total Revenue"
               value={fmt(total.revenue)}
-              sub={`${total.orders} orders · ${total.qty} units`}
+              sub={`${total.orders} orders · ${productOrders} product · ${total.qty} units`}
             />
             <KpiCard
               label="Gross Profit"
@@ -515,7 +525,7 @@ export default async function RangePage({
             <TintCard
               label="CPA — Blended"
               value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
-              sub={`all ${total.orders} orders`}
+              sub={`${productOrders} product orders`}
               bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             />
             <TintCard
@@ -532,7 +542,7 @@ export default async function RangePage({
 
           {/* ── SALES SEGMENTS ──────────────────────────────────────────── */}
           <SectionLabel>Sales Segments</SectionLabel>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+          <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
             <SegmentCard
               title="Cash"
               theme="cash"
@@ -575,11 +585,20 @@ export default async function RangePage({
               aov={membership.aov}
               breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
             />
+            {stripeSummary && (
+              <StripeSegmentCard
+                grossCents={stripeSummary.direct_success_total_cents}
+                refundCents={stripeSummary.refunds_total_cents}
+                charges={stripeSummary.direct_success_count}
+                refunds={stripeSummary.refunds_count}
+                uniqueCustomers={stripeSummary.direct_success_unique_customers}
+              />
+            )}
           </div>
 
           {/* ── CUSTOMER MIX ────────────────────────────────────────────── */}
           {hasSegments && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Customer Mix</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -654,12 +673,12 @@ export default async function RangePage({
                   </tbody>
                 </table>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── STRIPE ──────────────────────────────────────────────────── */}
           {stripeSummary && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Stripe Payments</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -723,12 +742,12 @@ export default async function RangePage({
                   {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── META ADS ────────────────────────────────────────────────── */}
           {ads && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Meta Advertising</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -773,10 +792,11 @@ export default async function RangePage({
                   )}
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── PRODUCTS TABLE ──────────────────────────────────────────── */}
+          <div className="desktop-only">
           <SectionLabel>Products</SectionLabel>
           <div style={{
             background: 'var(--surface)',
@@ -848,10 +868,11 @@ export default async function RangePage({
               </tfoot>
             </table>
           </div>
+          </div>
 
           {/* ── CHART ───────────────────────────────────────────────────── */}
           {chartData.length > 0 && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Revenue by Product</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -862,7 +883,7 @@ export default async function RangePage({
               }}>
                 <RevenueChart data={chartData} />
               </div>
-            </>
+            </div>
           )}
 
         </div>

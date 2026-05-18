@@ -94,6 +94,7 @@ export function computeDerivedKPIs(
   adPurchases: number | null,
   stripeDirectCents: number | null,
   stripeRefundCents: number | null,
+  productOrders?: number,
 ): DerivedKPIs {
   const stripeRevenue = (stripeDirectCents ?? 0) / 100;
   const stripeRefunds = (stripeRefundCents ?? 0) / 100;
@@ -106,8 +107,9 @@ export function computeDerivedKPIs(
 
   const adCost  = adSpend     ?? 0;
   const adPurch = adPurchases ?? 0;
-  const cpaAd       = adCost > 0 && adPurch > 0                  ? adCost / adPurch               : null;
-  const cpaBlended  = adCost > 0 && processed.total.orders > 0   ? adCost / processed.total.orders : null;
+  const blendedDenom = productOrders ?? processed.total.orders;
+  const cpaAd       = adCost > 0 && adPurch > 0        ? adCost / adPurch        : null;
+  const cpaBlended  = adCost > 0 && blendedDenom > 0   ? adCost / blendedDenom   : null;
   const dailyProfit = processed.total.profit - adCost;
 
   return { cashIn, adCost, adPurchases: adPurch, cpaAd, cpaBlended, dailyProfit };

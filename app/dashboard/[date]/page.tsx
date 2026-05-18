@@ -10,7 +10,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct, calcDelta,
-  KpiCard, SegmentCard, SectionLabel, TintCard,
+  KpiCard, SegmentCard, StripeSegmentCard, SectionLabel, TintCard,
 } from '../_components/cards';
 
 // ── page ─────────────────────────────────────────────────────────────────────
@@ -109,6 +109,8 @@ export default async function DashboardPage({ params }: { params: { date: string
 
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
+  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0);
+
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
     physCash:   { revenue: summary.phys_cash_revenue  },
@@ -121,6 +123,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     ads?.purchases ?? null,
     stripeSummary?.direct_success_total_cents ?? null,
     stripeSummary?.refunds_total_cents        ?? null,
+    productOrders,
   );
 
   const prevDerived = prevSummary ? computeDerivedKPIs(
@@ -255,6 +258,12 @@ export default async function DashboardPage({ params }: { params: { date: string
       </div>
 
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
+      <style>{`
+        @media (max-width: 768px) {
+          .desktop-only { display: none !important; }
+          .segments-row { flex-direction: column !important; }
+        }
+      `}</style>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
@@ -269,7 +278,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="Total Revenue"
             value={fmt(summary.total_revenue)}
-            sub={`${summary.total_orders} orders · ${summary.total_qty} units`}
+            sub={`${summary.total_orders} orders · ${productOrders} product · ${summary.total_qty} units`}
             delta={calcDelta(summary.total_revenue, prevSummary?.total_revenue)}
             sparkData={sparkData}
           />
@@ -323,7 +332,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <TintCard
             label="CPA — Blended"
             value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
-            sub={`all ${summary.total_orders} orders`}
+            sub={`${productOrders} product orders`}
             bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             delta={derived.cpaBlended !== null ? { pct: cpaBlendedDelta, inverted: true } : undefined}
           />
@@ -342,7 +351,7 @@ export default async function DashboardPage({ params }: { params: { date: string
 
         {/* ── SALES SEGMENTS ──────────────────────────────────────────────── */}
         <SectionLabel>Sales Segments</SectionLabel>
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+        <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
           <SegmentCard
             theme="cash"
             title="Cash"
@@ -385,11 +394,20 @@ export default async function DashboardPage({ params }: { params: { date: string
             aov={summary.mem_aov}
             breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
           />
+          {stripeSummary && (
+            <StripeSegmentCard
+              grossCents={stripeSummary.direct_success_total_cents}
+              refundCents={stripeSummary.refunds_total_cents}
+              charges={stripeSummary.direct_success_count}
+              refunds={stripeSummary.refunds_count}
+              uniqueCustomers={stripeSummary.direct_success_unique_customers}
+            />
+          )}
         </div>
 
         {/* ── CUSTOMER MIX ────────────────────────────────────────────────── */}
         {hasSegments && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Customer Mix</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -467,12 +485,12 @@ export default async function DashboardPage({ params }: { params: { date: string
                 </tbody>
               </table>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── STRIPE ──────────────────────────────────────────────────────── */}
         {stripeSummary && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Stripe Payments</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -542,12 +560,12 @@ export default async function DashboardPage({ params }: { params: { date: string
                 {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── META ADS ────────────────────────────────────────────────────── */}
         {ads && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Meta Advertising</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -593,10 +611,11 @@ export default async function DashboardPage({ params }: { params: { date: string
                 )}
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── PRODUCTS TABLE ──────────────────────────────────────────────── */}
+        <div className="desktop-only">
         <SectionLabel>Products</SectionLabel>
         <div style={{
           background: 'var(--surface)',
@@ -654,10 +673,11 @@ export default async function DashboardPage({ params }: { params: { date: string
             </tbody>
           </table>
         </div>
+        </div>
 
         {/* ── REVENUE CHART ───────────────────────────────────────────────── */}
         {chartData.length > 0 && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Revenue by Product</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -668,7 +688,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             }}>
               <RevenueChart data={chartData} />
             </div>
-          </>
+          </div>
         )}
 
       </div>
