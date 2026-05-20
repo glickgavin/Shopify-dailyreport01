@@ -275,7 +275,7 @@ export default async function MetaAdsPage({
             </div>
             {isToday && (
               <Link href="/dashboard/meta-ads?range=yesterday" style={{ display: 'inline-block', marginTop: '0.75rem', padding: '0.4rem 1rem', background: '#1a1a2e', color: '#fff', borderRadius: 8, fontSize: '0.8rem', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}>
-                View yesterday's results
+                View yesterday&apos;s results
               </Link>
             )}
           </div>
@@ -284,7 +284,7 @@ export default async function MetaAdsPage({
         {/* Note callout */}
         {hasNullMetrics && !noSpend && (
           <div style={{ background: '#fef9c3', border: '1px solid #fde047', borderRadius: 10, padding: '0.75rem 1rem', marginBottom: '1.5rem', fontSize: '0.8rem', color: '#854d0e' }}>
-            ROAS, CTR, CPC may show N/A if purchase value events aren't flowing through your Meta pixel.
+            ROAS, CTR, CPC may show N/A if purchase value events aren&apos;t flowing through your Meta pixel.
           </div>
         )}
 
