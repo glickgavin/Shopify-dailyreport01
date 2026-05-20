@@ -58,6 +58,8 @@ export default async function DashboardPage({ params }: { params: { date: string
   const cashRetSeg      = seg('cash',     'returning');
   const nonCashNewSeg   = seg('non_cash', 'new');
   const nonCashRetSeg   = seg('non_cash', 'returning');
+  const internalNewSeg  = seg('internal', 'new');
+  const internalRetSeg  = seg('internal', 'returning');
 
   const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0);
   const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0);
@@ -454,34 +456,39 @@ export default async function DashboardPage({ params }: { params: { date: string
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    { seg: 'Cash',     ct: 'new',       s: cashNewSeg,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#1d4ed8' },
-                    { seg: 'Cash',     ct: 'returning',  s: cashRetSeg,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#6b7280' },
-                    { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg, payAccent: 'var(--nc-green-dark)',   ctAccent: '#1d4ed8' },
-                    { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg, payAccent: 'var(--nc-green-dark)',   ctAccent: '#6b7280' },
-                  ].map(({ seg, ct, s, payAccent, ctAccent }, i) => (
-                    <tr key={`${seg}-${ct}`} style={{ borderBottom: i < 3 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
-                      <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{seg}</td>
-                      <td style={{ padding: '0.5rem 0.75rem' }}>
-                        <span style={{
-                          fontSize: '0.65rem',
-                          fontFamily: 'var(--font-mono)',
-                          padding: '0.15rem 0.4rem',
-                          borderRadius: 5,
-                          background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
-                          color: ctAccent,
-                          fontWeight: 600,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                        }}>{ct}</span>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s?.orders ?? 0}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s?.revenue ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.net_sales ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s?.margin ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.aov ?? 0)}</td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const rows = [
+                      { seg: 'Cash',     ct: 'new',       s: cashNewSeg,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                      { seg: 'Cash',     ct: 'returning', s: cashRetSeg,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                      { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg, payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                      { seg: 'Non-Cash', ct: 'returning', s: nonCashRetSeg, payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                      { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',              ctAccent: '#1d4ed8' },
+                      { seg: 'Internal', ct: 'returning', s: internalRetSeg, payAccent: '#92400e',              ctAccent: '#6b7280' },
+                    ];
+                    return rows.map(({ seg, ct, s, payAccent, ctAccent }, i) => (
+                      <tr key={`${seg}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
+                        <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{seg}</td>
+                        <td style={{ padding: '0.5rem 0.75rem' }}>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            fontFamily: 'var(--font-mono)',
+                            padding: '0.15rem 0.4rem',
+                            borderRadius: 5,
+                            background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
+                            color: ctAccent,
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                          }}>{ct}</span>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s?.orders ?? 0}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s?.revenue ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.net_sales ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s?.margin ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.aov ?? 0)}</td>
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
