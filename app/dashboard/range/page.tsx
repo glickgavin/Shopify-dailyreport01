@@ -234,6 +234,8 @@ export default async function RangePage({
   const cashRet      = seg('cash',     'returning');
   const nonCashNew   = seg('non_cash', 'new');
   const nonCashRet   = seg('non_cash', 'returning');
+  const internalNew  = seg('internal', 'new');
+  const internalRet  = seg('internal', 'returning');
 
   const totalNewOrders   = cashNew.orders  + nonCashNew.orders;
   const totalRetOrders   = cashRet.orders  + nonCashRet.orders;
@@ -642,13 +644,17 @@ export default async function RangePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {[
-                      { segLabel: 'Cash',     ct: 'new',       s: cashNew,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#1d4ed8' },
-                      { segLabel: 'Cash',     ct: 'returning', s: cashRet,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#6b7280' },
-                      { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew, payAccent: 'var(--nc-green-dark)',   ctAccent: '#1d4ed8' },
-                      { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet, payAccent: 'var(--nc-green-dark)',   ctAccent: '#6b7280' },
-                    ].map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
-                      <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < 3 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
+                    {(() => {
+                      const rows = [
+                        { segLabel: 'Cash',     ct: 'new',       s: cashNew,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                        { segLabel: 'Cash',     ct: 'returning', s: cashRet,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                        { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew, payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                        { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet, payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                        { segLabel: 'Internal', ct: 'new',       s: internalNew, payAccent: '#92400e',              ctAccent: '#1d4ed8' },
+                        { segLabel: 'Internal', ct: 'returning', s: internalRet, payAccent: '#92400e',              ctAccent: '#6b7280' },
+                      ];
+                      return rows.map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
+                      <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
                         <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{segLabel}</td>
                         <td style={{ padding: '0.5rem 0.75rem' }}>
                           <span style={{
@@ -669,7 +675,8 @@ export default async function RangePage({
                         <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s.margin)}</td>
                         <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.aov)}</td>
                       </tr>
-                    ))}
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
