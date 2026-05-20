@@ -10,7 +10,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct, calcDelta,
-  KpiCard, SegmentCard, StripeSegmentCard, SectionLabel, TintCard,
+  KpiCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel, TintCard,
 } from '../_components/cards';
 
 // ── page ─────────────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     { data: segments },
     { data: stripeSnap },
     { data: prevStripeSnap },
+    { data: paypalSnap },
     ads,
     prevAds,
   ] = await Promise.all([
@@ -46,6 +47,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', prevDate).single(),
+    supabaseAdmin.from('paypal_daily_snapshot').select('payload').eq('date', date).single(),
     fetchAds(date),
     fetchAds(prevDate),
   ]);
@@ -107,6 +109,20 @@ export default async function DashboardPage({ params }: { params: { date: string
     : null;
   const prevStripeSummary = prevStripeSnap
     ? ((prevStripeSnap.payload as unknown as { summary: StripeSummary }).summary)
+    : null;
+
+  type PayPalSummary = {
+    direct_success_count: number;
+    direct_success_total_cents: number;
+    direct_success_unique_customers: number;
+    refunds_count: number;
+    refunds_total_cents: number;
+    denied_count: number;
+    denied_total_cents: number;
+    shopify_filtered_count: number;
+  };
+  const paypalSummary = paypalSnap
+    ? ((paypalSnap.payload as unknown as { summary: PayPalSummary }).summary)
     : null;
 
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
@@ -405,6 +421,15 @@ export default async function DashboardPage({ params }: { params: { date: string
               uniqueCustomers={stripeSummary.direct_success_unique_customers}
             />
           )}
+          {paypalSummary && (
+            <PayPalSegmentCard
+              grossCents={paypalSummary.direct_success_total_cents}
+              refundCents={paypalSummary.refunds_total_cents}
+              transactions={paypalSummary.direct_success_count}
+              refunds={paypalSummary.refunds_count}
+              uniqueCustomers={paypalSummary.direct_success_unique_customers}
+            />
+          )}
         </div>
 
         {/* ── CUSTOMER MIX ────────────────────────────────────────────────── */}
@@ -565,6 +590,56 @@ export default async function DashboardPage({ params }: { params: { date: string
 
               <div style={{ marginTop: '1rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
                 {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── PAYPAL ──────────────────────────────────────────────────────── */}
+        {paypalSummary && (
+          <div className="desktop-only">
+            <SectionLabel>PayPal Payments</SectionLabel>
+            <div style={{
+              background: 'var(--surface)',
+              borderRadius: 14,
+              border: '1.5px solid #003087',
+              padding: '1.5rem',
+              marginBottom: '2rem',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+                {/* Successful */}
+                <div style={{ background: '#e8f0fe', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #b3c6f7' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#003087', marginBottom: '0.5rem' }}>Successful (direct)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#003087', marginBottom: '0.25rem' }}>
+                    {fmt(paypalSummary.direct_success_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#001f5b' }}>
+                    {paypalSummary.direct_success_count} transactions · {paypalSummary.direct_success_unique_customers} customers
+                  </div>
+                </div>
+                {/* Refunds */}
+                <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
+                    {fmt(paypalSummary.refunds_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                    {paypalSummary.refunds_count} refunds
+                  </div>
+                </div>
+                {/* Denied */}
+                <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Denied</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
+                    {paypalSummary.denied_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
+                    {fmt(paypalSummary.denied_total_cents / 100)} attempted
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                {paypalSummary.shopify_filtered_count} Shopify-routed PayPal transactions excluded · PayPal totals not included in Cash In
               </div>
             </div>
           </div>
