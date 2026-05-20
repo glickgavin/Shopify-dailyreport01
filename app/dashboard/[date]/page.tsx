@@ -458,12 +458,12 @@ export default async function DashboardPage({ params }: { params: { date: string
                 <tbody>
                   {(() => {
                     const rows = [
-                      { seg: 'Cash',     ct: 'new',       s: cashNewSeg,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
-                      { seg: 'Cash',     ct: 'returning', s: cashRetSeg,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
-                      { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg, payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
-                      { seg: 'Non-Cash', ct: 'returning', s: nonCashRetSeg, payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
-                      { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',              ctAccent: '#1d4ed8' },
-                      { seg: 'Internal', ct: 'returning', s: internalRetSeg, payAccent: '#92400e',              ctAccent: '#6b7280' },
+                      { seg: 'Cash',     ct: 'new',       s: cashNewSeg,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                      { seg: 'Cash',     ct: 'returning',  s: cashRetSeg,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                      { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                      { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                      { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
+                      { seg: 'Internal', ct: 'returning',  s: internalRetSeg, payAccent: '#92400e',               ctAccent: '#6b7280' },
                     ];
                     return rows.map(({ seg, ct, s, payAccent, ctAccent }, i) => (
                       <tr key={`${seg}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
