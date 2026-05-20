@@ -91,11 +91,18 @@ export default async function UserJourneyPage({ searchParams }: Props) {
     return `${Math.floor(s / 60)}m ${s % 60}s`;
   };
 
+  const totalEvents = filtered.length;
+  const totalSessions = sessions.length;
+  const avgEventsPerSession = totalSessions > 0 ? (totalEvents / totalSessions).toFixed(1) : '—';
+  const avgDuration = totalSessions > 0
+    ? fmtDuration(Math.round(sessions.reduce((s, x) => s + x.duration_s, 0) / totalSessions))
+    : '—';
+
   return (
     <div style={{ padding: '2rem', maxWidth: 1100 }}>
       <div style={{ marginBottom: '1rem' }}>
         <h1 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 4 }}>User Journey</h1>
-        <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{label} · {sessions.length.toLocaleString()} sessions</p>
+        <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{label}</p>
       </div>
 
       <AnalyticsFilterBar
@@ -105,6 +112,21 @@ export default async function UserJourneyPage({ searchParams }: Props) {
         devices={devices}
         excludePreview={excludePreview}
       />
+
+      {/* Summary stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, margin: '1rem 0' }}>
+        {[
+          { label: 'Total Sessions',   value: totalSessions.toLocaleString() },
+          { label: 'Total Events',     value: totalEvents.toLocaleString() },
+          { label: 'Events / Session', value: avgEventsPerSession },
+          { label: 'Avg Duration',     value: avgDuration },
+        ].map(({ label: lbl, value }) => (
+          <div key={lbl} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '0.875rem 1rem' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.4rem' }}>{lbl}</div>
+            <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--text)' }}>{value}</div>
+          </div>
+        ))}
+      </div>
 
       {error && (
         <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '0.75rem 1rem', marginTop: '1rem', color: '#991b1b', fontSize: '0.85rem' }}>{error}</div>

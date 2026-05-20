@@ -10,7 +10,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct, calcDelta,
-  KpiCard, SegmentCard, SectionLabel, TintCard,
+  KpiCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel, TintCard,
 } from '../_components/cards';
 
 // ── page ─────────────────────────────────────────────────────────────────────
@@ -35,6 +35,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     { data: segments },
     { data: stripeSnap },
     { data: prevStripeSnap },
+    { data: paypalSnap },
     ads,
     prevAds,
   ] = await Promise.all([
@@ -46,6 +47,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', prevDate).single(),
+    supabaseAdmin.from('paypal_daily_snapshot').select('payload').eq('date', date).single(),
     fetchAds(date),
     fetchAds(prevDate),
   ]);
@@ -58,6 +60,8 @@ export default async function DashboardPage({ params }: { params: { date: string
   const cashRetSeg      = seg('cash',     'returning');
   const nonCashNewSeg   = seg('non_cash', 'new');
   const nonCashRetSeg   = seg('non_cash', 'returning');
+  const internalNewSeg  = seg('internal', 'new');
+  const internalRetSeg  = seg('internal', 'returning');
 
   const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0);
   const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0);
@@ -107,8 +111,24 @@ export default async function DashboardPage({ params }: { params: { date: string
     ? ((prevStripeSnap.payload as unknown as { summary: StripeSummary }).summary)
     : null;
 
+  type PayPalSummary = {
+    direct_success_count: number;
+    direct_success_total_cents: number;
+    direct_success_unique_customers: number;
+    refunds_count: number;
+    refunds_total_cents: number;
+    denied_count: number;
+    denied_total_cents: number;
+    shopify_filtered_count: number;
+  };
+  const paypalSummary = paypalSnap
+    ? ((paypalSnap.payload as unknown as { summary: PayPalSummary }).summary)
+    : null;
+
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
+  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0);
+
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
     physCash:   { revenue: summary.phys_cash_revenue  },
@@ -121,6 +141,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     ads?.purchases ?? null,
     stripeSummary?.direct_success_total_cents ?? null,
     stripeSummary?.refunds_total_cents        ?? null,
+    productOrders,
   );
 
   const prevDerived = prevSummary ? computeDerivedKPIs(
@@ -255,6 +276,12 @@ export default async function DashboardPage({ params }: { params: { date: string
       </div>
 
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
+      <style>{`
+        @media (max-width: 768px) {
+          .desktop-only { display: none !important; }
+          .segments-row { flex-direction: column !important; }
+        }
+      `}</style>
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
@@ -269,7 +296,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="Total Revenue"
             value={fmt(summary.total_revenue)}
-            sub={`${summary.total_orders} orders · ${summary.total_qty} units`}
+            sub={`${summary.total_orders} orders · ${productOrders} product · ${summary.total_qty} units`}
             delta={calcDelta(summary.total_revenue, prevSummary?.total_revenue)}
             sparkData={sparkData}
           />
@@ -323,7 +350,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <TintCard
             label="CPA — Blended"
             value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
-            sub={`all ${summary.total_orders} orders`}
+            sub={`${productOrders} product orders`}
             bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             delta={derived.cpaBlended !== null ? { pct: cpaBlendedDelta, inverted: true } : undefined}
           />
@@ -342,7 +369,7 @@ export default async function DashboardPage({ params }: { params: { date: string
 
         {/* ── SALES SEGMENTS ──────────────────────────────────────────────── */}
         <SectionLabel>Sales Segments</SectionLabel>
-        <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+        <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
           <SegmentCard
             theme="cash"
             title="Cash"
@@ -385,11 +412,29 @@ export default async function DashboardPage({ params }: { params: { date: string
             aov={summary.mem_aov}
             breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
           />
+          {stripeSummary && (
+            <StripeSegmentCard
+              grossCents={stripeSummary.direct_success_total_cents}
+              refundCents={stripeSummary.refunds_total_cents}
+              charges={stripeSummary.direct_success_count}
+              refunds={stripeSummary.refunds_count}
+              uniqueCustomers={stripeSummary.direct_success_unique_customers}
+            />
+          )}
+          {paypalSummary && (
+            <PayPalSegmentCard
+              grossCents={paypalSummary.direct_success_total_cents}
+              refundCents={paypalSummary.refunds_total_cents}
+              transactions={paypalSummary.direct_success_count}
+              refunds={paypalSummary.refunds_count}
+              uniqueCustomers={paypalSummary.direct_success_unique_customers}
+            />
+          )}
         </div>
 
         {/* ── CUSTOMER MIX ────────────────────────────────────────────────── */}
         {hasSegments && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Customer Mix</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -436,43 +481,48 @@ export default async function DashboardPage({ params }: { params: { date: string
                   </tr>
                 </thead>
                 <tbody>
-                  {[
-                    { seg: 'Cash',     ct: 'new',       s: cashNewSeg,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#1d4ed8' },
-                    { seg: 'Cash',     ct: 'returning',  s: cashRetSeg,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#6b7280' },
-                    { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg, payAccent: 'var(--nc-green-dark)',   ctAccent: '#1d4ed8' },
-                    { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg, payAccent: 'var(--nc-green-dark)',   ctAccent: '#6b7280' },
-                  ].map(({ seg, ct, s, payAccent, ctAccent }, i) => (
-                    <tr key={`${seg}-${ct}`} style={{ borderBottom: i < 3 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
-                      <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{seg}</td>
-                      <td style={{ padding: '0.5rem 0.75rem' }}>
-                        <span style={{
-                          fontSize: '0.65rem',
-                          fontFamily: 'var(--font-mono)',
-                          padding: '0.15rem 0.4rem',
-                          borderRadius: 5,
-                          background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
-                          color: ctAccent,
-                          fontWeight: 600,
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.05em',
-                        }}>{ct}</span>
-                      </td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s?.orders ?? 0}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s?.revenue ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.net_sales ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s?.margin ?? 0)}</td>
-                      <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.aov ?? 0)}</td>
-                    </tr>
-                  ))}
+                  {(() => {
+                    const rows = [
+                      { seg: 'Cash',     ct: 'new',       s: cashNewSeg,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                      { seg: 'Cash',     ct: 'returning',  s: cashRetSeg,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                      { seg: 'Non-Cash', ct: 'new',       s: nonCashNewSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                      { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                      { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
+                      { seg: 'Internal', ct: 'returning',  s: internalRetSeg, payAccent: '#92400e',               ctAccent: '#6b7280' },
+                    ];
+                    return rows.map(({ seg, ct, s, payAccent, ctAccent }, i) => (
+                      <tr key={`${seg}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
+                        <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{seg}</td>
+                        <td style={{ padding: '0.5rem 0.75rem' }}>
+                          <span style={{
+                            fontSize: '0.65rem',
+                            fontFamily: 'var(--font-mono)',
+                            padding: '0.15rem 0.4rem',
+                            borderRadius: 5,
+                            background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
+                            color: ctAccent,
+                            fontWeight: 600,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.05em',
+                          }}>{ct}</span>
+                        </td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s?.orders ?? 0}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s?.revenue ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.net_sales ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s?.margin ?? 0)}</td>
+                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s?.aov ?? 0)}</td>
+                      </tr>
+                    ));
+                  })()}
                 </tbody>
               </table>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── STRIPE ──────────────────────────────────────────────────────── */}
         {stripeSummary && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Stripe Payments</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -542,12 +592,62 @@ export default async function DashboardPage({ params }: { params: { date: string
                 {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
               </div>
             </div>
-          </>
+          </div>
+        )}
+
+        {/* ── PAYPAL ──────────────────────────────────────────────────────── */}
+        {paypalSummary && (
+          <div className="desktop-only">
+            <SectionLabel>PayPal Payments</SectionLabel>
+            <div style={{
+              background: 'var(--surface)',
+              borderRadius: 14,
+              border: '1.5px solid #003087',
+              padding: '1.5rem',
+              marginBottom: '2rem',
+            }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+                {/* Successful */}
+                <div style={{ background: '#e8f0fe', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #b3c6f7' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#003087', marginBottom: '0.5rem' }}>Successful (direct)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#003087', marginBottom: '0.25rem' }}>
+                    {fmt(paypalSummary.direct_success_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#001f5b' }}>
+                    {paypalSummary.direct_success_count} transactions · {paypalSummary.direct_success_unique_customers} customers
+                  </div>
+                </div>
+                {/* Refunds */}
+                <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
+                    {fmt(paypalSummary.refunds_total_cents / 100)}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                    {paypalSummary.refunds_count} refunds
+                  </div>
+                </div>
+                {/* Denied */}
+                <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Denied</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
+                    {paypalSummary.denied_count}
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
+                    {fmt(paypalSummary.denied_total_cents / 100)} attempted
+                  </div>
+                </div>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                {paypalSummary.shopify_filtered_count} Shopify-routed PayPal transactions excluded · PayPal totals not included in Cash In
+              </div>
+            </div>
+          </div>
         )}
 
         {/* ── META ADS ────────────────────────────────────────────────────── */}
         {ads && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Meta Advertising</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -593,10 +693,11 @@ export default async function DashboardPage({ params }: { params: { date: string
                 )}
               </div>
             </div>
-          </>
+          </div>
         )}
 
         {/* ── PRODUCTS TABLE ──────────────────────────────────────────────── */}
+        <div className="desktop-only">
         <SectionLabel>Products</SectionLabel>
         <div style={{
           background: 'var(--surface)',
@@ -654,10 +755,11 @@ export default async function DashboardPage({ params }: { params: { date: string
             </tbody>
           </table>
         </div>
+        </div>
 
         {/* ── REVENUE CHART ───────────────────────────────────────────────── */}
         {chartData.length > 0 && (
-          <>
+          <div className="desktop-only">
             <SectionLabel>Revenue by Product</SectionLabel>
             <div style={{
               background: 'var(--surface)',
@@ -668,7 +770,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             }}>
               <RevenueChart data={chartData} />
             </div>
-          </>
+          </div>
         )}
 
       </div>

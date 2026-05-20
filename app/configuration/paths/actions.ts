@@ -6,10 +6,14 @@ export async function savePathDefinition(input: {
   canonical_name: string;
   description: string | null;
 }): Promise<{ error?: string }> {
-  const { error } = await supabaseAdmin
+  const { error, data } = await supabaseAdmin
     .from('analytics_path_definitions')
-    .upsert(input, { onConflict: 'path_pattern' });
-  return { error: error?.message };
+    .upsert(input, { onConflict: 'path_pattern' })
+    .select('id')
+    .single();
+  if (error) return { error: error.message };
+  if (!data) return { error: 'No row returned — upsert may have been blocked by a database policy' };
+  return {};
 }
 
 export async function deletePathDefinition(id: number): Promise<{ error?: string }> {

@@ -49,6 +49,8 @@ export interface ProcessedDay {
   cashReturning: SummaryBlock;
   nonCashNew: SummaryBlock;
   nonCashReturning: SummaryBlock;
+  internalNew: SummaryBlock;
+  internalReturning: SummaryBlock;
   products: ProductLine[];
   memOrders: MemberOrder[];
 }
@@ -94,6 +96,7 @@ export function computeDerivedKPIs(
   adPurchases: number | null,
   stripeDirectCents: number | null,
   stripeRefundCents: number | null,
+  productOrders?: number,
 ): DerivedKPIs {
   const stripeRevenue = (stripeDirectCents ?? 0) / 100;
   const stripeRefunds = (stripeRefundCents ?? 0) / 100;
@@ -106,8 +109,9 @@ export function computeDerivedKPIs(
 
   const adCost  = adSpend     ?? 0;
   const adPurch = adPurchases ?? 0;
-  const cpaAd       = adCost > 0 && adPurch > 0                  ? adCost / adPurch               : null;
-  const cpaBlended  = adCost > 0 && processed.total.orders > 0   ? adCost / processed.total.orders : null;
+  const blendedDenom = productOrders ?? processed.total.orders;
+  const cpaAd       = adCost > 0 && adPurch > 0        ? adCost / adPurch        : null;
+  const cpaBlended  = adCost > 0 && blendedDenom > 0   ? adCost / blendedDenom   : null;
   const dailyProfit = processed.total.profit - adCost;
 
   return { cashIn, adCost, adPurchases: adPurch, cpaAd, cpaBlended, dailyProfit };
@@ -128,6 +132,8 @@ export function processDay(
   const cashReturning = emptyBlock();
   const nonCashNew = emptyBlock();
   const nonCashReturning = emptyBlock();
+  const internalNew = emptyBlock();
+  const internalReturning = emptyBlock();
 
   const totalOrders = new Set<string>();
   const physCashOrders = new Set<string>();
@@ -139,9 +145,26 @@ export function processDay(
   const cashReturningOrders = new Set<string>();
   const nonCashNewOrders = new Set<string>();
   const nonCashReturningOrders = new Set<string>();
+  const internalNewOrders = new Set<string>();
+  const internalReturningOrders = new Set<string>();
 
   const productMap = new Map<string, ProductLine & { orderSet: Set<string> }>();
   const memOrderMap = new Map<string, MemberOrder>();
+
+  // Identify "internal" orders: order-level revenue = $0.
+  // Typically comp/redo/internal orders. Still counted in day totals,
+  // but surfaced as a separate segment so they don't pollute Cash/Non-Cash AOV and margin.
+  const orderRevenue = new Map<string, number>();
+  for (const row of orderRows) {
+    orderRevenue.set(
+      row.order_name,
+      (orderRevenue.get(row.order_name) ?? 0) + row.net_sales + row.shipping_charges,
+    );
+  }
+  const internalOrderNames = new Set<string>();
+  orderRevenue.forEach((rev, name) => {
+    if (rev === 0) internalOrderNames.add(name);
+  });
 
   for (const row of orderRows) {
     const type = itemType(row.product_title_at_time_of_sale || row.product_title);
@@ -158,7 +181,18 @@ export function processDay(
 
     if (type === 'Physical') {
       const ct = row.customer_type;
-      if (group === 'Cash') {
+      const isInternal = internalOrderNames.has(row.order_name);
+
+      if (isInternal) {
+        const intBlock  = ct === 'new' ? internalNew : internalReturning;
+        const intOrders = ct === 'new' ? internalNewOrders : internalReturningOrders;
+        intBlock.netSales += row.net_sales;
+        intBlock.shipping += row.shipping_charges;
+        intBlock.revenue  += revenue;
+        intBlock.cogs     += row.cost_of_goods_sold;
+        intBlock.qty      += row.quantity_ordered;
+        intOrders.add(row.order_name);
+      } else if (group === 'Cash') {
         physCash.netSales += row.net_sales;
         physCash.shipping += row.shipping_charges;
         physCash.revenue += revenue;
@@ -192,15 +226,17 @@ export function processDay(
         ncOrders.add(row.order_name);
       }
 
-      // cross-totals by customer type (physical only, to match cashNew+nonCashNew)
-      const custBlock = ct === 'new' ? custNew : custReturning;
-      const custOrderSet = ct === 'new' ? custNewOrders : custReturningOrders;
-      custBlock.netSales += row.net_sales;
-      custBlock.shipping += row.shipping_charges;
-      custBlock.revenue += revenue;
-      custBlock.cogs += row.cost_of_goods_sold;
-      custBlock.qty += row.quantity_ordered;
-      custOrderSet.add(row.order_name);
+      // cross-totals by customer type (physical only, excludes internal)
+      if (!isInternal) {
+        const custBlock = ct === 'new' ? custNew : custReturning;
+        const custOrderSet = ct === 'new' ? custNewOrders : custReturningOrders;
+        custBlock.netSales += row.net_sales;
+        custBlock.shipping += row.shipping_charges;
+        custBlock.revenue += revenue;
+        custBlock.cogs += row.cost_of_goods_sold;
+        custBlock.qty += row.quantity_ordered;
+        custOrderSet.add(row.order_name);
+      }
     } else {
       membership.netSales += row.net_sales;
       membership.shipping += row.shipping_charges;
@@ -263,6 +299,8 @@ export function processDay(
   finalise(cashReturning, cashReturningOrders);
   finalise(nonCashNew, nonCashNewOrders);
   finalise(nonCashReturning, nonCashReturningOrders);
+  finalise(internalNew, internalNewOrders);
+  finalise(internalReturning, internalReturningOrders);
 
   // finalise products
   const products: ProductLine[] = [];
@@ -282,6 +320,7 @@ export function processDay(
     date, total, physCash, physNonCash, membership,
     custNew, custReturning,
     cashNew, cashReturning, nonCashNew, nonCashReturning,
+    internalNew, internalReturning,
     products, memOrders: memOrderList,
   };
 }

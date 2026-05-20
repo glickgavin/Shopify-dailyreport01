@@ -5,8 +5,8 @@ import { format, subDays } from 'date-fns';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-const PAGE_SIZE = 5000;
-const MAX_PAGES = 12; // 60k rows per backfill run
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 60; // up to 60k rows per backfill run
 const BACKFILL_DAYS = 90;
 
 function authorized(req: NextRequest): boolean {

@@ -739,6 +739,24 @@ export type Database = {
         }
         Relationships: []
       }
+      paypal_daily_snapshot: {
+        Row: {
+          date: string
+          fetched_at: string
+          payload: Json
+        }
+        Insert: {
+          date: string
+          fetched_at?: string
+          payload: Json
+        }
+        Update: {
+          date?: string
+          fetched_at?: string
+          payload?: Json
+        }
+        Relationships: []
+      }
       raw_data: {
         Row: {
           date: string

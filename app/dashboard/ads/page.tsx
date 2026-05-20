@@ -16,12 +16,15 @@ interface SummaryRow {
   date: string;
   total_orders: number;
   total_revenue: number;
+  phys_cash_orders: number;
+  phys_non_cash_orders: number;
 }
 
 interface PeriodStats {
   spend: number;
   purchases: number;
   orders: number;
+  productOrders: number;
   revenue: number;
   cpaM: number | null;
   cpaB: number | null;
@@ -39,18 +42,20 @@ function sliceSummary(rows: SummaryRow[], start: string, end: string): SummaryRo
 }
 
 function periodStats(adsSlice: AdsRow[], sumSlice: SummaryRow[]): PeriodStats {
-  const spend     = adsSlice.reduce((s, r) => s + (r.spend     ?? 0), 0);
-  const purchases = adsSlice.reduce((s, r) => s + (r.purchases ?? 0), 0);
-  const orders    = sumSlice.reduce((s, r) => s + (r.total_orders   ?? 0), 0);
-  const revenue   = sumSlice.reduce((s, r) => s + (r.total_revenue  ?? 0), 0);
+  const spend         = adsSlice.reduce((s, r) => s + (r.spend     ?? 0), 0);
+  const purchases     = adsSlice.reduce((s, r) => s + (r.purchases ?? 0), 0);
+  const orders        = sumSlice.reduce((s, r) => s + (r.total_orders        ?? 0), 0);
+  const productOrders = sumSlice.reduce((s, r) => s + (r.phys_cash_orders    ?? 0) + (r.phys_non_cash_orders ?? 0), 0);
+  const revenue       = sumSlice.reduce((s, r) => s + (r.total_revenue       ?? 0), 0);
   return {
     spend,
     purchases,
     orders,
+    productOrders,
     revenue,
-    cpaM: spend > 0 && purchases > 0 ? spend / purchases : null,
-    cpaB: spend > 0 && orders > 0    ? spend / orders    : null,
-    roas: spend > 0                  ? revenue / spend   : null,
+    cpaM: spend > 0 && purchases    > 0 ? spend / purchases    : null,
+    cpaB: spend > 0 && productOrders > 0 ? spend / productOrders : null,
+    roas: spend > 0                      ? revenue / spend        : null,
   };
 }
 
@@ -99,7 +104,7 @@ export default async function AdReportPage() {
     fetchAdsRangeRaw(d65str, todayStr),
     supabaseAdmin
       .from('daily_summary')
-      .select('date,total_orders,total_revenue')
+      .select('date,total_orders,total_revenue,phys_cash_orders,phys_non_cash_orders')
       .gte('date', d65str)
       .lte('date', todayStr)
       .order('date', { ascending: true }),
@@ -137,7 +142,6 @@ export default async function AdReportPage() {
   ];
 
   // ── chart data (last 60 days) ─────────────────────────────────────────────
-  const chart60Start = format(subDays(new Date(), 59), 'yyyy-MM-dd');
   const adsMap = new Map(adsRaw.map((r) => [r.report_date, r]));
 
   const chartDays: ChartDay[] = [];
@@ -248,7 +252,7 @@ export default async function AdReportPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
               <thead>
                 <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Period', 'Spend', 'Purchases', 'CPA (Meta)', 'CPA (Blended)', 'ROAS', 'vs Prior'].map((h) => (
+                  {['Period', 'Spend', 'Purchases', 'Blended Orders', 'CPA (Meta)', 'CPA (Blended)', 'ROAS', 'vs Prior'].map((h) => (
                     <th key={h} style={{
                       padding: '0.75rem 1rem',
                       textAlign: h === 'Period' ? 'left' : 'right',
@@ -277,6 +281,9 @@ export default async function AdReportPage() {
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                         {curr.purchases > 0 ? curr.purchases : <span style={{ color: 'var(--muted)' }}>—</span>}
                       </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#6b7280' }}>
+                        {curr.productOrders > 0 ? curr.productOrders : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
                       <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#1d4ed8' }}>
                         {curr.cpaM !== null ? fmtDec(curr.cpaM) : <span style={{ color: 'var(--muted)' }}>—</span>}
                       </td>
@@ -295,7 +302,7 @@ export default async function AdReportPage() {
               </tbody>
             </table>
             <div style={{ padding: '0.5rem 1rem', background: 'var(--surface2)', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              CPA (Meta) = ad spend ÷ Meta-attributed purchases · CPA (Blended) = ad spend ÷ all Shopify orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
+              CPA (Meta) = ad spend ÷ Meta-attributed purchases · Blended Orders = cash + non-cash product orders (excl. memberships &amp; internal) · CPA (Blended) = ad spend ÷ blended orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
             </div>
           </div>
 

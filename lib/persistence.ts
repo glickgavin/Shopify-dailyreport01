@@ -8,7 +8,7 @@ export async function saveDay(
   orderRows: OrderRow[],
   paymentRows: PaymentRow[],
 ): Promise<void> {
-  const { date, total, physCash, physNonCash, membership, cashNew, cashReturning, nonCashNew, nonCashReturning, products, memOrders } = processed;
+  const { date, total, physCash, physNonCash, membership, cashNew, cashReturning, nonCashNew, nonCashReturning, internalNew, internalReturning, products, memOrders } = processed;
 
   // 1. Upsert daily_summary
   const { error: summaryErr } = await supabaseAdmin.from('daily_summary').upsert({
@@ -111,6 +111,8 @@ export async function saveDay(
     { payment_type: 'cash',     customer_type: 'returning', ...cashReturning },
     { payment_type: 'non_cash', customer_type: 'new',       ...nonCashNew },
     { payment_type: 'non_cash', customer_type: 'returning', ...nonCashReturning },
+    { payment_type: 'internal', customer_type: 'new',       ...internalNew },
+    { payment_type: 'internal', customer_type: 'returning', ...internalReturning },
   ].map(({ payment_type, customer_type, revenue, netSales, shipping, cogs, profit, margin, orders, qty, aov }) => ({
     date,
     payment_type,

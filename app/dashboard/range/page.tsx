@@ -6,7 +6,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct,
-  KpiCard, TintCard, SegmentCard, SectionLabel,
+  KpiCard, TintCard, SegmentCard, StripeSegmentCard, SectionLabel,
 } from '../_components/cards';
 
 export const dynamic = 'force-dynamic';
@@ -234,6 +234,8 @@ export default async function RangePage({
   const cashRet      = seg('cash',     'returning');
   const nonCashNew   = seg('non_cash', 'new');
   const nonCashRet   = seg('non_cash', 'returning');
+  const internalNew  = seg('internal', 'new');
+  const internalRet  = seg('internal', 'returning');
 
   const totalNewOrders   = cashNew.orders  + nonCashNew.orders;
   const totalRetOrders   = cashRet.orders  + nonCashRet.orders;
@@ -255,6 +257,8 @@ export default async function RangePage({
   const stripeSummary = aggStripeSnapshots((stripeSnaps ?? []) as { payload: unknown }[]);
 
   // ── derived KPIs ──────────────────────────────────────────────────────────
+  const productOrders = physCash.orders + physNonCash.orders;
+
   const summaryAsProcessed = {
     total:      { revenue: total.revenue, profit: total.profit, orders: total.orders },
     physCash:   { revenue: physCash.revenue },
@@ -267,6 +271,7 @@ export default async function RangePage({
     ads?.purchases ?? null,
     stripeSummary?.direct_success_total_cents ?? null,
     stripeSummary?.refunds_total_cents ?? null,
+    productOrders,
   );
 
   // ── aggregate products ────────────────────────────────────────────────────
@@ -410,6 +415,25 @@ export default async function RangePage({
         </div>
 
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+          <a
+            href={preset === 'custom' && from && to
+              ? `/api/export/range/pdf?preset=custom&from=${from}&to=${to}`
+              : `/api/export/range/pdf?preset=${preset ?? '7d'}`}
+            target="_blank"
+            rel="noreferrer"
+            style={{
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.7)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: 8,
+              padding: '0.4rem 0.875rem',
+              fontSize: '0.8rem',
+              textDecoration: 'none',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            PDF
+          </a>
           <Link
             href="/dashboard/history"
             style={{
@@ -427,6 +451,13 @@ export default async function RangePage({
           </Link>
         </div>
       </div>
+
+      <style>{`
+        @media (max-width: 768px) {
+          .desktop-only { display: none !important; }
+          .segments-row { flex-direction: column !important; }
+        }
+      `}</style>
 
       {/* ── NO DATA ───────────────────────────────────────────────────────── */}
       {rows.length === 0 && (
@@ -451,7 +482,7 @@ export default async function RangePage({
             <KpiCard
               label="Total Revenue"
               value={fmt(total.revenue)}
-              sub={`${total.orders} orders · ${total.qty} units`}
+              sub={`${total.orders} orders · ${productOrders} product · ${total.qty} units`}
             />
             <KpiCard
               label="Gross Profit"
@@ -496,7 +527,7 @@ export default async function RangePage({
             <TintCard
               label="CPA — Blended"
               value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
-              sub={`all ${total.orders} orders`}
+              sub={`${productOrders} product orders`}
               bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             />
             <TintCard
@@ -513,7 +544,7 @@ export default async function RangePage({
 
           {/* ── SALES SEGMENTS ──────────────────────────────────────────── */}
           <SectionLabel>Sales Segments</SectionLabel>
-          <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
+          <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
             <SegmentCard
               title="Cash"
               theme="cash"
@@ -556,11 +587,20 @@ export default async function RangePage({
               aov={membership.aov}
               breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
             />
+            {stripeSummary && (
+              <StripeSegmentCard
+                grossCents={stripeSummary.direct_success_total_cents}
+                refundCents={stripeSummary.refunds_total_cents}
+                charges={stripeSummary.direct_success_count}
+                refunds={stripeSummary.refunds_count}
+                uniqueCustomers={stripeSummary.direct_success_unique_customers}
+              />
+            )}
           </div>
 
           {/* ── CUSTOMER MIX ────────────────────────────────────────────── */}
           {hasSegments && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Customer Mix</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -604,13 +644,17 @@ export default async function RangePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {[
-                      { segLabel: 'Cash',     ct: 'new',       s: cashNew,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#1d4ed8' },
-                      { segLabel: 'Cash',     ct: 'returning', s: cashRet,    payAccent: 'var(--cash-blue-dark)',  ctAccent: '#6b7280' },
-                      { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew, payAccent: 'var(--nc-green-dark)',   ctAccent: '#1d4ed8' },
-                      { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet, payAccent: 'var(--nc-green-dark)',   ctAccent: '#6b7280' },
-                    ].map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
-                      <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < 3 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
+                    {(() => {
+                      const rows = [
+                        { segLabel: 'Cash',     ct: 'new',       s: cashNew,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                        { segLabel: 'Cash',     ct: 'returning', s: cashRet,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                        { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew, payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                        { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet, payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                        { segLabel: 'Internal', ct: 'new',       s: internalNew, payAccent: '#92400e',              ctAccent: '#1d4ed8' },
+                        { segLabel: 'Internal', ct: 'returning', s: internalRet, payAccent: '#92400e',              ctAccent: '#6b7280' },
+                      ];
+                      return rows.map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
+                      <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
                         <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{segLabel}</td>
                         <td style={{ padding: '0.5rem 0.75rem' }}>
                           <span style={{
@@ -631,16 +675,17 @@ export default async function RangePage({
                         <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s.margin)}</td>
                         <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.aov)}</td>
                       </tr>
-                    ))}
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── STRIPE ──────────────────────────────────────────────────── */}
           {stripeSummary && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Stripe Payments</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -704,12 +749,12 @@ export default async function RangePage({
                   {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── META ADS ────────────────────────────────────────────────── */}
           {ads && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Meta Advertising</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -754,10 +799,11 @@ export default async function RangePage({
                   )}
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* ── PRODUCTS TABLE ──────────────────────────────────────────── */}
+          <div className="desktop-only">
           <SectionLabel>Products</SectionLabel>
           <div style={{
             background: 'var(--surface)',
@@ -829,10 +875,11 @@ export default async function RangePage({
               </tfoot>
             </table>
           </div>
+          </div>
 
           {/* ── CHART ───────────────────────────────────────────────────── */}
           {chartData.length > 0 && (
-            <>
+            <div className="desktop-only">
               <SectionLabel>Revenue by Product</SectionLabel>
               <div style={{
                 background: 'var(--surface)',
@@ -843,7 +890,7 @@ export default async function RangePage({
               }}>
                 <RevenueChart data={chartData} />
               </div>
-            </>
+            </div>
           )}
 
         </div>
