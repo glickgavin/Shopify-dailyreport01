@@ -799,6 +799,113 @@ export type Database = {
         }
         Relationships: []
       }
+      mug_fulfillment_jobs: {
+        Row: {
+          id: string
+          shopify_order_id: string
+          shopify_order_name: string
+          shopify_line_item_id: string
+          tile_id: string | null
+          print_file_url: string | null
+          gelato_product_uid: string
+          quantity: number
+          state: string
+          gelato_draft_id: string | null
+          gelato_order_id: string | null
+          tracking_number: string | null
+          tracking_url: string | null
+          tracking_company: string | null
+          attempts: number
+          last_error: string | null
+          next_attempt_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          shopify_order_id: string
+          shopify_order_name: string
+          shopify_line_item_id: string
+          tile_id?: string | null
+          print_file_url?: string | null
+          gelato_product_uid: string
+          quantity?: number
+          state?: string
+          gelato_draft_id?: string | null
+          gelato_order_id?: string | null
+          tracking_number?: string | null
+          tracking_url?: string | null
+          tracking_company?: string | null
+          attempts?: number
+          last_error?: string | null
+          next_attempt_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          shopify_order_id?: string
+          shopify_order_name?: string
+          shopify_line_item_id?: string
+          tile_id?: string | null
+          print_file_url?: string | null
+          gelato_product_uid?: string
+          quantity?: number
+          state?: string
+          gelato_draft_id?: string | null
+          gelato_order_id?: string | null
+          tracking_number?: string | null
+          tracking_url?: string | null
+          tracking_company?: string | null
+          attempts?: number
+          last_error?: string | null
+          next_attempt_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      mug_fulfillment_events: {
+        Row: {
+          id: string
+          job_id: string
+          event_type: string
+          from_state: string | null
+          to_state: string | null
+          payload: Json | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          job_id: string
+          event_type: string
+          from_state?: string | null
+          to_state?: string | null
+          payload?: Json | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          job_id?: string
+          event_type?: string
+          from_state?: string | null
+          to_state?: string | null
+          payload?: Json | null
+          error?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mug_fulfillment_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "mug_fulfillment_jobs"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
     }
     Views: {
       [_ in never]: never
