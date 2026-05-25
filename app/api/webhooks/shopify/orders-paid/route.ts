@@ -43,9 +43,26 @@ interface ShopifyLineItem {
   properties: LineItemProperty[];
 }
 
+interface ShopifyAddress {
+  first_name?:   string;
+  last_name?:    string;
+  name?:         string;
+  address1?:     string;
+  address2?:     string;
+  city?:         string;
+  zip?:          string;
+  province?:     string;
+  country?:      string;
+  country_code?: string;
+  phone?:        string;
+  email?:        string;
+}
+
 interface ShopifyOrder {
   id: number;
   name: string;
+  email?: string;
+  shipping_address?: ShopifyAddress;
   line_items: ShopifyLineItem[];
 }
 
@@ -88,6 +105,14 @@ export async function POST(req: NextRequest) {
   }
 
   // 4. Insert one job per mug line item (idempotent — unique on shopify_line_item_id)
+  const addr = order.shipping_address;
+  const customerName = addr
+    ? (addr.name ?? `${addr.first_name ?? ''} ${addr.last_name ?? ''}`.trim())
+    : undefined;
+  const shippingAddress = addr
+    ? { ...addr, email: addr.email ?? order.email }
+    : undefined;
+
   const rows = mugLineItems.map((li) => ({
     shopify_order_id:     String(order.id),
     shopify_order_name:   order.name,
@@ -96,6 +121,8 @@ export async function POST(req: NextRequest) {
     print_file_url:       getProp(li.properties, '_print_file_url'),
     gelato_product_uid:   getProp(li.properties, '_gelato_product_uid')!,
     quantity:             li.quantity,
+    customer_name:        customerName ?? null,
+    shipping_address:     shippingAddress ?? null,
     state:                'received',
   }));
 

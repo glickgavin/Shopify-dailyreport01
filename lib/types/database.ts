@@ -815,6 +815,8 @@ export type Database = {
           tracking_number: string | null
           tracking_url: string | null
           tracking_company: string | null
+          customer_name: string | null
+          shipping_address: Json | null
           attempts: number
           last_error: string | null
           next_attempt_at: string | null
@@ -836,6 +838,8 @@ export type Database = {
           tracking_number?: string | null
           tracking_url?: string | null
           tracking_company?: string | null
+          customer_name?: string | null
+          shipping_address?: Json | null
           attempts?: number
           last_error?: string | null
           next_attempt_at?: string | null
@@ -857,6 +861,8 @@ export type Database = {
           tracking_number?: string | null
           tracking_url?: string | null
           tracking_company?: string | null
+          customer_name?: string | null
+          shipping_address?: Json | null
           attempts?: number
           last_error?: string | null
           next_attempt_at?: string | null
