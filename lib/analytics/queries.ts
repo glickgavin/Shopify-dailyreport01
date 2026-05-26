@@ -1,5 +1,16 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import type { AnalyticsEvent, FetchOptions } from './client';
+import { dateToUTCRange } from './dateRange';
+
+// Convert a plain date string or a full UTC timestamp to a UTC start/end bound.
+// Plain dates (YYYY-MM-DD) are treated as Pacific Time midnight / end-of-day.
+// Full timestamps (contains 'T') are passed through unchanged.
+function toUTCStart(s: string): string {
+  return s.includes('T') ? s : dateToUTCRange(s).from;
+}
+function toUTCEnd(s: string): string {
+  return s.includes('T') ? s : dateToUTCRange(s).to;
+}
 
 interface MirrorRow {
   id: string;
@@ -48,8 +59,8 @@ export async function fetchEventsLocal(opts: FetchOptions = {}): Promise<Analyti
     .order('id', { ascending: false })
     .range(offset, offset + limit - 1);
 
-  if (opts.startDate) q = q.gte('created_at', opts.startDate);
-  if (opts.endDate)   q = q.lte('created_at', opts.endDate.endsWith('Z') ? opts.endDate : opts.endDate + 'T23:59:59.999Z');
+  if (opts.startDate) q = q.gte('created_at', toUTCStart(opts.startDate));
+  if (opts.endDate)   q = q.lte('created_at', toUTCEnd(opts.endDate));
   if (opts.eventType) q = q.eq('event_name', opts.eventType);
   if (opts.pagePath)  q = q.eq('page_path', opts.pagePath);
   if (opts.deviceType) q = q.eq('device_type', opts.deviceType);

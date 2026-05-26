@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { resolveDateRange } from '@/lib/analytics/dateRange';
+import { resolveDateRange, dateToUTCRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
@@ -22,8 +22,7 @@ export default async function EventExplorerPage({ searchParams }: Props) {
   const excludePreview = sp.exclude_preview === 'true';
   const activeType     = sp.event_type ?? '';
 
-  const from = startDate;
-  const to   = endDate + 'T23:59:59.999Z';
+  const { from, to } = dateToUTCRange(startDate, endDate);
 
   let events: AnalyticsEvent[] = [];
   let allTypes: string[] = [];
@@ -31,8 +30,6 @@ export default async function EventExplorerPage({ searchParams }: Props) {
 
   try {
     // ── 1. Distinct event names (lean query — just the name column) ────────
-    // Default Supabase limit of 1000 rows is enough: with ~30 distinct types
-    // each appearing 100+ times, all names appear in the first 1000 rows.
     const { data: typeRows } = await supabaseAdmin
       .from('analytics_events_mirror')
       .select('event_name')

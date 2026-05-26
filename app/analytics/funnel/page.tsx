@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic';
 
-import { resolveDateRange } from '@/lib/analytics/dateRange';
+import { resolveDateRange, dateToUTCRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
 import { unstable_cache } from 'next/cache';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
@@ -91,8 +91,8 @@ async function runFunnel(steps: FunnelStep[], startDate: string, endDate: string
   try {
     const { data, error: rpcErr } = await supabaseAdmin.rpc('analytics_funnel', {
       p_steps: steps as unknown as import('@/lib/types/database').Json,
-      p_from: startDate + 'T00:00:00.000Z',
-      p_to: endDate + 'T23:59:59.999Z',
+      p_from: dateToUTCRange(startDate, endDate).from,
+      p_to:   dateToUTCRange(startDate, endDate).to,
       p_window_hours: 24,
     });
     if (rpcErr) {
