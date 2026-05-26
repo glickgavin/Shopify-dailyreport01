@@ -88,8 +88,17 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
 
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '1rem' }}>
-      <div style={{ fontSize: '0.82rem', fontWeight: 600, marginBottom: '0.75rem' }}>
-        {funnelId ? 'Edit Funnel' : 'New Funnel'}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+        <div style={{ fontSize: '0.82rem', fontWeight: 600 }}>{funnelId ? 'Edit Funnel' : 'New Funnel'}</div>
+        {funnelId && (
+          <button
+            onClick={handleDelete}
+            disabled={isPending}
+            style={{ padding: '0.2rem 0.5rem', borderRadius: 5, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Delete
+          </button>
+        )}
       </div>
       <input
         value={name}
@@ -112,10 +121,10 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
               <select
                 value=""
                 onChange={e => { if (e.target.value) applyDefinition(si, e.target.value); }}
-                style={{ ...selStyle, maxWidth: 120 }}
-                title="Pick an event definition to auto-fill"
+                style={{ ...selStyle, width: 160 }}
+                title="Fill this step from an event definition or recent event name"
               >
-                <option value="">Pick event…</option>
+                <option value="">Use template…</option>
                 {availableDefinitions.map(d => (
                   <option key={d.label} value={d.label}>{d.label}</option>
                 ))}
@@ -172,24 +181,13 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
       >
         + Add step
       </button>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <button
-          onClick={handleSave}
-          disabled={isPending}
-          style={{ flex: 1, padding: '0.4rem', borderRadius: 6, background: '#1a1a2e', color: '#fff', border: 'none', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
-        >
-          {isPending ? 'Saving…' : 'Save'}
-        </button>
-        {funnelId && (
-          <button
-            onClick={handleDelete}
-            disabled={isPending}
-            style={{ padding: '0.4rem 0.6rem', borderRadius: 6, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            Delete
-          </button>
-        )}
-      </div>
+      <button
+        onClick={handleSave}
+        disabled={isPending}
+        style={{ width: '100%', padding: '0.4rem', borderRadius: 6, background: '#1a1a2e', color: '#fff', border: 'none', fontSize: '0.82rem', cursor: 'pointer', fontFamily: 'inherit' }}
+      >
+        {isPending ? 'Saving…' : 'Save'}
+      </button>
       {msg && <p style={{ fontSize: '0.75rem', color: msg === 'Saved!' ? '#166534' : '#991b1b', marginTop: 4 }}>{msg}</p>}
     </div>
   );

@@ -12,7 +12,7 @@ interface Props {
   searchParams: Promise<{
     preset?: string; from?: string; to?: string;
     devices?: string; exclude_preview?: string;
-    funnel_id?: string;
+    funnel_id?: string; new?: string;
   }>;
 }
 
@@ -79,7 +79,8 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   ]);
 
   const funnels = (savedFunnels ?? []) as FunnelRow[];
-  const activeFunnel = funnelId ? funnels.find(f => f.id === funnelId) : funnels[0];
+  const isNew = sp.new === '1';
+  const activeFunnel = isNew ? undefined : (funnelId ? funnels.find(f => f.id === funnelId) : funnels[0]);
   const steps: FunnelStep[] = Array.isArray(activeFunnel?.steps) ? normalizeSteps(activeFunnel.steps as unknown[]) : [];
 
   // Build available definitions for the step picker
@@ -133,7 +134,7 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const maxUsers = funnelRows[0]?.users ?? 1;
 
   return (
-    <div style={{ padding: '2rem', maxWidth: 1000 }}>
+    <div style={{ padding: '2rem', maxWidth: 1400 }}>
       <div style={{ marginBottom: '1rem' }}>
         <h1 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 4 }}>Funnel Builder</h1>
         <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{label}</p>
@@ -151,10 +152,16 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8, padding: '0.75rem 1rem', marginTop: '1rem', color: '#991b1b', fontSize: '0.85rem' }}>{error}</div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 16, marginTop: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '380px 1fr', gap: 16, marginTop: '1.5rem' }}>
         <div>
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</div>
+            <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Saved Funnels</span>
+              <a
+                href={`/analytics/funnel?new=1&preset=${sp.preset ?? '7d'}${sp.from ? `&from=${sp.from}` : ''}${sp.to ? `&to=${sp.to}` : ''}`}
+                style={{ fontSize: '0.78rem', color: '#1a1a2e', textDecoration: 'none', fontWeight: 600, padding: '0.2rem 0.5rem', borderRadius: 5, border: '1px solid var(--border)', background: isNew ? 'rgba(26,26,46,0.08)' : 'transparent' }}
+              >+ New</a>
+            </div>
             {funnelsError ? (
               <p style={{ padding: '1rem', color: '#991b1b', fontSize: '0.75rem', wordBreak: 'break-all' }}>
                 Error loading funnels: {funnelsError.message}
@@ -172,11 +179,11 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                     display: 'block', padding: '0.65rem 1rem',
                     borderBottom: '1px solid var(--border)',
                     textDecoration: 'none',
-                    background: activeFunnel?.id === f.id ? 'rgba(26,26,46,0.05)' : 'transparent',
-                    borderLeft: activeFunnel?.id === f.id ? '3px solid #1a1a2e' : '3px solid transparent',
+                    background: !isNew && activeFunnel?.id === f.id ? 'rgba(26,26,46,0.05)' : 'transparent',
+                    borderLeft: !isNew && activeFunnel?.id === f.id ? '3px solid #1a1a2e' : '3px solid transparent',
                   }}
                 >
-                  <div style={{ fontSize: '0.85rem', fontWeight: activeFunnel?.id === f.id ? 600 : 400, color: 'var(--text)' }}>{f.name}</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: !isNew && activeFunnel?.id === f.id ? 600 : 400, color: 'var(--text)' }}>{f.name}</div>
                   {f.description && <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{f.description}</div>}
                 </a>
               ))
@@ -185,6 +192,7 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
 
           <div style={{ marginTop: 12 }}>
             <FunnelEditor
+              key={activeFunnel?.id ?? 'new'}
               currentSteps={steps}
               funnelId={activeFunnel?.id}
               funnelName={activeFunnel?.name}
@@ -231,7 +239,7 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                         <span style={{ color: '#fff', fontSize: '0.75rem', fontWeight: 600 }}>{pct}%</span>
                       </div>
                     </div>
-                    {step?.predicates && step.predicates.length > 1 && (
+                    {step?.predicates && step.predicates.length >= 1 && (
                       <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
                         {step.predicates.map((p, pi) => (
                           <span key={pi} style={{ marginRight: 8 }}>
