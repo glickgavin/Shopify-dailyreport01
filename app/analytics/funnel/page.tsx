@@ -32,6 +32,7 @@ interface FunnelRpcRow {
   step_index: number;
   step_label: string;
   users: number;
+  total_events: number;
   conversion_from_prev: number | null;
   conversion_from_start: number | null;
 }
@@ -214,19 +215,28 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
                 const pct = maxUsers > 0 ? Math.round((row.users / maxUsers) * 100) : 0;
                 return (
                   <div key={i} style={{ marginBottom: '1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
                       <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>
                         <span style={{ color: 'var(--muted)', marginRight: 6 }}>{i + 1}.</span>
                         {step?.label || row.step_label}
                       </span>
-                      <span style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)' }}>
-                        {row.users.toLocaleString()}
-                        {row.conversion_from_prev !== null && (
-                          <span style={{ color: (row.conversion_from_prev ?? 0) > 50 ? '#1D9E75' : '#e53e3e', marginLeft: 8, fontSize: '0.78rem' }}>
-                            {row.conversion_from_prev}% step conv.
+                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+                        <div style={{ fontSize: '0.85rem', fontFamily: 'var(--font-mono)', display: 'flex', gap: 12, alignItems: 'center' }}>
+                          <span title="Unique sessions">
+                            <span style={{ color: 'var(--muted)', fontSize: '0.72rem', marginRight: 3 }}>unique</span>
+                            {row.users.toLocaleString()}
                           </span>
-                        )}
-                      </span>
+                          <span title="Total event occurrences" style={{ color: 'var(--muted)' }}>
+                            <span style={{ fontSize: '0.72rem', marginRight: 3 }}>total</span>
+                            {row.total_events.toLocaleString()}
+                          </span>
+                          {row.conversion_from_prev !== null && (
+                            <span style={{ color: (row.conversion_from_prev ?? 0) > 50 ? '#1D9E75' : '#e53e3e', fontSize: '0.78rem' }}>
+                              {row.conversion_from_prev}% step conv.
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                     <div style={{ height: 28, borderRadius: 6, background: '#e2e8f0', overflow: 'hidden' }}>
                       <div style={{

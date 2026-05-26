@@ -39,7 +39,11 @@ end;
 $$;
 
 -- ── Funnel function ───────────────────────────────────────────────────────────
-create or replace function public.analytics_funnel(
+-- Returns unique sessions AND total raw event hits per step.
+-- Drop required first because the return type changed (added total_events).
+drop function if exists public.analytics_funnel(jsonb, timestamptz, timestamptz, int, text, boolean);
+
+create function public.analytics_funnel(
   p_steps         jsonb,
   p_from          timestamptz,
   p_to            timestamptz,
@@ -51,6 +55,7 @@ returns table (
   step_index            int,
   step_label            text,
   users                 bigint,
+  total_events          bigint,
   conversion_from_prev  numeric,
   conversion_from_start numeric
 )
@@ -72,6 +77,23 @@ begin
 
   create index on _funnel_events (session_id, created_at);
 
+  -- Raw count: total matching events per step (no session ordering)
+  create temp table _step_raw on commit drop as
+    select s.idx, count(*) as raw_count
+    from _funnel_events fe
+    cross join lateral (
+      select (t.ordinality - 1)::int as idx, t.elem as predicate
+      from jsonb_array_elements(p_steps) with ordinality as t(elem, ordinality)
+    ) s
+    where public.analytics_predicate_matches(
+      (null::uuid, fe.event_name, null, fe.session_id, null, fe.properties,
+       null, fe.page_path, null, null, fe.device_type, fe.created_at,
+       null, null, null, now())::public.analytics_events_mirror,
+      s.predicate
+    )
+    group by s.idx;
+
+  -- Earliest hit per (session, step) for funnel walk
   create temp table _step_hits on commit drop as
     select fe.session_id,
            s.idx,
@@ -124,11 +146,13 @@ begin
     select
       c.idx,
       coalesce(
+        (p_steps->c.idx)->>'label',
         (p_steps->c.idx)->>'value',
         (p_steps->c.idx)->>'kind',
         'Step ' || (c.idx + 1)
       ),
       c.cnt,
+      coalesce(r.raw_count, 0),
       case
         when c.idx = 0 then null
         when lag(c.cnt) over (order by c.idx) > 0
@@ -141,9 +165,11 @@ begin
         else 0
       end
     from counts c
+    left join _step_raw r on r.idx = c.idx
     order by c.idx;
 
   drop table if exists _funnel_events;
+  drop table if exists _step_raw;
   drop table if exists _step_hits;
   drop table if exists _funnel_progress;
 end;
