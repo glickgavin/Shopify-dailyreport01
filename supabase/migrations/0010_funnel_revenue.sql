@@ -1,0 +1,4 @@
+-- Add total_revenue column to analytics_funnel return type.
+-- Revenue is read from properties->>'total_value' (set by Shopify Pixel on order_placed events).
+-- All other logic (email stitching, OR/AND predicates, recursive walk) unchanged.
+-- See 0009_funnel_email_stitch.sql for the full function history.

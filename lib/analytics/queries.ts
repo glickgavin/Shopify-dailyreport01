@@ -43,6 +43,7 @@ function normalizeMirrorRow(r: MirrorRow): AnalyticsEvent {
     page_url: r.page_url ?? undefined,
     page_path: r.page_path ?? undefined,
     referrer: r.referrer ?? null,
+    email: r.email ?? null,
     device_type: r.device_type ?? null,
     created_at: r.created_at,
   };

@@ -37,6 +37,7 @@ interface FunnelRpcRow {
   step_label: string;
   users: number;
   total_events: number;
+  total_revenue: number;
   conversion_from_prev: number | null;
   conversion_from_start: number | null;
 }
@@ -138,6 +139,11 @@ function FunnelBars({ rows, steps, title, dateLabel }: {
                     <span style={{ fontSize: '0.7rem', marginRight: 3 }}>total</span>
                     {row.total_events.toLocaleString()}
                   </span>
+                  {row.total_revenue > 0 && (
+                    <span title="Total revenue for matching events" style={{ color: '#1D9E75', fontWeight: 600 }}>
+                      ${row.total_revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  )}
                   {row.conversion_from_prev !== null && (
                     <span style={{ color: (row.conversion_from_prev ?? 0) > 50 ? '#1D9E75' : '#e53e3e', fontSize: '0.75rem' }}>
                       {row.conversion_from_prev}%
