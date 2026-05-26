@@ -77,19 +77,26 @@ begin
 
   create index on _funnel_events (session_id, created_at);
 
-  -- Raw count: total matching events per step (no session ordering)
+  -- Raw count: total matching events per step (no session ordering).
+  -- Each step is { label, predicates: [...] }; all predicates must match (AND).
   create temp table _step_raw on commit drop as
     select s.idx, count(*) as raw_count
     from _funnel_events fe
     cross join lateral (
-      select (t.ordinality - 1)::int as idx, t.elem as predicate
+      select (t.ordinality - 1)::int as idx,
+             t.elem->'predicates'    as predicates
       from jsonb_array_elements(p_steps) with ordinality as t(elem, ordinality)
     ) s
-    where public.analytics_predicate_matches(
-      (null::uuid, fe.event_name, null, fe.session_id, null, fe.properties,
-       null, fe.page_path, null, null, fe.device_type, fe.created_at,
-       null, null, null, now())::public.analytics_events_mirror,
-      s.predicate
+    where (
+      select bool_and(
+        public.analytics_predicate_matches(
+          (null::uuid, fe.event_name, null, fe.session_id, null, fe.properties,
+           null, fe.page_path, null, null, fe.device_type, fe.created_at,
+           null, null, null, now())::public.analytics_events_mirror,
+          pred
+        )
+      )
+      from jsonb_array_elements(s.predicates) as pred
     )
     group by s.idx;
 
@@ -100,14 +107,20 @@ begin
            min(fe.created_at) as step_ts
     from _funnel_events fe
     cross join lateral (
-      select (t.ordinality - 1)::int as idx, t.elem as predicate
+      select (t.ordinality - 1)::int as idx,
+             t.elem->'predicates'    as predicates
       from jsonb_array_elements(p_steps) with ordinality as t(elem, ordinality)
     ) s
-    where public.analytics_predicate_matches(
-      (null::uuid, fe.event_name, null, fe.session_id, null, fe.properties,
-       null, fe.page_path, null, null, fe.device_type, fe.created_at,
-       null, null, null, now())::public.analytics_events_mirror,
-      s.predicate
+    where (
+      select bool_and(
+        public.analytics_predicate_matches(
+          (null::uuid, fe.event_name, null, fe.session_id, null, fe.properties,
+           null, fe.page_path, null, null, fe.device_type, fe.created_at,
+           null, null, null, now())::public.analytics_events_mirror,
+          pred
+        )
+      )
+      from jsonb_array_elements(s.predicates) as pred
     )
     group by fe.session_id, s.idx;
 
