@@ -1,5 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import type { AnalyticsEvent } from '@/lib/analytics/client';
 
 const PAGE_SIZE = 50;
@@ -7,7 +8,8 @@ const PAGE_SIZE = 50;
 interface Props {
   events: AnalyticsEvent[];
   allTypes: string[];
-  initialType: string;
+  activeType: string;          // URL-driven active type (server-side filtered)
+  searchParams: Record<string, string | undefined>;
 }
 
 const thStyle: React.CSSProperties = {
@@ -47,14 +49,25 @@ function contains(val: string | null | undefined, q: string): boolean {
 
 const DEVICES = ['', 'mobile', 'desktop', 'tablet'];
 
-export default function EventTable({ events, allTypes, initialType }: Props) {
+export default function EventTable({ events, allTypes, activeType, searchParams }: Props) {
+  const router = useRouter();
   const [page, setPage]             = useState(1);
   const [fTime, setFTime]           = useState('');
-  const [fName, setFName]           = useState(initialType);
+  const [fName, setFName]           = useState('');
   const [fCat, setFCat]             = useState('');
   const [fPath, setFPath]           = useState('');
   const [fDevice, setFDevice]       = useState('');
   const [fSession, setFSession]     = useState('');
+
+  // Navigate to a new URL with updated event_type param (triggers server-side refetch)
+  function selectType(t: string) {
+    const p = new URLSearchParams();
+    if (searchParams.preset) p.set('preset', searchParams.preset);
+    if (searchParams.from)   p.set('from', searchParams.from);
+    if (searchParams.to)     p.set('to', searchParams.to);
+    if (t) p.set('event_type', t);
+    router.push(`/analytics/events?${p.toString()}`);
+  }
 
   const filtered = useMemo(() => {
     return events.filter(e => {
@@ -74,31 +87,31 @@ export default function EventTable({ events, allTypes, initialType }: Props) {
 
   const resetPage  = () => setPage(1);
 
-  const isFiltered = fTime || fName || fCat || fPath || fDevice || fSession;
+  const hasLocalFilter = fTime || fName || fCat || fPath || fDevice || fSession;
 
   return (
     <div>
-      {/* Event type quick-filter pills */}
+      {/* Event type quick-filter pills — URL-driven, triggers server-side refetch */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', margin: '1rem 0 0.75rem' }}>
         <span style={{ fontSize: '0.78rem', color: 'var(--muted)', flexShrink: 0 }}>Event type:</span>
         <button
-          onClick={() => { setFName(''); resetPage(); }}
+          onClick={() => selectType('')}
           style={{
             padding: '0.22rem 0.6rem', borderRadius: 5, fontSize: '0.75rem', fontFamily: 'inherit', cursor: 'pointer',
-            background: !fName ? '#1a1a2e' : 'var(--surface)',
-            color: !fName ? '#fff' : 'var(--muted)',
-            border: `1px solid ${!fName ? '#1a1a2e' : 'var(--border)'}`,
+            background: !activeType ? '#1a1a2e' : 'var(--surface)',
+            color: !activeType ? '#fff' : 'var(--muted)',
+            border: `1px solid ${!activeType ? '#1a1a2e' : 'var(--border)'}`,
           }}
         >All</button>
-        {allTypes.slice(0, 16).map(t => (
+        {allTypes.slice(0, 20).map(t => (
           <button
             key={t}
-            onClick={() => { setFName(t); resetPage(); }}
+            onClick={() => selectType(t)}
             style={{
               padding: '0.22rem 0.6rem', borderRadius: 5, fontSize: '0.75rem', fontFamily: 'inherit', cursor: 'pointer',
-              background: fName === t ? '#1a1a2e' : 'var(--surface)',
-              color: fName === t ? '#fff' : 'var(--muted)',
-              border: `1px solid ${fName === t ? '#1a1a2e' : 'var(--border)'}`,
+              background: activeType === t ? '#1a1a2e' : 'var(--surface)',
+              color: activeType === t ? '#fff' : 'var(--muted)',
+              border: `1px solid ${activeType === t ? '#1a1a2e' : 'var(--border)'}`,
             }}
           >{t}</button>
         ))}
@@ -108,12 +121,13 @@ export default function EventTable({ events, allTypes, initialType }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
         <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
           {filtered.length.toLocaleString()} {filtered.length !== events.length ? `of ${events.length.toLocaleString()} ` : ''}events
+          {activeType && <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}> — all <strong>{activeType}</strong> events for this period</span>}
         </span>
-        {isFiltered && (
+        {hasLocalFilter && (
           <button
             onClick={() => { setFTime(''); setFName(''); setFCat(''); setFPath(''); setFDevice(''); setFSession(''); resetPage(); }}
             style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
-          >Clear filters</button>
+          >Clear column filters</button>
         )}
       </div>
 

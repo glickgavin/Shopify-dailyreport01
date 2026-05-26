@@ -49,7 +49,7 @@ export async function fetchEventsLocal(opts: FetchOptions = {}): Promise<Analyti
     .range(offset, offset + limit - 1);
 
   if (opts.startDate) q = q.gte('created_at', opts.startDate);
-  if (opts.endDate)   q = q.lte('created_at', opts.endDate + 'T23:59:59.999Z');
+  if (opts.endDate)   q = q.lte('created_at', opts.endDate.endsWith('Z') ? opts.endDate : opts.endDate + 'T23:59:59.999Z');
   if (opts.eventType) q = q.eq('event_name', opts.eventType);
   if (opts.pagePath)  q = q.eq('page_path', opts.pagePath);
   if (opts.deviceType) q = q.eq('device_type', opts.deviceType);
