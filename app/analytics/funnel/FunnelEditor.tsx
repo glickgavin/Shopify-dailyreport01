@@ -29,7 +29,7 @@ const selStyle = {
 const needsValue = (op: PredicateOp) => op !== 'exists' && op !== 'not_exists';
 
 function emptyStep(): FunnelStep {
-  return { label: '', predicates: [{ kind: 'event_type', op: 'is', value: '' }] };
+  return { label: '', predicates: [{ kind: 'event_type', op: 'is', value: '' }], logic: 'AND' };
 }
 
 export default function FunnelEditor({ currentSteps, funnelId, funnelName, availableDefinitions }: Props) {
@@ -55,6 +55,9 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
     setSteps(ss => ss.map((s, idx) =>
       idx === si ? { ...s, predicates: s.predicates.filter((_, pidx) => pidx !== pi) } : s
     ));
+
+  const setStepLogic = (i: number, logic: 'AND' | 'OR') =>
+    setSteps(ss => ss.map((s, idx) => idx === i ? { ...s, logic } : s));
 
   const addStep = () => setSteps(ss => [...ss, emptyStep()]);
   const removeStep = (i: number) => setSteps(ss => ss.filter((_, idx) => idx !== i));
@@ -136,6 +139,27 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
             >×</button>
           </div>
 
+          {/* AND/OR logic toggle — shown when 2+ predicates */}
+          {step.predicates.length >= 2 && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', paddingLeft: 20, marginBottom: 4 }}>
+              <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>Match:</span>
+              {(['AND', 'OR'] as const).map(l => (
+                <button
+                  key={l}
+                  onClick={() => setStepLogic(si, l)}
+                  style={{
+                    padding: '0.15rem 0.45rem', borderRadius: 4, fontSize: '0.7rem', fontFamily: 'inherit',
+                    cursor: 'pointer', fontWeight: 600,
+                    background: (step.logic ?? 'AND') === l ? '#1a1a2e' : 'var(--surface)',
+                    color: (step.logic ?? 'AND') === l ? '#fff' : 'var(--muted)',
+                    border: `1px solid ${(step.logic ?? 'AND') === l ? '#1a1a2e' : 'var(--border)'}`,
+                  }}
+                >{l}</button>
+              ))}
+              <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>conditions</span>
+            </div>
+          )}
+
           {/* Predicates */}
           {step.predicates.map((p, pi) => (
             <div key={pi} style={{ display: 'flex', gap: 4, marginBottom: 4, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 20 }}>
@@ -170,7 +194,7 @@ export default function FunnelEditor({ currentSteps, funnelId, funnelName, avail
             onClick={() => addPredicate(si)}
             style={{ fontSize: '0.72rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', padding: '0.1rem 0 0 20px' }}
           >
-            + AND condition
+            + condition
           </button>
         </div>
       ))}
