@@ -111,15 +111,16 @@ export async function runForwardSync(kind: 'forward' | 'manual') {
   } catch (err) {
     lastError = err instanceof Error ? err.message : String(err);
   } finally {
-    // Always finalize — ensures rows are written even on timeout or thrown error
+    // Always advance watermark if we fetched any rows — even on partial error
+    // (the remote API consistently 500s on the last page but data is already inserted)
     await Promise.allSettled([
-      maxCreatedAt && !lastError
+      maxCreatedAt
         ? supabaseAdmin.from('analytics_sync_state').update({
             last_synced_created_at: maxCreatedAt,
             last_run_at: new Date().toISOString(),
-            last_run_status: 'ok',
+            last_run_status: lastError ? 'partial' : 'ok',
             last_run_rows: totalFetched,
-            last_run_error: null,
+            last_run_error: lastError,
           }).eq('id', 1)
         : supabaseAdmin.from('analytics_sync_state').update({
             last_run_at: new Date().toISOString(),
