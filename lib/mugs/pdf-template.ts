@@ -21,19 +21,18 @@ const DOC_H_PT = 100 * MM_TO_PT;  // 283.46 pt
 async function fetchBytes(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
-  return res.arrayBuffer();
+  const bytes = await res.arrayBuffer();
+  if (bytes.byteLength < 8) throw new Error(`Fetched empty/truncated response from ${url}`);
+  return bytes;
 }
 
-async function embedAuto(doc: PDFDocument, bytes: ArrayBuffer, format: string): Promise<PDFImage> {
-  const fmt = format.toLowerCase();
-  if (fmt === 'jpg' || fmt === 'jpeg') return doc.embedJpg(bytes);
-  return doc.embedPng(bytes);  // default to PNG for everything else
-}
-
-function staticImageFormat(url: string): string {
-  const lower = url.toLowerCase();
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'jpg';
-  return 'png';
+// Detect image format from magic bytes rather than trusting file extension or DB format field.
+// PNG: 89 50 4E 47 | JPEG: FF D8 FF
+async function embedAuto(doc: PDFDocument, bytes: ArrayBuffer): Promise<PDFImage> {
+  const h = new Uint8Array(bytes, 0, 4);
+  if (h[0] === 0xFF && h[1] === 0xD8 && h[2] === 0xFF) return doc.embedJpg(bytes);
+  if (h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4E && h[3] === 0x47) return doc.embedPng(bytes);
+  throw new Error(`Unrecognised image format (magic bytes: ${Array.from(h).map(b => b.toString(16).padStart(2,'0')).join(' ')})`);
 }
 
 export async function buildMugPrintPdf(tileId: string): Promise<Buffer> {
@@ -55,8 +54,8 @@ export async function buildMugPrintPdf(tileId: string): Promise<Buffer> {
   const panelW = DOC_W_PT / 2;  // 283.46 pt = 100 mm
 
   const [staticImg, tileImg] = await Promise.all([
-    embedAuto(doc, staticBytes, staticImageFormat(staticUrl)),
-    embedAuto(doc, tileBytes,   tile.format),
+    embedAuto(doc, staticBytes),
+    embedAuto(doc, tileBytes),
   ]);
 
   // Left panel: static branded image
