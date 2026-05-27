@@ -255,7 +255,6 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                           href={`https://admin.shopify.com/store/storyboards/orders/${job.shopify_order_id}`}
                           target="_blank" rel="noreferrer"
                           style={{ color: 'var(--cash-blue)', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', fontWeight: 600 }}
-                          onClick={e => e.stopPropagation()}
                         >
                           {job.shopify_order_name}
                         </a>
@@ -312,7 +311,6 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                             href={job.print_file_url}
                             target="_blank" rel="noreferrer"
                             style={{ color: '#059669', fontSize: '0.78rem', fontWeight: 600 }}
-                            onClick={e => e.stopPropagation()}
                           >
                             PDF ↗
                           </a>
