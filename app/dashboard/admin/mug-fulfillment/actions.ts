@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
+import { createDraftOrder, patchDraftToOrder } from '@/lib/mugs/gelato';
 import type { Json } from '@/lib/types/database';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -136,20 +137,113 @@ export async function generatePdf(formData: FormData) {
   revalidatePath('/dashboard/admin/mug-fulfillment');
 }
 
-// ── submit to Gelato (calls API route with CRON_SECRET) ──────────────────────
+// ── submit to Gelato (runs inline — no HTTP hop, no CRON_SECRET needed) ─────
 
 export async function submitGelato(formData: FormData) {
   const jobId = formData.get('job_id') as string;
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const base = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : 'http://localhost:3000';
-    await fetch(`${base}/api/jobs/submit-gelato?job_id=${encodeURIComponent(jobId)}`, {
-      headers: { Authorization: `Bearer ${secret}` },
-      cache: 'no-store',
-    });
+
+  const { data: job, error: fetchErr } = await supabaseAdmin
+    .from('mug_fulfillment_jobs')
+    .select('id, tile_id, print_file_url, shopify_order_id, shopify_line_item_id, customer_name, shipping_address, attempts')
+    .eq('id', jobId)
+    .eq('state', 'file_ready')
+    .maybeSingle();
+
+  if (fetchErr || !job) {
+    revalidatePath('/dashboard/admin/mug-fulfillment');
+    return;
   }
+
+  // Claim: file_ready → draft_created
+  const { data: claimed } = await supabaseAdmin
+    .from('mug_fulfillment_jobs')
+    .update({ state: 'draft_created', updated_at: new Date().toISOString() })
+    .eq('id', jobId)
+    .eq('state', 'file_ready')
+    .select('id');
+
+  if (!claimed || claimed.length === 0) {
+    revalidatePath('/dashboard/admin/mug-fulfillment');
+    return;
+  }
+
+  await logEvent(jobId, 'state_transition', { from_state: 'file_ready', to_state: 'draft_created' });
+
+  try {
+    if (!job.print_file_url) throw new Error('print_file_url is null — cannot submit without a print file');
+
+    const address = job.shipping_address as Record<string, string> | null;
+    if (!address) throw new Error('shipping_address is null');
+
+    const draftPayload = {
+      orderReferenceId:    String(job.shopify_line_item_id),
+      customerReferenceId: String(job.shopify_order_id),
+      currency:            'USD',
+      items: [{
+        itemReferenceId: String(job.shopify_line_item_id),
+        productUid:      'mug_product_msz_11-oz_mmat_ceramic-black_cl_4-0',
+        quantity:        1,
+        files:           [{ type: 'default' as const, url: job.print_file_url }],
+      }],
+      shippingAddress: {
+        name:         address.name         ?? job.customer_name ?? '',
+        firstName:    address.first_name   ?? '',
+        lastName:     address.last_name    ?? '',
+        addressLine1: address.address1     ?? '',
+        addressLine2: address.address2     ?? undefined,
+        city:         address.city         ?? '',
+        postCode:     address.zip          ?? '',
+        state:        address.province     ?? undefined,
+        country:      address.country_code ?? address.country ?? 'US',
+        email:        address.email        ?? undefined,
+        phone:        address.phone        ?? undefined,
+      },
+    };
+
+    await logEvent(jobId, 'gelato_draft_attempt', {
+      payload: { order_reference_id: draftPayload.orderReferenceId },
+    });
+
+    const draft = await createDraftOrder(draftPayload);
+
+    await logEvent(jobId, 'gelato_draft_created', {
+      payload: { gelato_draft_id: draft.id, status: draft.status },
+    });
+
+    const order = await patchDraftToOrder(draft.id);
+
+    await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .update({
+        state:           'submitted',
+        gelato_order_id: order.id,
+        updated_at:      new Date().toISOString(),
+      })
+      .eq('id', jobId);
+
+    await logEvent(jobId, 'state_transition', {
+      from_state: 'draft_created',
+      to_state:   'submitted',
+      payload:    { gelato_order_id: order.id, gelato_status: order.status },
+    });
+
+  } catch (err) {
+    const msg      = err instanceof Error ? err.message : String(err);
+    const attempts = (job.attempts ?? 0) + 1;
+
+    await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .update({
+        state:      'failed',
+        attempts,
+        last_error: msg,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', jobId);
+
+    await logEvent(jobId, 'error', { from_state: 'draft_created', error: msg, payload: { attempts } });
+  }
+
   revalidatePath('/dashboard/admin/mug-fulfillment');
 }
 
