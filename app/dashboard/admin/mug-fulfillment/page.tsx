@@ -419,15 +419,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                           {!isTerminal && canCancelState && job.manual_approval !== 'cancelled' && (
                             <form action={cancelJob}>
                               <input type="hidden" name="job_id" value={job.id} />
-                              <button
-                                type="submit"
-                                style={btnStyle('red')}
-                                onClick={e => {
-                                  if (!confirm(`Cancel job ${job.shopify_order_name}?`)) e.preventDefault();
-                                }}
-                              >
-                                Cancel
-                              </button>
+                              <button type="submit" style={btnStyle('red')}>Cancel</button>
                             </form>
                           )}
                         </div>
