@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
-import { createDraftOrder, patchDraftToOrder } from '@/lib/mugs/gelato';
+import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder } from '@/lib/mugs/gelato';
 import type { Json } from '@/lib/types/database';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -200,17 +200,37 @@ export async function submitGelato(formData: FormData) {
       },
     };
 
-    await logEvent(jobId, 'gelato_draft_attempt', {
-      payload: { order_reference_id: draftPayload.orderReferenceId },
-    });
+    // Check if Shopify-Gelato integration already created this order.
+    // If so, patch the existing order with the print file rather than creating a duplicate.
+    const lineItemRef = String(job.shopify_line_item_id);
+    const existing = await findOrderByReference(lineItemRef);
 
-    const draft = await createDraftOrder(draftPayload);
-
-    await logEvent(jobId, 'gelato_draft_created', {
-      payload: { gelato_draft_id: draft.id, status: draft.status },
-    });
-
-    const order = await patchDraftToOrder(draft.id);
+    let order;
+    if (existing) {
+      await logEvent(jobId, 'gelato_existing_found', {
+        payload: { gelato_order_id: existing.id, status: existing.status, source: 'shopify_integration' },
+      });
+      // Patch the existing order with our print file URL
+      order = await patchOrder(existing.id, {
+        items: [{
+          itemReferenceId: lineItemRef,
+          files: [{ type: 'default', url: job.print_file_url }],
+        }],
+      });
+      await logEvent(jobId, 'gelato_patched', {
+        payload: { gelato_order_id: order.id, status: order.status },
+      });
+    } else {
+      // No existing Gelato order — create a new one
+      await logEvent(jobId, 'gelato_draft_attempt', {
+        payload: { order_reference_id: draftPayload.orderReferenceId },
+      });
+      const draft = await createDraftOrder(draftPayload);
+      await logEvent(jobId, 'gelato_draft_created', {
+        payload: { gelato_draft_id: draft.id, status: draft.status },
+      });
+      order = await patchDraftToOrder(draft.id);
+    }
 
     await supabaseAdmin
       .from('mug_fulfillment_jobs')
