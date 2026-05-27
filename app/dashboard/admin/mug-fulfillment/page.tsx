@@ -405,8 +405,8 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                             </form>
                           )}
 
-                          {/* Reset — show on failed */}
-                          {job.state === 'failed' && job.manual_approval !== 'cancelled' && (
+                          {/* Reset — available on any state except delivered */}
+                          {job.state !== 'delivered' && (
                             <form action={resetToReceived}>
                               <input type="hidden" name="job_id" value={job.id} />
                               <button type="submit" style={btnStyle('yellow')}>Reset</button>

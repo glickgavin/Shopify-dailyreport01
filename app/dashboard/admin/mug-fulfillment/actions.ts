@@ -293,6 +293,10 @@ export async function resetToReceived(formData: FormData) {
       manual_approval: null,
       last_error:      null,
       next_attempt_at: null,
+      attempts:        0,
+      print_file_url:  null,
+      gelato_order_id: null,
+      gelato_draft_id: null,
       updated_at:      new Date().toISOString(),
     })
     .eq('id', jobId);
