@@ -739,6 +739,122 @@ export type Database = {
         }
         Relationships: []
       }
+      mug_fulfillment_events: {
+        Row: {
+          created_at: string
+          error: string | null
+          event_type: string
+          from_state: string | null
+          id: string
+          job_id: string
+          payload: Json | null
+          to_state: string | null
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          event_type: string
+          from_state?: string | null
+          id?: string
+          job_id: string
+          payload?: Json | null
+          to_state?: string | null
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          event_type?: string
+          from_state?: string | null
+          id?: string
+          job_id?: string
+          payload?: Json | null
+          to_state?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mug_fulfillment_events_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "mug_fulfillment_jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      mug_fulfillment_jobs: {
+        Row: {
+          attempts: number
+          created_at: string
+          customer_name: string | null
+          gelato_draft_id: string | null
+          gelato_order_id: string | null
+          gelato_product_uid: string
+          id: string
+          last_error: string | null
+          manual_approval: string | null
+          next_attempt_at: string | null
+          print_file_url: string | null
+          quantity: number
+          shipping_address: Json | null
+          shopify_line_item_id: string
+          shopify_order_id: string
+          shopify_order_name: string
+          state: string
+          tile_id: string | null
+          tracking_company: string | null
+          tracking_number: string | null
+          tracking_url: string | null
+          updated_at: string
+        }
+        Insert: {
+          attempts?: number
+          created_at?: string
+          customer_name?: string | null
+          gelato_draft_id?: string | null
+          gelato_order_id?: string | null
+          gelato_product_uid: string
+          id?: string
+          last_error?: string | null
+          manual_approval?: string | null
+          next_attempt_at?: string | null
+          print_file_url?: string | null
+          quantity?: number
+          shipping_address?: Json | null
+          shopify_line_item_id: string
+          shopify_order_id: string
+          shopify_order_name: string
+          state?: string
+          tile_id?: string | null
+          tracking_company?: string | null
+          tracking_number?: string | null
+          tracking_url?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attempts?: number
+          created_at?: string
+          customer_name?: string | null
+          gelato_draft_id?: string | null
+          gelato_order_id?: string | null
+          gelato_product_uid?: string
+          id?: string
+          last_error?: string | null
+          manual_approval?: string | null
+          next_attempt_at?: string | null
+          print_file_url?: string | null
+          quantity?: number
+          shipping_address?: Json | null
+          shopify_line_item_id?: string
+          shopify_order_id?: string
+          shopify_order_name?: string
+          state?: string
+          tile_id?: string | null
+          tracking_company?: string | null
+          tracking_number?: string | null
+          tracking_url?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       paypal_daily_snapshot: {
         Row: {
           date: string
@@ -834,6 +950,8 @@ export type Database = {
           conversion_from_start: number
           step_index: number
           step_label: string
+          total_events: number
+          total_revenue: number
           users: number
         }[]
       }
