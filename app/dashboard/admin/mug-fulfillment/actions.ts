@@ -193,7 +193,7 @@ export async function submitGelato(formData: FormData) {
         addressLine2: address.address2     ?? undefined,
         city:         address.city         ?? '',
         postCode:     address.zip          ?? '',
-        state:        address.province     ?? undefined,
+        state:        address.province_code ?? address.province ?? undefined,
         country:      address.country_code ?? address.country ?? 'US',
         email:        address.email        ?? undefined,
         phone:        address.phone        ?? undefined,
