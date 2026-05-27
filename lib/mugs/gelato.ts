@@ -84,11 +84,12 @@ export interface GelatoOrder {
 
 export async function createDraftOrder(payload: GelatoCreateDraftPayload): Promise<GelatoDraftOrder> {
   const testMode = process.env.GELATO_TEST_MODE === 'true';
-  const path = testMode ? '/v4/orders:create-draft?mock=true' : '/v4/orders:create-draft';
+  const body = { ...payload, orderType: 'draft' };
+  const path = testMode ? '/v4/orders?mock=true' : '/v4/orders';
 
   const res = await gelatoFetch(path, {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -99,9 +100,9 @@ export async function createDraftOrder(payload: GelatoCreateDraftPayload): Promi
 }
 
 export async function patchDraftToOrder(draftId: string): Promise<GelatoOrder> {
-  const res = await gelatoFetch(`/v4/orders/${draftId}:patch`, {
+  const res = await gelatoFetch(`/v4/orders/${draftId}`, {
     method: 'PATCH',
-    body: JSON.stringify({ status: 'approved' }),
+    body: JSON.stringify({ orderType: 'order' }),
   });
 
   if (!res.ok) {
