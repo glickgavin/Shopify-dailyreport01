@@ -6,7 +6,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import MugJobDrawer from './MugJobDrawer';
 import {
   approvePdf, approveSubmit, approveGoLive,
-  generatePdf, submitGelato, cancelJob, resetToReceived,
+  generatePdf, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
 } from './actions';
 
 export const revalidate = 0;
@@ -65,7 +65,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   // Fetch state counts
   const { data: allJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity')
+    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity')
     .order('created_at', { ascending: false });
 
   const jobs = allJobs ?? [];
@@ -363,6 +363,21 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                           >
                             View
                           </Link>
+
+                          {/* Tile override URL — shown when state is received */}
+                          {job.state === 'received' && (
+                            <form action={setTileOverrideUrl} style={{ display: 'flex', gap: 4 }}>
+                              <input type="hidden" name="job_id" value={job.id} />
+                              <input
+                                type="url"
+                                name="tile_override_url"
+                                defaultValue={(job as any).tile_override_url ?? ''}
+                                placeholder="Tile override URL (optional)"
+                                style={{ fontSize: 11, padding: '2px 6px', border: '1px solid #ccc', borderRadius: 4, width: 200 }}
+                              />
+                              <button type="submit" style={btnStyle('ghost')}>Set</button>
+                            </form>
+                          )}
 
                           {/* Approve PDF — show when no approval yet */}
                           {!job.manual_approval && (

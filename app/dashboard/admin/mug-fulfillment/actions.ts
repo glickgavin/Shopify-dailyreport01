@@ -63,7 +63,7 @@ export async function generatePdf(formData: FormData) {
   // Fetch the job
   const { data: job, error: fetchErr } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, tile_id, attempts')
+    .select('id, tile_id, tile_override_url, attempts')
     .eq('id', jobId)
     .eq('state', 'received')
     .maybeSingle();
@@ -93,7 +93,7 @@ export async function generatePdf(formData: FormData) {
 
     await logEvent(jobId, 'pdf_gen', { payload: { tile_id: job.tile_id } });
 
-    const pdfBuffer = await buildMugPrintPdf(job.tile_id);
+    const pdfBuffer = await buildMugPrintPdf(job.tile_id, job.tile_override_url);
 
     const storagePath = `mugs/${job.tile_id}.pdf`;
     const { error: uploadErr } = await supabaseAdmin.storage
@@ -264,6 +264,19 @@ export async function submitGelato(formData: FormData) {
     await logEvent(jobId, 'error', { from_state: 'draft_created', error: msg, payload: { attempts } });
   }
 
+  revalidatePath('/dashboard/admin/mug-fulfillment');
+}
+
+// ── tile override ─────────────────────────────────────────────────────────────
+
+export async function setTileOverrideUrl(formData: FormData) {
+  const jobId = formData.get('job_id') as string;
+  const url   = (formData.get('tile_override_url') as string)?.trim() || null;
+  await supabaseAdmin
+    .from('mug_fulfillment_jobs')
+    .update({ tile_override_url: url, updated_at: new Date().toISOString() })
+    .eq('id', jobId);
+  await logEvent(jobId, 'admin_set_tile_override', { payload: { tile_override_url: url } });
   revalidatePath('/dashboard/admin/mug-fulfillment');
 }
 

@@ -35,17 +35,22 @@ async function embedAuto(doc: PDFDocument, bytes: ArrayBuffer): Promise<PDFImage
   throw new Error(`Unrecognised image format (magic bytes: ${Array.from(h).map(b => b.toString(16).padStart(2,'0')).join(' ')})`);
 }
 
-export async function buildMugPrintPdf(tileId: string): Promise<Buffer> {
+export async function buildMugPrintPdf(tileId: string, tileOverrideUrl?: string | null): Promise<Buffer> {
   const staticUrl = process.env.MUG_STATIC_IMAGE_URL;
   if (!staticUrl) throw new Error('MUG_STATIC_IMAGE_URL not configured');
 
-  // Resolve tile from imagegen project
-  const tile = await resolveTileImage(tileId);
-
+  // Resolve tile: use override URL if provided, otherwise look up in imagegen
+  let tileUrl: string;
+  if (tileOverrideUrl) {
+    tileUrl = tileOverrideUrl;
+  } else {
+    const tile = await resolveTileImage(tileId);
+    tileUrl = tile.url;
+  }
   // Fetch both images in parallel
   const [staticBytes, tileBytes] = await Promise.all([
     fetchBytes(staticUrl),
-    fetchBytes(tile.url),
+    fetchBytes(tileUrl),
   ]);
 
   const doc = await PDFDocument.create();
