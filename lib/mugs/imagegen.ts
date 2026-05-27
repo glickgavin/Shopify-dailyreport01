@@ -25,20 +25,30 @@ export async function resolveTileImage(tileId: string): Promise<TileImage> {
     .eq('id', tileId)
     .single();
 
-  const baseUrl = process.env.IMAGEGEN_SUPABASE_URL!.replace(/\/$/, '');
-
-  if (error || !data) {
-    // Fall back to tiles-uploads bucket (direct customer uploads)
-    const fallbackUrl = `${baseUrl}/storage/v1/object/public/tiles-uploads/order-uploads/${tileId}`;
-    return { url: fallbackUrl, format: 'jpg', width: null, height: null };
+  if (!error && data) {
+    const baseUrl = process.env.IMAGEGEN_SUPABASE_URL!.replace(/\/$/, '');
+    return {
+      url:    `${baseUrl}/storage/v1/object/public/images/${data.image_path}`,
+      format: (data.format as string) ?? 'png',
+      width:  data.width  as number | null,
+      height: data.height as number | null,
+    };
   }
 
-  const url = `${baseUrl}/storage/v1/object/public/images/${data.image_path}`;
+  // Fallback 1: Shopify CDN (customer-uploaded files stored at order time)
+  // Requires SHOPIFY_CDN_FILES_BASE_URL env var, e.g.
+  //   https://cdn.shopify.com/s/files/1/0042/8336/7495/files
+  const cdnBase = process.env.SHOPIFY_CDN_FILES_BASE_URL?.replace(/\/$/, '');
+  if (cdnBase) {
+    return { url: `${cdnBase}/${tileId}.jpg`, format: 'jpg', width: null, height: null };
+  }
 
+  // Fallback 2: tiles-uploads bucket in imagegen Supabase project
+  const imaggenBase = process.env.IMAGEGEN_SUPABASE_URL!.replace(/\/$/, '');
   return {
-    url,
-    format: (data.format as string) ?? 'png',
-    width:  data.width  as number | null,
-    height: data.height as number | null,
+    url:    `${imaggenBase}/storage/v1/object/public/tiles-uploads/order-uploads/${tileId}`,
+    format: 'jpg',
+    width:  null,
+    height: null,
   };
 }
