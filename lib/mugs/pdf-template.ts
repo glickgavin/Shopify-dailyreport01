@@ -1,22 +1,22 @@
 import { PDFDocument, PDFImage } from 'pdf-lib';
 import { resolveTileImage } from './imagegen';
 
-// Mug print spec:
+// Mug print spec (Gelato 11oz ceramic):
 //   Trim area:  200 × 96 mm
-//   Bleed:      2 mm top + bottom → document size 200 × 100 mm
+//   Bleed:      2 mm on all sides → document size 204 × 100 mm
 //   Colour:     sRGB, 300 DPI
 //
-// Layout — two equal panels side-by-side:
-//   Left  (x=0 … 100mm):  static branded image (MUG_STATIC_IMAGE_URL)
-//   Right (x=100mm … 200mm): customer AI portrait (from imagegen)
+// Layout — two equal panels side-by-side (each 102mm including bleed):
+//   Left  (x=0 … 102mm):  static branded image (MUG_STATIC_IMAGE_URL)
+//   Right (x=102mm … 204mm): customer AI portrait (from imagegen)
 //
-// Resolution note: source tiles are currently 512×512 px ≈ 130 DPI at 100 mm.
+// Resolution note: source tiles are currently 512×512 px ≈ 130 DPI at 102 mm.
 // Gelato recommends ≥ 300 DPI. Upscaling is handled by pdf-lib's image scaling;
 // print quality will improve once the imagegen pipeline produces higher-res tiles.
 
 const MM_TO_PT = 72 / 25.4;
-const DOC_W_PT = 200 * MM_TO_PT;  // 566.93 pt
-const DOC_H_PT = 100 * MM_TO_PT;  // 283.46 pt
+const DOC_W_PT = 204 * MM_TO_PT;  // 578.27 pt — 200mm trim + 2mm bleed each side
+const DOC_H_PT = 100 * MM_TO_PT;  // 283.46 pt — 96mm trim + 2mm bleed top+bottom
 
 async function fetchBytes(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
