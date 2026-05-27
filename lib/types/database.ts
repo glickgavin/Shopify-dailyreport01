@@ -800,6 +800,7 @@ export type Database = {
           shopify_order_name: string
           state: string
           tile_id: string | null
+          tile_override_url: string | null
           tracking_company: string | null
           tracking_number: string | null
           tracking_url: string | null
@@ -824,6 +825,7 @@ export type Database = {
           shopify_order_name: string
           state?: string
           tile_id?: string | null
+          tile_override_url?: string | null
           tracking_company?: string | null
           tracking_number?: string | null
           tracking_url?: string | null
@@ -848,6 +850,7 @@ export type Database = {
           shopify_order_name?: string
           state?: string
           tile_id?: string | null
+          tile_override_url?: string | null
           tracking_company?: string | null
           tracking_number?: string | null
           tracking_url?: string | null
