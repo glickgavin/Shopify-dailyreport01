@@ -25,11 +25,14 @@ export async function resolveTileImage(tileId: string): Promise<TileImage> {
     .eq('id', tileId)
     .single();
 
+  const baseUrl = process.env.IMAGEGEN_SUPABASE_URL!.replace(/\/$/, '');
+
   if (error || !data) {
-    throw new Error(`Tile ${tileId} not found in imagegen images table: ${error?.message ?? 'no row'}`);
+    // Fall back to tiles-uploads bucket (direct customer uploads)
+    const fallbackUrl = `${baseUrl}/storage/v1/object/public/tiles-uploads/order-uploads/${tileId}`;
+    return { url: fallbackUrl, format: 'jpg', width: null, height: null };
   }
 
-  const baseUrl = process.env.IMAGEGEN_SUPABASE_URL!.replace(/\/$/, '');
   const url = `${baseUrl}/storage/v1/object/public/images/${data.image_path}`;
 
   return {
