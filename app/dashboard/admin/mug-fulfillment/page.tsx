@@ -7,7 +7,9 @@ import MugJobDrawer from './MugJobDrawer';
 import {
   approvePdf, approveSubmit, approveGoLive,
   generatePdf, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
+  backfillSingleOrder,
 } from './actions';
+import BackfillForm from './BackfillForm';
 
 export const revalidate = 0;
 
@@ -159,6 +161,9 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
       </div>
 
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem' }}>
+
+        {/* Backfill single order */}
+        <BackfillForm />
 
         {/* State summary strip */}
         <div style={{

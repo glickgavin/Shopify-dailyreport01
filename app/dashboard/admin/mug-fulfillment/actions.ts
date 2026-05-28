@@ -4,7 +4,10 @@ import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
 import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder } from '@/lib/mugs/gelato';
+import { shopifyGraphQL } from '@/lib/shopify';
 import type { Json } from '@/lib/types/database';
+
+const MAGIC_MUG_PRODUCT_IDS = ['8600824643780'];
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -315,4 +318,113 @@ export async function resetToReceived(formData: FormData) {
     .eq('id', jobId);
   await logEvent(jobId, 'admin_reset', { payload: { to_state: 'received' } });
   revalidatePath('/dashboard/admin/mug-fulfillment');
+}
+
+// ── single-order backfill ────────────────────────────────────────────────────
+
+const ORDER_QUERY = `
+  query GetOrder($id: ID!) {
+    order(id: $id) {
+      id name createdAt financialStatus displayFulfillmentStatus
+      customer { firstName lastName }
+      shippingAddress {
+        firstName lastName address1 address2
+        city provinceCode zip countryCode phone
+      }
+      lineItems(first: 50) {
+        nodes {
+          id title
+          product { id }
+          customAttributes { key value }
+        }
+      }
+    }
+  }
+`;
+
+interface GQLOrderResult {
+  order: {
+    id: string; name: string; createdAt: string;
+    financialStatus: string; displayFulfillmentStatus: string;
+    customer: { firstName: string; lastName: string } | null;
+    shippingAddress: Record<string, string> | null;
+    lineItems: { nodes: Array<{
+      id: string; title: string;
+      product: { id: string } | null;
+      customAttributes: Array<{ key: string; value: string }>;
+    }> };
+  } | null;
+}
+
+export async function backfillSingleOrder(_prev: unknown, formData: FormData): Promise<{ ok: boolean; message: string }> {
+  const raw = (formData.get('shopify_order_id') as string)?.trim();
+  if (!raw) return { ok: false, message: 'No order ID provided' };
+
+  // Accept either the numeric ID or a full URL — extract just the numeric part
+  const numeric = raw.replace(/\D/g, '');
+  if (!numeric) return { ok: false, message: 'Could not parse a numeric order ID from input' };
+
+  const gid = `gid://shopify/Order/${numeric}`;
+
+  let result: GQLOrderResult;
+  try {
+    result = await shopifyGraphQL<GQLOrderResult>(ORDER_QUERY, { id: gid });
+  } catch (err) {
+    return { ok: false, message: `Shopify fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+
+  const order = result.order;
+  if (!order) return { ok: false, message: `Order ${numeric} not found in Shopify` };
+
+  const mugLineItems = order.lineItems.nodes.filter(li => {
+    const pid = li.product?.id?.split('/').pop();
+    return pid && MAGIC_MUG_PRODUCT_IDS.includes(pid);
+  });
+
+  if (mugLineItems.length === 0) {
+    return { ok: false, message: `No Magic Mug line items found on order ${order.name}` };
+  }
+
+  const addr = order.shippingAddress;
+  const customerName = order.customer
+    ? `${order.customer.firstName} ${order.customer.lastName}`.trim()
+    : addr ? `${addr.firstName ?? ''} ${addr.lastName ?? ''}`.trim() : '';
+
+  let inserted = 0, skipped = 0;
+
+  for (const li of mugLineItems) {
+    const liNumeric = li.id.split('/').pop()!;
+    const tileId    = li.customAttributes.find(a => a.key === '_mug_portrait_tile_id')?.value ?? null;
+    const printUrl  = li.customAttributes.find(a => a.key === '_print_file_url')?.value ?? null;
+    const gelatoUid = li.customAttributes.find(a => a.key === '_gelato_product_uid')?.value ?? null;
+
+    // Skip if already in DB
+    const { data: existing } = await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .select('id')
+      .eq('shopify_line_item_id', liNumeric)
+      .maybeSingle();
+
+    if (existing) { skipped++; continue; }
+
+    await supabaseAdmin.from('mug_fulfillment_jobs').insert({
+      shopify_order_id:      numeric,
+      shopify_order_name:    order.name,
+      shopify_line_item_id:  liNumeric,
+      customer_name:         customerName,
+      shipping_address:      (addr ?? null) as Json | null,
+      state:                 'received',
+      tile_id:               tileId,
+      gelato_product_uid:    gelatoUid ?? 'mug_product_msz_11-oz_mmat_ceramic-black_cl_4-0',
+      attempts:              0,
+      created_at:            order.createdAt,
+    });
+
+    inserted++;
+  }
+
+  revalidatePath('/dashboard/admin/mug-fulfillment');
+
+  if (inserted === 0 && skipped > 0) return { ok: true, message: `Order ${order.name} already in DB (skipped ${skipped} line item(s))` };
+  return { ok: true, message: `Backfilled ${inserted} line item(s) from ${order.name}${skipped ? `, ${skipped} already existed` : ''}` };
 }
