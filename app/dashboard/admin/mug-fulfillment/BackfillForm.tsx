@@ -1,13 +1,6 @@
 'use client';
 
-import { useFormState } from 'react-dom';
-import { backfillSingleOrder } from './actions';
-
-const initial = { ok: false, message: '' };
-
 export default function BackfillForm() {
-  const [state, action] = useFormState(backfillSingleOrder, initial);
-
   return (
     <div style={{
       background: 'var(--surface)', border: '1px solid var(--border)',
@@ -18,7 +11,7 @@ export default function BackfillForm() {
       <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
         Backfill order
       </span>
-      <form action={action} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1 }}>
+      <form method="POST" action="/api/admin/backfill-order" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flex: 1 }}>
         <input
           type="text"
           name="shopify_order_id"
@@ -42,16 +35,6 @@ export default function BackfillForm() {
           Backfill
         </button>
       </form>
-      {state.message && (
-        <span style={{
-          fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
-          color: state.ok ? '#166534' : '#991b1b',
-          background: state.ok ? '#dcfce7' : '#fee2e2',
-          padding: '0.25rem 0.6rem', borderRadius: 4,
-        }}>
-          {state.message}
-        </span>
-      )}
     </div>
   );
 }

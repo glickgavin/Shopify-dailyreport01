@@ -7,7 +7,6 @@ import MugJobDrawer from './MugJobDrawer';
 import {
   approvePdf, approveSubmit, approveGoLive,
   generatePdf, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
-  backfillSingleOrder,
 } from './actions';
 import BackfillForm from './BackfillForm';
 
@@ -61,8 +60,10 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   if (!user) redirect('/dashboard/admin/login');
 
   const sp = await searchParams;
-  const activeState = sp.state ?? null;
-  const drawerId = sp.drawer ?? null;
+  const activeState   = sp.state ?? null;
+  const drawerId      = sp.drawer ?? null;
+  const backfillMsg   = (sp as Record<string, string | undefined>).backfill_msg ?? null;
+  const backfillOk    = (sp as Record<string, string | undefined>).backfill_ok === '1';
 
   // Fetch state counts
   const { data: allJobs } = await supabaseAdmin
@@ -164,6 +165,17 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
         {/* Backfill single order */}
         <BackfillForm />
+        {backfillMsg && (
+          <div style={{
+            marginBottom: '1rem', padding: '0.6rem 1rem',
+            borderRadius: 8, fontSize: '0.82rem', fontFamily: 'var(--font-mono)',
+            background: backfillOk ? '#dcfce7' : '#fee2e2',
+            color:      backfillOk ? '#166534' : '#991b1b',
+            border: `1px solid ${backfillOk ? '#bbf7d0' : '#fecaca'}`,
+          }}>
+            {backfillMsg}
+          </div>
+        )}
 
         {/* State summary strip */}
         <div style={{
