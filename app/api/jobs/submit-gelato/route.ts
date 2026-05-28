@@ -38,15 +38,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // When job_id is provided, process only that specific job.
+  // Otherwise pick the oldest eligible file_ready job (cron mode).
+  const jobId = req.nextUrl.searchParams.get('job_id');
   const now = new Date().toISOString();
-  const { data: job, error: fetchErr } = await supabaseAdmin
+
+  let query = supabaseAdmin
     .from('mug_fulfillment_jobs')
     .select('id, tile_id, print_file_url, shopify_order_id, shopify_line_item_id, customer_name, shipping_address, attempts')
-    .eq('state', 'file_ready')
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .eq('state', 'file_ready');
+
+  if (jobId) {
+    query = query.eq('id', jobId);
+  } else {
+    query = (query as typeof query)
+      .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
+      .order('created_at', { ascending: true })
+      .limit(1);
+  }
+
+  const { data: job, error: fetchErr } = await query.maybeSingle();
 
   if (fetchErr) {
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -97,7 +108,7 @@ export async function GET(req: NextRequest) {
         addressLine2: address.address2     ?? undefined,
         city:         address.city         ?? '',
         postCode:     address.zip          ?? '',
-        state:        address.province     ?? undefined,
+        state:        address.province_code ?? address.province ?? undefined,
         country:      address.country_code ?? address.country ?? 'US',
         email:        address.email        ?? undefined,
         phone:        address.phone        ?? undefined,
@@ -114,7 +125,6 @@ export async function GET(req: NextRequest) {
       payload: { gelato_draft_id: draft.id, status: draft.status },
     });
 
-    // Patch draft → live order
     const order = await patchDraftToOrder(draft.id);
 
     await supabaseAdmin

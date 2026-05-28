@@ -23,7 +23,6 @@ async function logEvent(
   });
 }
 
-// Exponential backoff capped at 4 hours
 function nextAttemptAt(attempts: number): string {
   const ms = Math.min(Math.pow(2, attempts) * 60_000, 4 * 3600_000);
   return new Date(Date.now() + ms).toISOString();
@@ -39,17 +38,26 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Pick the oldest job in 'received' state that is either not retrying or
-  // whose backoff window has passed.
+  // When job_id is provided, process only that specific job.
+  // Otherwise pick the oldest eligible received job (cron mode).
+  const jobId = req.nextUrl.searchParams.get('job_id');
   const now = new Date().toISOString();
-  const { data: job, error: fetchErr } = await supabaseAdmin
+
+  let query = supabaseAdmin
     .from('mug_fulfillment_jobs')
     .select('id, tile_id, attempts')
-    .eq('state', 'received')
-    .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+    .eq('state', 'received');
+
+  if (jobId) {
+    query = query.eq('id', jobId);
+  } else {
+    query = (query as typeof query)
+      .or(`next_attempt_at.is.null,next_attempt_at.lte.${now}`)
+      .order('created_at', { ascending: true })
+      .limit(1);
+  }
+
+  const { data: job, error: fetchErr } = await query.maybeSingle();
 
   if (fetchErr) {
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });
@@ -59,8 +67,6 @@ export async function GET(req: NextRequest) {
   }
 
   // Claim the job: transition received → generating.
-  // The .eq('state','received') guard makes this idempotent — a concurrent
-  // runner that already claimed it will see 0 rows updated and bail out.
   const { data: claimed } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
     .update({ state: 'generating', updated_at: new Date().toISOString() })
@@ -83,7 +89,6 @@ export async function GET(req: NextRequest) {
 
     const pdfBuffer = await buildMugPrintPdf(job.tile_id);
 
-    // Upload to mug-prints bucket (public, so Gelato can download by URL)
     const storagePath = `mugs/${job.tile_id}.pdf`;
     const { error: uploadErr } = await supabaseAdmin.storage
       .from(process.env.SUPABASE_MUG_PRINTS_BUCKET ?? 'mug-prints')
@@ -95,7 +100,6 @@ export async function GET(req: NextRequest) {
       .from(process.env.SUPABASE_MUG_PRINTS_BUCKET ?? 'mug-prints')
       .getPublicUrl(storagePath);
 
-    // Transition generating → file_ready, store the final URL
     await supabaseAdmin
       .from('mug_fulfillment_jobs')
       .update({ state: 'file_ready', print_file_url: publicUrl, updated_at: new Date().toISOString() })

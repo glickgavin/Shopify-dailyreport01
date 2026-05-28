@@ -82,33 +82,16 @@ export interface GelatoOrder {
 
 // ── API calls ─────────────────────────────────────────────────────────────────
 
-export async function createDraftOrder(payload: GelatoCreateDraftPayload): Promise<GelatoDraftOrder> {
-  const testMode = process.env.GELATO_TEST_MODE === 'true';
-  const path = testMode ? '/v4/orders:create-draft?mock=true' : '/v4/orders:create-draft';
-
-  const res = await gelatoFetch(path, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gelato createDraft failed (${res.status}): ${text}`);
-  }
-  return res.json() as Promise<GelatoDraftOrder>;
-}
-
-export async function patchDraftToOrder(draftId: string): Promise<GelatoOrder> {
-  const res = await gelatoFetch(`/v4/orders/${draftId}:patch`, {
-    method: 'PATCH',
-    body: JSON.stringify({ status: 'approved' }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gelato patch to order failed (${res.status}): ${text}`);
-  }
-  return res.json() as Promise<GelatoOrder>;
+// Search for an existing order by the reference ID we supplied (e.g. Shopify line item ID).
+// Returns the first match or null if not found.
+export async function findOrderByReference(orderReferenceId: string): Promise<GelatoOrder | null> {
+  const res = await gelatoFetch(
+    `/v4/orders?orderReferenceId=${encodeURIComponent(orderReferenceId)}`,
+    { method: 'GET' },
+  );
+  if (!res.ok) return null;
+  const body = await res.json() as { orders?: GelatoOrder[] };
+  return body.orders?.[0] ?? null;
 }
 
 export async function getOrderStatus(gelatoOrderId: string): Promise<GelatoOrder> {
@@ -118,4 +101,40 @@ export async function getOrderStatus(gelatoOrderId: string): Promise<GelatoOrder
     throw new Error(`Gelato getOrder failed (${res.status}): ${text}`);
   }
   return res.json() as Promise<GelatoOrder>;
+}
+
+// Patch an existing order — used to update print file URL on a Shopify-integrated order,
+// or to promote a draft to a live order.
+export async function patchOrder(gelatoOrderId: string, patch: Record<string, unknown>): Promise<GelatoOrder> {
+  const res = await gelatoFetch(`/v4/orders/${gelatoOrderId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gelato patchOrder failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<GelatoOrder>;
+}
+
+export async function createDraftOrder(payload: GelatoCreateDraftPayload): Promise<GelatoDraftOrder> {
+  const testMode = process.env.GELATO_TEST_MODE === 'true';
+  const body = { ...payload, orderType: 'draft' };
+  const path = testMode ? '/v4/orders?mock=true' : '/v4/orders';
+
+  const res = await gelatoFetch(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gelato createDraft failed (${res.status}): ${text}`);
+  }
+  return res.json() as Promise<GelatoDraftOrder>;
+}
+
+// Kept for backwards compat — wraps patchOrder with orderType:'order'
+export async function patchDraftToOrder(draftId: string): Promise<GelatoOrder> {
+  return patchOrder(draftId, { orderType: 'order' });
 }

@@ -1,52 +1,56 @@
 import { PDFDocument, PDFImage } from 'pdf-lib';
 import { resolveTileImage } from './imagegen';
 
-// Mug print spec:
+// Mug print spec (Gelato 11oz ceramic):
 //   Trim area:  200 × 96 mm
-//   Bleed:      2 mm top + bottom → document size 200 × 100 mm
+//   Bleed:      2 mm on all sides → document size 204 × 100 mm
 //   Colour:     sRGB, 300 DPI
 //
-// Layout — two equal panels side-by-side:
-//   Left  (x=0 … 100mm):  static branded image (MUG_STATIC_IMAGE_URL)
-//   Right (x=100mm … 200mm): customer AI portrait (from imagegen)
+// Layout — two equal panels side-by-side (each 102mm including bleed):
+//   Left  (x=0 … 102mm):  static branded image (MUG_STATIC_IMAGE_URL)
+//   Right (x=102mm … 204mm): customer AI portrait (from imagegen)
 //
-// Resolution note: source tiles are currently 512×512 px ≈ 130 DPI at 100 mm.
+// Resolution note: source tiles are currently 512×512 px ≈ 130 DPI at 102 mm.
 // Gelato recommends ≥ 300 DPI. Upscaling is handled by pdf-lib's image scaling;
 // print quality will improve once the imagegen pipeline produces higher-res tiles.
 
 const MM_TO_PT = 72 / 25.4;
-const DOC_W_PT = 200 * MM_TO_PT;  // 566.93 pt
-const DOC_H_PT = 100 * MM_TO_PT;  // 283.46 pt
+const DOC_W_PT = 204 * MM_TO_PT;  // 578.27 pt — 200mm trim + 2mm bleed each side
+const DOC_H_PT = 100 * MM_TO_PT;  // 283.46 pt — 96mm trim + 2mm bleed top+bottom
 
 async function fetchBytes(url: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch ${url}: HTTP ${res.status}`);
-  return res.arrayBuffer();
+  const bytes = await res.arrayBuffer();
+  if (bytes.byteLength < 8) throw new Error(`Fetched empty/truncated response from ${url}`);
+  return bytes;
 }
 
-async function embedAuto(doc: PDFDocument, bytes: ArrayBuffer, format: string): Promise<PDFImage> {
-  const fmt = format.toLowerCase();
-  if (fmt === 'jpg' || fmt === 'jpeg') return doc.embedJpg(bytes);
-  return doc.embedPng(bytes);  // default to PNG for everything else
+// Detect image format from magic bytes rather than trusting file extension or DB format field.
+// PNG: 89 50 4E 47 | JPEG: FF D8 FF
+async function embedAuto(doc: PDFDocument, bytes: ArrayBuffer): Promise<PDFImage> {
+  const h = new Uint8Array(bytes, 0, 4);
+  if (h[0] === 0xFF && h[1] === 0xD8 && h[2] === 0xFF) return doc.embedJpg(bytes);
+  if (h[0] === 0x89 && h[1] === 0x50 && h[2] === 0x4E && h[3] === 0x47) return doc.embedPng(bytes);
+  throw new Error(`Unrecognised image format (magic bytes: ${Array.from(h).map(b => b.toString(16).padStart(2,'0')).join(' ')})`);
 }
 
-function staticImageFormat(url: string): string {
-  const lower = url.toLowerCase();
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'jpg';
-  return 'png';
-}
-
-export async function buildMugPrintPdf(tileId: string): Promise<Buffer> {
+export async function buildMugPrintPdf(tileId: string, tileOverrideUrl?: string | null): Promise<Buffer> {
   const staticUrl = process.env.MUG_STATIC_IMAGE_URL;
   if (!staticUrl) throw new Error('MUG_STATIC_IMAGE_URL not configured');
 
-  // Resolve tile from imagegen project
-  const tile = await resolveTileImage(tileId);
-
+  // Resolve tile: use override URL if provided, otherwise look up in imagegen
+  let tileUrl: string;
+  if (tileOverrideUrl) {
+    tileUrl = tileOverrideUrl;
+  } else {
+    const tile = await resolveTileImage(tileId);
+    tileUrl = tile.url;
+  }
   // Fetch both images in parallel
   const [staticBytes, tileBytes] = await Promise.all([
     fetchBytes(staticUrl),
-    fetchBytes(tile.url),
+    fetchBytes(tileUrl),
   ]);
 
   const doc = await PDFDocument.create();
@@ -55,8 +59,8 @@ export async function buildMugPrintPdf(tileId: string): Promise<Buffer> {
   const panelW = DOC_W_PT / 2;  // 283.46 pt = 100 mm
 
   const [staticImg, tileImg] = await Promise.all([
-    embedAuto(doc, staticBytes, staticImageFormat(staticUrl)),
-    embedAuto(doc, tileBytes,   tile.format),
+    embedAuto(doc, staticBytes),
+    embedAuto(doc, tileBytes),
   ]);
 
   // Left panel: static branded image

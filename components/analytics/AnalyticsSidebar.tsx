@@ -6,32 +6,39 @@ const NAV = [
   {
     group: 'Business',
     items: [
-      { href: '/dashboard', label: 'Daily Dashboard' },
-      { href: '/dashboard/range', label: 'Range Report' },
+      { href: '/dashboard',          label: 'Daily Dashboard', exact: true },
+      { href: '/dashboard/range',    label: 'Range Report' },
       { href: '/dashboard/ads',      label: 'Ad Report' },
       { href: '/dashboard/meta-ads', label: 'Meta Ads' },
-      { href: '/history',            label: 'History' },
+      { href: '/dashboard/history',  label: 'History' },
     ],
   },
   {
     group: 'Analytics',
     items: [
-      { href: '/analytics', label: 'Overview' },
-      { href: '/analytics/realtime', label: 'Real-time' },
-      { href: '/analytics/events', label: 'Event Explorer' },
-      { href: '/analytics/journey', label: 'User Journey' },
-      { href: '/analytics/funnel', label: 'Funnel Builder' },
-      { href: '/analytics/behaviors', label: 'Behavior Lab' },
+      { href: '/analytics',              label: 'Overview',        exact: true },
+      { href: '/analytics/realtime',     label: 'Real-time' },
+      { href: '/analytics/events',       label: 'Event Explorer' },
+      { href: '/analytics/journey',      label: 'User Journey' },
+      { href: '/analytics/funnel',       label: 'Funnel Builder' },
+      { href: '/analytics/behaviors',    label: 'Behavior Lab' },
+    ],
+  },
+  {
+    group: 'Admin',
+    items: [
+      { href: '/dashboard/admin',                 label: 'Admin Dashboard', exact: true },
+      { href: '/dashboard/admin/mug-fulfillment', label: 'Mug Fulfillment' },
     ],
   },
   {
     group: 'Configuration',
     items: [
-      { href: '/configuration/events', label: 'Events' },
-      { href: '/configuration/paths', label: 'Paths' },
+      { href: '/configuration/events',     label: 'Events' },
+      { href: '/configuration/paths',      label: 'Paths' },
       { href: '/configuration/properties', label: 'Properties' },
-      { href: '/configuration/unmapped', label: 'Unmapped' },
-      { href: '/configuration/sync', label: 'Sync Status' },
+      { href: '/configuration/unmapped',   label: 'Unmapped' },
+      { href: '/configuration/sync',       label: 'Sync Status' },
     ],
   },
 ];
@@ -66,7 +73,9 @@ export default function AnalyticsSidebar() {
             {section.group}
           </div>
           {section.items.map(item => {
-            const active = pathname === item.href || (item.href !== '/analytics' && item.href !== '/dashboard' && pathname.startsWith(item.href));
+            const active = item.exact
+              ? pathname === item.href
+              : pathname === item.href || pathname.startsWith(item.href + '/');
             return (
               <Link
                 key={item.href}
