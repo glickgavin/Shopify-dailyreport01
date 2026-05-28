@@ -96,6 +96,20 @@ export async function POST(req: NextRequest) {
     ? `${order.customer.firstName} ${order.customer.lastName}`.trim()
     : addr ? `${addr.firstName ?? ''} ${addr.lastName ?? ''}`.trim() : '';
 
+  // Normalize GraphQL camelCase address to the snake_case format webhooks use,
+  // so submitGelato can read first_name, last_name, province_code, country_code.
+  const normalizedAddr = addr ? {
+    first_name:    addr.firstName    ?? '',
+    last_name:     addr.lastName     ?? '',
+    address1:      addr.address1     ?? '',
+    address2:      addr.address2     ?? '',
+    city:          addr.city         ?? '',
+    province_code: addr.provinceCode ?? '',
+    zip:           addr.zip          ?? '',
+    country_code:  addr.countryCode  ?? 'US',
+    phone:         addr.phone        ?? '',
+  } : null;
+
   let inserted = 0, skipped = 0;
 
   for (const li of mugLineItems) {
@@ -116,7 +130,7 @@ export async function POST(req: NextRequest) {
       shopify_order_name:   order.name,
       shopify_line_item_id: liNumeric,
       customer_name:        customerName,
-      shipping_address:     (addr ?? null) as Json | null,
+      shipping_address:     (normalizedAddr ?? null) as Json | null,
       state:                'received',
       tile_id:              tileId,
       gelato_product_uid:   gelatoUid ?? 'mug_product_msz_11-oz_mmat_ceramic-black_cl_4-0',
