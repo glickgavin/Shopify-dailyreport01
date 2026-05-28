@@ -16,6 +16,7 @@ interface Props {
 interface SessionSummary {
   session_id: string;
   visitor_id?: string;
+  email?: string;
   events: number;
   first_event: string;
   last_event: string;
@@ -66,9 +67,17 @@ export default async function UserJourneyPage({ searchParams }: Props) {
     const durationS = firstAt && lastAt
       ? Math.round((new Date(lastAt).getTime() - new Date(firstAt).getTime()) / 1000)
       : 0;
+    // Extract email from any event's properties (Shopify Pixel stores it on order_placed)
+    const email = sorted.reduce<string | undefined>((found, e) => {
+      if (found) return found;
+      const p = e.properties as Record<string, unknown> | undefined;
+      const v = p?.email ?? p?.customer_email ?? p?.['Email'];
+      return typeof v === 'string' ? v : undefined;
+    }, undefined);
     return {
       session_id: sid,
       visitor_id: sorted[0]?.visitor_id,
+      email,
       events: evts.length,
       first_event: sorted[0]?.event_type ?? '—',
       last_event: sorted[sorted.length - 1]?.event_type ?? '—',
@@ -99,7 +108,7 @@ export default async function UserJourneyPage({ searchParams }: Props) {
     : '—';
 
   return (
-    <div style={{ padding: '2rem', maxWidth: 1100 }}>
+    <div style={{ padding: '2rem', maxWidth: 1400 }}>
       <div style={{ marginBottom: '1rem' }}>
         <h1 style={{ fontSize: '1.35rem', fontWeight: 700, marginBottom: 4 }}>User Journey</h1>
         <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>{label}</p>
@@ -140,13 +149,13 @@ export default async function UserJourneyPage({ searchParams }: Props) {
             <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {['Started', 'Events', 'Duration', 'Device', 'First Event'].map(h => (
-                    <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: 0, background: 'var(--surface)' }}>{h}</th>
+                  {['Started', 'Session ID', 'User', 'Events', 'Duration', 'Device', 'First Event'].map(h => (
+                    <th key={h} style={{ padding: '0.5rem 0.75rem', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.05em', position: 'sticky', top: 0, background: 'var(--surface)', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {sessions.slice(0, 100).map(s => (
+                {sessions.slice(0, 200).map(s => (
                   <tr
                     key={s.session_id}
                     style={{ borderBottom: '1px solid var(--border)', background: focusSession === s.session_id ? 'rgba(26,26,46,0.05)' : 'transparent', cursor: 'pointer' }}
@@ -154,19 +163,34 @@ export default async function UserJourneyPage({ searchParams }: Props) {
                     <td style={{ padding: '0.5rem 0.75rem' }}>
                       <a
                         href={`/analytics/journey?preset=${sp.preset ?? '7d'}&session_id=${s.session_id}`}
-                        style={{ color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: '0.75rem' }}
+                        style={{ color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: '0.75rem', whiteSpace: 'nowrap' }}
                       >
                         {s.first_at ? new Date(s.first_at).toLocaleString() : '—'}
                       </a>
                     </td>
+                    <td style={{ padding: '0.5rem 0.75rem' }}>
+                      <span
+                        title={s.session_id}
+                        style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--muted)', cursor: 'default' }}
+                      >
+                        {s.session_id.slice(0, 8)}…
+                      </span>
+                    </td>
+                    <td style={{ padding: '0.5rem 0.75rem', fontSize: '0.78rem', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {s.email ? (
+                        <span title={s.email} style={{ color: 'var(--text)' }}>{s.email}</span>
+                      ) : s.visitor_id ? (
+                        <span title={s.visitor_id} style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--muted)' }}>{s.visitor_id.slice(0, 10)}…</span>
+                      ) : '—'}
+                    </td>
                     <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{s.events}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{fmtDuration(s.duration_s)}</td>
+                    <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtDuration(s.duration_s)}</td>
                     <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{s.device}</td>
                     <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{s.first_event}</td>
                   </tr>
                 ))}
                 {sessions.length === 0 && (
-                  <tr><td colSpan={5} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No sessions</td></tr>
+                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No sessions</td></tr>
                 )}
               </tbody>
             </table>
