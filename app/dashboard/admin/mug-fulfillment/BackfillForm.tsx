@@ -1,12 +1,12 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useFormState } from 'react-dom';
 import { backfillSingleOrder } from './actions';
 
 const initial = { ok: false, message: '' };
 
 export default function BackfillForm() {
-  const [state, action, pending] = useActionState(backfillSingleOrder, initial);
+  const [state, action] = useFormState(backfillSingleOrder, initial);
 
   return (
     <div style={{
@@ -33,15 +33,13 @@ export default function BackfillForm() {
         />
         <button
           type="submit"
-          disabled={pending}
           style={{
             background: '#1a1a2e', color: '#fff', border: 'none',
             borderRadius: 6, padding: '0.4rem 0.875rem',
-            fontSize: '0.8rem', fontFamily: 'var(--font-mono)',
-            cursor: pending ? 'not-allowed' : 'pointer', opacity: pending ? 0.6 : 1,
+            fontSize: '0.8rem', fontFamily: 'var(--font-mono)', cursor: 'pointer',
           }}
         >
-          {pending ? 'Looking up…' : 'Backfill'}
+          Backfill
         </button>
       </form>
       {state.message && (
