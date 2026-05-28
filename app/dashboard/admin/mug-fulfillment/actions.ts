@@ -325,7 +325,7 @@ export async function resetToReceived(formData: FormData) {
 const ORDER_QUERY = `
   query GetOrder($id: ID!) {
     order(id: $id) {
-      id name createdAt financialStatus displayFulfillmentStatus
+      id name createdAt
       customer { firstName lastName }
       shippingAddress {
         firstName lastName address1 address2
@@ -345,7 +345,6 @@ const ORDER_QUERY = `
 interface GQLOrderResult {
   order: {
     id: string; name: string; createdAt: string;
-    financialStatus: string; displayFulfillmentStatus: string;
     customer: { firstName: string; lastName: string } | null;
     shippingAddress: Record<string, string> | null;
     lineItems: { nodes: Array<{
