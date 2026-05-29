@@ -7,6 +7,7 @@ import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
 import type { Preset } from '@/lib/analytics/dateRange';
 import type { Predicate } from '@/lib/analytics/predicates';
 import FunnelEditor from './FunnelEditor';
+import AttributionToggles from './AttributionToggles';
 
 interface Props {
   searchParams: Promise<{
@@ -16,6 +17,7 @@ interface Props {
     compare_funnel_id?: string;   // Mode A: two funnels, same dates
     compare_from?: string;        // Mode B: same funnel, different dates
     compare_to?: string;
+    email_stitch?: string; apply_window?: string;
   }>;
 }
 
@@ -87,15 +89,21 @@ function formatDateRange(from: string, to: string): string {
   return from === to ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
 }
 
-async function runFunnel(steps: FunnelStep[], startDate: string, endDate: string): Promise<{ rows: FunnelRpcRow[]; error: string | null }> {
+async function runFunnel(
+  steps: FunnelStep[],
+  startDate: string,
+  endDate: string,
+  opts: { emailStitch: boolean; applyWindow: boolean } = { emailStitch: true, applyWindow: true },
+): Promise<{ rows: FunnelRpcRow[]; error: string | null }> {
   if (steps.length === 0) return { rows: [], error: null };
   try {
     const { data, error: rpcErr } = await supabaseAdmin.rpc('analytics_funnel', {
       p_steps: steps as unknown as import('@/lib/types/database').Json,
       p_from: dateToUTCRange(startDate, endDate).from,
       p_to:   dateToUTCRange(startDate, endDate).to,
-      p_window_hours: 24,
-    });
+      p_window_hours: opts.applyWindow ? 24 : null,
+      p_stitch_by_email: opts.emailStitch,
+    } as unknown as Parameters<typeof supabaseAdmin.rpc<'analytics_funnel'>>[1]);
     if (rpcErr) {
       const msg = rpcErr.message + (rpcErr.details ? ' — ' + rpcErr.details : '') + (rpcErr.hint ? ' (hint: ' + rpcErr.hint + ')' : '');
       return { rows: [], error: msg };
@@ -192,6 +200,11 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const funnelId = sp.funnel_id ? parseInt(sp.funnel_id) : null;
   const compareFunnelId = sp.compare_funnel_id ? parseInt(sp.compare_funnel_id) : null;
 
+  // Attribution toggles — both default ON.
+  // URL only carries the param when the toggle is explicitly OFF.
+  const emailStitch = sp.email_stitch !== 'false';
+  const applyWindow = sp.apply_window !== 'false';
+
   // Comparison date range (Mode B)
   const compareFrom = sp.compare_from ?? '';
   const compareTo = sp.compare_to ?? '';
@@ -250,7 +263,8 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const availableDefinitions: AvailableDefinition[] = [...configuredDefs, ...rawDefs];
 
   // Run primary funnel
-  const { rows: funnelRows, error } = await runFunnel(steps, startDate, endDate);
+  const attrOpts = { emailStitch, applyWindow };
+  const { rows: funnelRows, error } = await runFunnel(steps, startDate, endDate, attrOpts);
 
   // Run comparison (Mode A or Mode B)
   let compareRows: FunnelRpcRow[] = [];
@@ -261,12 +275,12 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
   const isCompareActive = isModeA || isModeB;
 
   if (isModeA) {
-    const res = await runFunnel(compareSteps, startDate, endDate);
+    const res = await runFunnel(compareSteps, startDate, endDate, attrOpts);
     compareRows = res.rows;
     compareError = res.error;
     compareDateLabel = label;
   } else if (isModeB) {
-    const res = await runFunnel(steps, compareFrom, compareTo);
+    const res = await runFunnel(steps, compareFrom, compareTo, attrOpts);
     compareRows = res.rows;
     compareError = res.error;
     compareDateLabel = formatDateRange(compareFrom, compareTo);
@@ -304,6 +318,8 @@ export default async function FunnelBuilderPage({ searchParams }: Props) {
         devices={[]}
         excludePreview={false}
       />
+
+      <AttributionToggles emailStitch={emailStitch} applyWindow={applyWindow} />
 
       {/* Compare period bar (Mode B) */}
       {activeFunnel && (
