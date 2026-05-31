@@ -423,8 +423,7 @@ export default async function DashboardPage({ params }: { params: { date: string
               for these fields, so the card stays hidden. Cast: lib/types/database.ts
               hasn't been regenerated since the migration. */}
           {(() => {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const s = summary as any;
+            const s = summary as any; // amazon_* columns added in migration 0013
             const amzOrders = Number(s.amazon_orders ?? 0);
             if (amzOrders <= 0) return null;
             return (
