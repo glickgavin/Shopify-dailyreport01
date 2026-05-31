@@ -42,7 +42,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
     supabaseAdmin.from('daily_products').select('*').eq('date', date).order('revenue', { ascending: false }),
     supabaseAdmin.from('daily_membership_orders').select('*').eq('date', date).order('order_name'),
-    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov,total_profit,phys_cash_revenue,mem_revenue').eq('date', prevDate).single(),
+    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,total_aov,phys_cash_aov,total_profit,phys_cash_revenue,mem_revenue').eq('date', prevDate).single(),
     supabaseAdmin.from('daily_summary').select('date,total_revenue').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: true }),
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
@@ -133,7 +133,7 @@ export default async function DashboardPage({ params }: { params: { date: string
 
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
-  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0);
+  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0) + (summary.amazon_orders ?? 0);
 
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
@@ -318,7 +318,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="AOV"
             value={fmtDec(summary.total_aov)}
-            delta={calcDelta(summary.total_aov, prevSummary?.phys_cash_aov)}
+            delta={calcDelta(summary.total_aov, prevSummary?.total_aov)}
           />
         </div>
 
