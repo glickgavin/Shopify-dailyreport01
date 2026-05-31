@@ -18,6 +18,7 @@ interface SummaryRow {
   total_revenue: number;
   phys_cash_orders: number;
   phys_non_cash_orders: number;
+  amazon_orders: number;
 }
 
 interface PeriodStats {
@@ -45,7 +46,7 @@ function periodStats(adsSlice: AdsRow[], sumSlice: SummaryRow[]): PeriodStats {
   const spend         = adsSlice.reduce((s, r) => s + (r.spend     ?? 0), 0);
   const purchases     = adsSlice.reduce((s, r) => s + (r.purchases ?? 0), 0);
   const orders        = sumSlice.reduce((s, r) => s + (r.total_orders        ?? 0), 0);
-  const productOrders = sumSlice.reduce((s, r) => s + (r.phys_cash_orders    ?? 0) + (r.phys_non_cash_orders ?? 0), 0);
+  const productOrders = sumSlice.reduce((s, r) => s + (r.phys_cash_orders ?? 0) + (r.phys_non_cash_orders ?? 0) + (r.amazon_orders ?? 0), 0);
   const revenue       = sumSlice.reduce((s, r) => s + (r.total_revenue       ?? 0), 0);
   return {
     spend,
@@ -104,7 +105,7 @@ export default async function AdReportPage() {
     fetchAdsRangeRaw(d65str, todayStr),
     supabaseAdmin
       .from('daily_summary')
-      .select('date,total_orders,total_revenue,phys_cash_orders,phys_non_cash_orders')
+      .select('date,total_orders,total_revenue,phys_cash_orders,phys_non_cash_orders,amazon_orders')
       .gte('date', d65str)
       .lte('date', todayStr)
       .order('date', { ascending: true }),
@@ -302,7 +303,7 @@ export default async function AdReportPage() {
               </tbody>
             </table>
             <div style={{ padding: '0.5rem 1rem', background: 'var(--surface2)', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-              CPA (Meta) = ad spend ÷ Meta-attributed purchases · Blended Orders = cash + non-cash product orders (excl. memberships &amp; internal) · CPA (Blended) = ad spend ÷ blended orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
+              CPA (Meta) = ad spend ÷ Meta-attributed purchases · Blended Orders = cash + non-cash + Amazon product orders (excl. memberships &amp; internal) · CPA (Blended) = ad spend ÷ blended orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
             </div>
           </div>
 

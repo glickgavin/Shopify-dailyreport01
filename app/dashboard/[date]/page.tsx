@@ -42,7 +42,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('daily_summary').select('*').eq('date', date).single(),
     supabaseAdmin.from('daily_products').select('*').eq('date', date).order('revenue', { ascending: false }),
     supabaseAdmin.from('daily_membership_orders').select('*').eq('date', date).order('order_name'),
-    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,phys_cash_aov,total_profit,phys_cash_revenue,mem_revenue').eq('date', prevDate).single(),
+    supabaseAdmin.from('daily_summary').select('total_revenue,total_net_sales,total_orders,total_margin,total_aov,phys_cash_aov,total_profit,phys_cash_revenue,mem_revenue').eq('date', prevDate).single(),
     supabaseAdmin.from('daily_summary').select('date,total_revenue').gte('date', sevenDayStart).lt('date', date).order('date', { ascending: true }),
     supabaseAdmin.from('daily_customer_segments').select('*').eq('date', date),
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', date).single(),
@@ -62,15 +62,17 @@ export default async function DashboardPage({ params }: { params: { date: string
   const nonCashRetSeg   = seg('non_cash', 'returning');
   const internalNewSeg  = seg('internal', 'new');
   const internalRetSeg  = seg('internal', 'returning');
+  const amazonNewSeg    = seg('amazon',   'new');
+  const amazonRetSeg    = seg('amazon',   'returning');
 
-  const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0);
-  const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0);
-  const totalNewRevenue     = (cashNewSeg?.revenue ?? 0)   + (nonCashNewSeg?.revenue ?? 0);
-  const totalRetRevenue     = (cashRetSeg?.revenue ?? 0)   + (nonCashRetSeg?.revenue ?? 0);
+  const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0)    + (amazonNewSeg?.orders ?? 0);
+  const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0)    + (amazonRetSeg?.orders ?? 0);
+  const totalNewRevenue     = (cashNewSeg?.revenue ?? 0)   + (nonCashNewSeg?.revenue ?? 0)   + (amazonNewSeg?.revenue ?? 0);
+  const totalRetRevenue     = (cashRetSeg?.revenue ?? 0)   + (nonCashRetSeg?.revenue ?? 0)   + (amazonRetSeg?.revenue ?? 0);
   const totalNewAov         = totalNewOrders > 0 ? totalNewRevenue / totalNewOrders : 0;
   const totalRetAov         = totalRetOrders > 0 ? totalRetRevenue / totalRetOrders : 0;
-  const totalNewMargin      = totalNewRevenue > 0 ? ((totalNewRevenue - ((cashNewSeg?.cogs ?? 0) + (nonCashNewSeg?.cogs ?? 0))) / totalNewRevenue) * 100 : 0;
-  const totalRetMargin      = totalRetRevenue > 0 ? ((totalRetRevenue - ((cashRetSeg?.cogs ?? 0) + (nonCashRetSeg?.cogs ?? 0))) / totalRetRevenue) * 100 : 0;
+  const totalNewMargin      = totalNewRevenue > 0 ? ((totalNewRevenue - ((cashNewSeg?.cogs ?? 0) + (nonCashNewSeg?.cogs ?? 0) + (amazonNewSeg?.cogs ?? 0))) / totalNewRevenue) * 100 : 0;
+  const totalRetMargin      = totalRetRevenue > 0 ? ((totalRetRevenue - ((cashRetSeg?.cogs ?? 0) + (nonCashRetSeg?.cogs ?? 0) + (amazonRetSeg?.cogs ?? 0))) / totalRetRevenue) * 100 : 0;
   const hasSegments         = (segments ?? []).length > 0;
 
   const cashNewCount    = cashNewSeg?.orders ?? 0;
@@ -117,6 +119,10 @@ export default async function DashboardPage({ params }: { params: { date: string
     direct_success_unique_customers: number;
     refunds_count: number;
     refunds_total_cents: number;
+    // Added with the customer-attribution taxonomy fix. May be absent on
+    // snapshots written before the migration — handle as undefined.
+    excluded_internal_transfers_count?: number;
+    excluded_internal_transfers_net_cents?: number;
     denied_count: number;
     denied_total_cents: number;
     shopify_filtered_count: number;
@@ -127,7 +133,7 @@ export default async function DashboardPage({ params }: { params: { date: string
 
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
-  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0);
+  const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0) + (summary.amazon_orders ?? 0);
 
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
@@ -312,7 +318,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="AOV"
             value={fmtDec(summary.total_aov)}
-            delta={calcDelta(summary.total_aov, prevSummary?.phys_cash_aov)}
+            delta={calcDelta(summary.total_aov, prevSummary?.total_aov)}
           />
         </div>
 
@@ -412,6 +418,30 @@ export default async function DashboardPage({ params }: { params: { date: string
             aov={summary.mem_aov}
             breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
           />
+          {/* Amazon channel — rendered when there is activity. Older daily_summary
+              rows (written before the amazon_* columns existed) will have null/0
+              for these fields, so the card stays hidden. Cast: lib/types/database.ts
+              hasn't been regenerated since the migration. */}
+          {(() => {
+            const s = summary as any; // amazon_* columns added in migration 0013
+            const amzOrders = Number(s.amazon_orders ?? 0);
+            if (amzOrders <= 0) return null;
+            return (
+              <SegmentCard
+                theme="amazon"
+                title="Amazon"
+                revenue={Number(s.amazon_revenue ?? 0)}
+                netSales={Number(s.amazon_net_sales ?? 0)}
+                shipping={Number(s.amazon_shipping ?? 0)}
+                cogs={Number(s.amazon_cogs ?? 0)}
+                profit={Number(s.amazon_profit ?? 0)}
+                margin={Number(s.amazon_margin ?? 0)}
+                orders={amzOrders}
+                qty={Number(s.amazon_qty ?? 0)}
+                aov={Number(s.amazon_aov ?? 0)}
+              />
+            );
+          })()}
           {stripeSummary && (
             <StripeSegmentCard
               grossCents={stripeSummary.direct_success_total_cents}
@@ -428,6 +458,8 @@ export default async function DashboardPage({ params }: { params: { date: string
               transactions={paypalSummary.direct_success_count}
               refunds={paypalSummary.refunds_count}
               uniqueCustomers={paypalSummary.direct_success_unique_customers}
+              excludedTransfersCount={paypalSummary.excluded_internal_transfers_count}
+              excludedTransfersNetCents={paypalSummary.excluded_internal_transfers_net_cents}
             />
           )}
         </div>
@@ -489,6 +521,10 @@ export default async function DashboardPage({ params }: { params: { date: string
                       { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
                       { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
                       { seg: 'Internal', ct: 'returning',  s: internalRetSeg, payAccent: '#92400e',               ctAccent: '#6b7280' },
+                      ...(amazonNewSeg || amazonRetSeg ? [
+                        { seg: 'Amazon', ct: 'new',       s: amazonNewSeg,   payAccent: '#B26B00',               ctAccent: '#1d4ed8' },
+                        { seg: 'Amazon', ct: 'returning',  s: amazonRetSeg,   payAccent: '#B26B00',               ctAccent: '#6b7280' },
+                      ] : []),
                     ];
                     return rows.map(({ seg, ct, s, payAccent, ctAccent }, i) => (
                       <tr key={`${seg}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>

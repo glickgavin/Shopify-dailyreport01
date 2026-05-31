@@ -13,6 +13,14 @@ export interface OrderRow {
   cost_of_goods_sold: number;
   quantity_ordered: number;
   customer_type: 'new' | 'returning';
+  /**
+   * Sales channel for the order, derived from Shopify's `sourceName`.
+   * `null` = direct Shopify (web). `'amazon'` = Codisto Amazon (or any
+   * other connector that reports sourceName="amazon"). When adding more
+   * channels (walmart, ebay, tiktok, etc.) extend this union and update
+   * the classifier in business-rules.ts.
+   */
+  channel: 'amazon' | null;
 }
 
 export interface PaymentRow {
@@ -28,6 +36,7 @@ const ORDERS_QUERY = `
       nodes {
         name
         createdAt
+        sourceName
         customer { id numberOfOrders }
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
@@ -61,6 +70,7 @@ const ORDERS_QUERY = `
 interface GQLOrder {
   name: string;
   createdAt: string;
+  sourceName: string | null;
   customer: { id: string; numberOfOrders: string | number } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
@@ -193,6 +203,11 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
 
     const totalLineRevenue = lineRevenues.reduce((s, v) => s + v, 0);
 
+    // Derive channel from Shopify's sourceName. Only 'amazon' is mapped today
+    // (matches Codisto Marketplace Connect orders). Direct Shopify orders have
+    // sourceName 'web' / 'shopify_draft_order' / etc. → channel stays null.
+    const channel: OrderRow['channel'] = order.sourceName === 'amazon' ? 'amazon' : null;
+
     for (let i = 0; i < lineItems.length; i++) {
       const li = lineItems[i];
       const lineRevenue = lineRevenues[i];
@@ -212,6 +227,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         cost_of_goods_sold: cogs,
         quantity_ordered: li.quantity,
         customer_type: orderCustomerType.get(order.name) ?? 'new',
+        channel,
       });
     }
   }

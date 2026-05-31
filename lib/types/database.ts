@@ -585,6 +585,15 @@ export type Database = {
       }
       daily_summary: {
         Row: {
+          amazon_aov: number
+          amazon_cogs: number
+          amazon_margin: number
+          amazon_net_sales: number
+          amazon_orders: number
+          amazon_profit: number
+          amazon_qty: number
+          amazon_revenue: number
+          amazon_shipping: number
           created_at: string
           date: string
           mem_aov: number
@@ -626,6 +635,15 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          amazon_aov?: number
+          amazon_cogs?: number
+          amazon_margin?: number
+          amazon_net_sales?: number
+          amazon_orders?: number
+          amazon_profit?: number
+          amazon_qty?: number
+          amazon_revenue?: number
+          amazon_shipping?: number
           created_at?: string
           date: string
           mem_aov?: number
@@ -667,6 +685,15 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          amazon_aov?: number
+          amazon_cogs?: number
+          amazon_margin?: number
+          amazon_net_sales?: number
+          amazon_orders?: number
+          amazon_profit?: number
+          amazon_qty?: number
+          amazon_revenue?: number
+          amazon_shipping?: number
           created_at?: string
           date?: string
           mem_aov?: number

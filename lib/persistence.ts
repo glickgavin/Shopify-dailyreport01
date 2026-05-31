@@ -8,7 +8,7 @@ export async function saveDay(
   orderRows: OrderRow[],
   paymentRows: PaymentRow[],
 ): Promise<void> {
-  const { date, total, physCash, physNonCash, membership, cashNew, cashReturning, nonCashNew, nonCashReturning, internalNew, internalReturning, products, memOrders } = processed;
+  const { date, total, physCash, physNonCash, membership, cashNew, cashReturning, nonCashNew, nonCashReturning, internalNew, internalReturning, amazon, amazonNew, amazonReturning, products, memOrders } = processed;
 
   // 1. Upsert daily_summary
   const { error: summaryErr } = await supabaseAdmin.from('daily_summary').upsert({
@@ -49,6 +49,15 @@ export async function saveDay(
     mem_orders:              membership.orders,
     mem_qty:                 membership.qty,
     mem_aov:                 membership.aov,
+    amazon_revenue:          amazon.revenue,
+    amazon_net_sales:        amazon.netSales,
+    amazon_shipping:         amazon.shipping,
+    amazon_cogs:             amazon.cogs,
+    amazon_profit:           amazon.profit,
+    amazon_margin:           amazon.margin,
+    amazon_orders:           amazon.orders,
+    amazon_qty:              amazon.qty,
+    amazon_aov:              amazon.aov,
   }, { onConflict: 'date' });
 
   if (summaryErr) throw new Error(`daily_summary upsert: ${summaryErr.message}`);
@@ -113,6 +122,8 @@ export async function saveDay(
     { payment_type: 'non_cash', customer_type: 'returning', ...nonCashReturning },
     { payment_type: 'internal', customer_type: 'new',       ...internalNew },
     { payment_type: 'internal', customer_type: 'returning', ...internalReturning },
+    { payment_type: 'amazon',   customer_type: 'new',       ...amazonNew },
+    { payment_type: 'amazon',   customer_type: 'returning', ...amazonReturning },
   ].map(({ payment_type, customer_type, revenue, netSales, shipping, cogs, profit, margin, orders, qty, aov }) => ({
     date,
     payment_type,
