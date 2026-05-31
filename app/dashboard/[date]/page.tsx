@@ -65,14 +65,14 @@ export default async function DashboardPage({ params }: { params: { date: string
   const amazonNewSeg    = seg('amazon',   'new');
   const amazonRetSeg    = seg('amazon',   'returning');
 
-  const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0);
-  const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0);
-  const totalNewRevenue     = (cashNewSeg?.revenue ?? 0)   + (nonCashNewSeg?.revenue ?? 0);
-  const totalRetRevenue     = (cashRetSeg?.revenue ?? 0)   + (nonCashRetSeg?.revenue ?? 0);
+  const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0)    + (amazonNewSeg?.orders ?? 0);
+  const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0)    + (amazonRetSeg?.orders ?? 0);
+  const totalNewRevenue     = (cashNewSeg?.revenue ?? 0)   + (nonCashNewSeg?.revenue ?? 0)   + (amazonNewSeg?.revenue ?? 0);
+  const totalRetRevenue     = (cashRetSeg?.revenue ?? 0)   + (nonCashRetSeg?.revenue ?? 0)   + (amazonRetSeg?.revenue ?? 0);
   const totalNewAov         = totalNewOrders > 0 ? totalNewRevenue / totalNewOrders : 0;
   const totalRetAov         = totalRetOrders > 0 ? totalRetRevenue / totalRetOrders : 0;
-  const totalNewMargin      = totalNewRevenue > 0 ? ((totalNewRevenue - ((cashNewSeg?.cogs ?? 0) + (nonCashNewSeg?.cogs ?? 0))) / totalNewRevenue) * 100 : 0;
-  const totalRetMargin      = totalRetRevenue > 0 ? ((totalRetRevenue - ((cashRetSeg?.cogs ?? 0) + (nonCashRetSeg?.cogs ?? 0))) / totalRetRevenue) * 100 : 0;
+  const totalNewMargin      = totalNewRevenue > 0 ? ((totalNewRevenue - ((cashNewSeg?.cogs ?? 0) + (nonCashNewSeg?.cogs ?? 0) + (amazonNewSeg?.cogs ?? 0))) / totalNewRevenue) * 100 : 0;
+  const totalRetMargin      = totalRetRevenue > 0 ? ((totalRetRevenue - ((cashRetSeg?.cogs ?? 0) + (nonCashRetSeg?.cogs ?? 0) + (amazonRetSeg?.cogs ?? 0))) / totalRetRevenue) * 100 : 0;
   const hasSegments         = (segments ?? []).length > 0;
 
   const cashNewCount    = cashNewSeg?.orders ?? 0;

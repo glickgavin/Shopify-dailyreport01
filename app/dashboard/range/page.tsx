@@ -236,13 +236,15 @@ export default async function RangePage({
   const nonCashRet   = seg('non_cash', 'returning');
   const internalNew  = seg('internal', 'new');
   const internalRet  = seg('internal', 'returning');
+  const amazonNew    = seg('amazon',   'new');
+  const amazonRet    = seg('amazon',   'returning');
 
-  const totalNewOrders   = cashNew.orders  + nonCashNew.orders;
-  const totalRetOrders   = cashRet.orders  + nonCashRet.orders;
-  const totalNewRevenue  = cashNew.revenue + nonCashNew.revenue;
-  const totalRetRevenue  = cashRet.revenue + nonCashRet.revenue;
-  const totalNewCogs     = cashNew.cogs + nonCashNew.cogs;
-  const totalRetCogs     = cashRet.cogs + nonCashRet.cogs;
+  const totalNewOrders   = cashNew.orders  + nonCashNew.orders  + amazonNew.orders;
+  const totalRetOrders   = cashRet.orders  + nonCashRet.orders  + amazonRet.orders;
+  const totalNewRevenue  = cashNew.revenue + nonCashNew.revenue + amazonNew.revenue;
+  const totalRetRevenue  = cashRet.revenue + nonCashRet.revenue + amazonRet.revenue;
+  const totalNewCogs     = cashNew.cogs + nonCashNew.cogs + amazonNew.cogs;
+  const totalRetCogs     = cashRet.cogs + nonCashRet.cogs + amazonRet.cogs;
   const totalNewAov      = totalNewOrders > 0 ? totalNewRevenue / totalNewOrders : 0;
   const totalRetAov      = totalRetOrders > 0 ? totalRetRevenue / totalRetOrders : 0;
   const totalNewMargin   = totalNewRevenue > 0 ? ((totalNewRevenue - totalNewCogs) / totalNewRevenue) * 100 : 0;
