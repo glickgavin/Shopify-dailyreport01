@@ -62,6 +62,8 @@ export default async function DashboardPage({ params }: { params: { date: string
   const nonCashRetSeg   = seg('non_cash', 'returning');
   const internalNewSeg  = seg('internal', 'new');
   const internalRetSeg  = seg('internal', 'returning');
+  const amazonNewSeg    = seg('amazon',   'new');
+  const amazonRetSeg    = seg('amazon',   'returning');
 
   const totalNewOrders      = (cashNewSeg?.orders ?? 0)    + (nonCashNewSeg?.orders ?? 0);
   const totalRetOrders      = (cashRetSeg?.orders ?? 0)    + (nonCashRetSeg?.orders ?? 0);
@@ -520,6 +522,10 @@ export default async function DashboardPage({ params }: { params: { date: string
                       { seg: 'Non-Cash', ct: 'returning',  s: nonCashRetSeg,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
                       { seg: 'Internal', ct: 'new',       s: internalNewSeg, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
                       { seg: 'Internal', ct: 'returning',  s: internalRetSeg, payAccent: '#92400e',               ctAccent: '#6b7280' },
+                      ...(amazonNewSeg || amazonRetSeg ? [
+                        { seg: 'Amazon', ct: 'new',       s: amazonNewSeg,   payAccent: '#B26B00',               ctAccent: '#1d4ed8' },
+                        { seg: 'Amazon', ct: 'returning',  s: amazonRetSeg,   payAccent: '#B26B00',               ctAccent: '#6b7280' },
+                      ] : []),
                     ];
                     return rows.map(({ seg, ct, s, payAccent, ctAccent }, i) => (
                       <tr key={`${seg}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
