@@ -20,6 +20,13 @@ export interface PayPalTxnRow {
   is_shopify: boolean;
   instrument_type: string | null;
   instrument_sub_type: string | null;
+  /**
+   * PayPal's transaction event code (e.g. T0006 = sale received, T1107 =
+   * refund of payment, T0400/T1500 = withdrawal). Captured for forensic /
+   * audit use. The customer-attribution classifier (see hasCustomer below)
+   * does the actual work; this field is a belt-and-suspenders signal.
+   */
+  transaction_event_code: string | null;
 }
 
 export interface PayPalSnapshotSummary {
@@ -35,12 +42,21 @@ export interface PayPalSnapshotSummary {
     denied_count: number;
     denied_total_cents: number;
     shopify_filtered_count: number;
+    /**
+     * Negative or zero-attribution rows excluded from success/refunds —
+     * payouts to bank, balance transfers, currency conversions, reserve
+     * releases. Surfaced for transparency, not part of revenue math.
+     */
+    excluded_internal_transfers_count: number;
+    /** Signed net cents — positive in, negative out — of excluded rows. */
+    excluded_internal_transfers_net_cents: number;
     top_denial_reasons: { reason: string; count: number }[];
   };
   direct_success_transactions: PayPalTxnRow[];
   denied_transactions: PayPalTxnRow[];
   refunds: PayPalTxnRow[];
   shopify_transactions_filtered: PayPalTxnRow[];
+  excluded_internal_transfers: PayPalTxnRow[];
 }
 
 // ── Shopify detection ─────────────────────────────────────────────────────────
@@ -77,6 +93,24 @@ function isShopifyTxn(detail: Record<string, unknown>): boolean {
   }
 
   return false;
+}
+
+// ── customer-attribution classifier ───────────────────────────────────────────
+
+/**
+ * True if the row has any customer attribution (name or email present and
+ * non-empty). PayPal payouts, transfers, currency conversions, and reserve
+ * releases have neither — that's how we tell them apart from real refunds
+ * and sales, which always carry the buyer's name/email.
+ *
+ * Validated against May 29 2026 data: 11 real VIP Club sales (all had name
+ * + email + subject + non-zero fee) vs 3 internal balance movements (all
+ * null name + null email + null subject + zero fee, including a matched
+ * +/- $8,448.37 pair at the exact same timestamp).
+ */
+function hasCustomer(row: PayPalTxnRow): boolean {
+  return (row.name !== null && row.name.length > 0)
+      || (row.email !== null && row.email.length > 0);
 }
 
 // ── pagination ────────────────────────────────────────────────────────────────
@@ -137,6 +171,7 @@ function toRow(detail: Record<string, unknown>): PayPalTxnRow {
     is_shopify:           isShopifyTxn(detail),
     instrument_type:      typeof info.instrument_type     === 'string' ? info.instrument_type     : null,
     instrument_sub_type:  typeof info.instrument_sub_type === 'string' ? info.instrument_sub_type : null,
+    transaction_event_code: typeof info.transaction_event_code === 'string' ? info.transaction_event_code : null,
   };
 }
 
@@ -163,21 +198,53 @@ export async function fetchAndStorePayPalSnapshot(
     }
   }).filter((r): r is PayPalTxnRow => r !== null);
 
-  const direct  = allRows.filter((r) => !r.is_shopify);
-  const success = direct.filter((r) => r.status === 'S' && r.gross_cents > 0);
-  const refunds = direct.filter((r) => r.status === 'S' && r.gross_cents < 0);
-  const denied  = direct.filter((r) => r.status === 'D');
+  // Drop Shopify-routed PayPal transactions — those are counted in the
+  // Shopify order pipeline already and would double-count here.
+  const direct = allRows.filter((r) => !r.is_shopify);
+
+  // Classification, in order:
+  //   1. status='D' → denied (regardless of attribution)
+  //   2. no customer attribution → excluded internal transfer
+  //   3. status='S' && gross>0 → real success
+  //   4. status='S' && gross<0 → real refund
+  //   5. everything else (status='P'/'V'/etc with attribution) → denied bucket
+  //
+  // Rule order matters: a payout reported with status='D' (rare) should
+  // still be classified as denied so admins see it — internal transfers
+  // are only those with status='S' AND no attribution.
+  const denied:   PayPalTxnRow[] = [];
+  const success:  PayPalTxnRow[] = [];
+  const refunds:  PayPalTxnRow[] = [];
+  const excluded: PayPalTxnRow[] = [];
+
+  for (const r of direct) {
+    if (r.status === 'D') {
+      denied.push(r);
+    } else if (!hasCustomer(r)) {
+      excluded.push(r);
+    } else if (r.status === 'S' && r.gross_cents > 0) {
+      success.push(r);
+    } else if (r.status === 'S' && r.gross_cents < 0) {
+      refunds.push(r);
+    } else {
+      // Unusual: attributed row with non-S/non-D status (pending, reversed,
+      // etc.). Bucket with denied so it's visible but not silently dropped.
+      denied.push(r);
+    }
+  }
 
   const summary = {
-    direct_success_count:             success.length,
-    direct_success_total_cents:       success.reduce((a, r) => a + r.gross_cents, 0),
-    direct_success_unique_customers:  new Set(success.map((r) => r.email).filter(Boolean)).size,
-    refunds_count:                    refunds.length,
-    refunds_total_cents:              Math.abs(refunds.reduce((a, r) => a + r.gross_cents, 0)),
-    denied_count:                     denied.length,
-    denied_total_cents:               denied.reduce((a, r) => a + r.gross_cents, 0),
-    shopify_filtered_count:           allRows.length - direct.length,
-    top_denial_reasons:               [] as { reason: string; count: number }[],
+    direct_success_count:                  success.length,
+    direct_success_total_cents:            success.reduce((a, r) => a + r.gross_cents, 0),
+    direct_success_unique_customers:       new Set(success.map((r) => r.email).filter(Boolean)).size,
+    refunds_count:                         refunds.length,
+    refunds_total_cents:                   Math.abs(refunds.reduce((a, r) => a + r.gross_cents, 0)),
+    denied_count:                          denied.length,
+    denied_total_cents:                    denied.reduce((a, r) => a + r.gross_cents, 0),
+    shopify_filtered_count:                allRows.length - direct.length,
+    excluded_internal_transfers_count:     excluded.length,
+    excluded_internal_transfers_net_cents: excluded.reduce((a, r) => a + r.gross_cents, 0),
+    top_denial_reasons:                    [] as { reason: string; count: number }[],
   };
 
   const payload: PayPalSnapshotSummary = {
@@ -185,10 +252,11 @@ export async function fetchAndStorePayPalSnapshot(
     timezone: tz,
     window_utc: { start: startInTz.toISOString(), end: endInTz.toISOString() },
     summary,
-    direct_success_transactions: success,
-    denied_transactions:         denied,
+    direct_success_transactions:   success,
+    denied_transactions:           denied,
     refunds,
     shopify_transactions_filtered: allRows.filter((r) => r.is_shopify),
+    excluded_internal_transfers:   excluded,
   };
 
   const { error } = await supabaseAdmin

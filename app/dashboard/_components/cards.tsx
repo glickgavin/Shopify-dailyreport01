@@ -103,12 +103,26 @@ export function SegmentCard({
   profit: number;
   margin: number;
   aov: number;
-  theme: 'cash' | 'noncash' | 'membership';
+  theme: 'cash' | 'noncash' | 'membership' | 'amazon';
   breakdownLabel?: string;
 }) {
-  const accent = theme === 'cash' ? 'var(--cash-blue)' : theme === 'noncash' ? 'var(--nc-green)' : '#7c3aed';
-  const accentLight = theme === 'cash' ? 'var(--cash-blue-light)' : theme === 'noncash' ? 'var(--nc-green-light)' : '#ede9fe';
-  const accentDark = theme === 'cash' ? 'var(--cash-blue-dark)' : theme === 'noncash' ? 'var(--nc-green-dark)' : '#5b21b6';
+  // Amazon: orange — matches the Amazon brand and visually separates the
+  // channel from cash/non-cash/membership which are blue/green/purple.
+  const accent =
+    theme === 'cash'       ? 'var(--cash-blue)'
+    : theme === 'noncash'  ? 'var(--nc-green)'
+    : theme === 'amazon'   ? '#FF9900'
+    : '#7c3aed';
+  const accentLight =
+    theme === 'cash'       ? 'var(--cash-blue-light)'
+    : theme === 'noncash'  ? 'var(--nc-green-light)'
+    : theme === 'amazon'   ? '#FFF3E0'
+    : '#ede9fe';
+  const accentDark =
+    theme === 'cash'       ? 'var(--cash-blue-dark)'
+    : theme === 'noncash'  ? 'var(--nc-green-dark)'
+    : theme === 'amazon'   ? '#B26B00'
+    : '#5b21b6';
 
   return (
     <div style={{
@@ -249,16 +263,27 @@ export function StripeSegmentCard({
 
 export function PayPalSegmentCard({
   grossCents, refundCents, transactions, refunds, uniqueCustomers,
+  excludedTransfersCount, excludedTransfersNetCents,
 }: {
   grossCents: number;
   refundCents: number;
   transactions: number;
   refunds: number;
   uniqueCustomers: number;
+  /**
+   * Count of internal balance movements excluded from gross/refunds
+   * (payouts, transfers, currency conversions). Surfaced for transparency
+   * — if you ever wonder why PayPal's API total differs from this card,
+   * the difference is here.
+   */
+  excludedTransfersCount?: number;
+  /** Signed net cents of the excluded rows (negative if outflows > inflows). */
+  excludedTransfersNetCents?: number;
 }) {
   const gross  = grossCents  / 100;
   const refund = refundCents / 100;
   const net    = gross - refund;
+  const hasExcluded = (excludedTransfersCount ?? 0) > 0;
 
   return (
     <div style={{
@@ -286,6 +311,25 @@ export function PayPalSegmentCard({
         <MiniStat label="Net"       value={fmtDec(net)}    />
         <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="#e8f0fe" />
       </div>
+      {hasExcluded && (
+        <div
+          title="Internal PayPal balance movements (payouts to bank, transfers, currency conversions). Not real customer transactions — excluded from gross and refunds."
+          style={{
+            marginTop: '0.75rem',
+            paddingTop: '0.75rem',
+            borderTop: '1px dashed var(--border)',
+            fontSize: '0.7rem',
+            color: 'var(--muted)',
+            fontFamily: 'var(--font-mono)',
+            letterSpacing: '0.02em',
+          }}
+        >
+          excluded {excludedTransfersCount} internal transfer{(excludedTransfersCount ?? 0) === 1 ? '' : 's'}
+          {excludedTransfersNetCents !== undefined && (
+            <> · net {fmtDec(excludedTransfersNetCents / 100)}</>
+          )}
+        </div>
+      )}
     </div>
   );
 }

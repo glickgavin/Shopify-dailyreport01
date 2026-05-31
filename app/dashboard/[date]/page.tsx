@@ -117,6 +117,10 @@ export default async function DashboardPage({ params }: { params: { date: string
     direct_success_unique_customers: number;
     refunds_count: number;
     refunds_total_cents: number;
+    // Added with the customer-attribution taxonomy fix. May be absent on
+    // snapshots written before the migration — handle as undefined.
+    excluded_internal_transfers_count?: number;
+    excluded_internal_transfers_net_cents?: number;
     denied_count: number;
     denied_total_cents: number;
     shopify_filtered_count: number;
@@ -412,6 +416,31 @@ export default async function DashboardPage({ params }: { params: { date: string
             aov={summary.mem_aov}
             breakdownLabel={(memOrders ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
           />
+          {/* Amazon channel — rendered when there is activity. Older daily_summary
+              rows (written before the amazon_* columns existed) will have null/0
+              for these fields, so the card stays hidden. Cast: lib/types/database.ts
+              hasn't been regenerated since the migration. */}
+          {(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const s = summary as any;
+            const amzOrders = Number(s.amazon_orders ?? 0);
+            if (amzOrders <= 0) return null;
+            return (
+              <SegmentCard
+                theme="amazon"
+                title="Amazon"
+                revenue={Number(s.amazon_revenue ?? 0)}
+                netSales={Number(s.amazon_net_sales ?? 0)}
+                shipping={Number(s.amazon_shipping ?? 0)}
+                cogs={Number(s.amazon_cogs ?? 0)}
+                profit={Number(s.amazon_profit ?? 0)}
+                margin={Number(s.amazon_margin ?? 0)}
+                orders={amzOrders}
+                qty={Number(s.amazon_qty ?? 0)}
+                aov={Number(s.amazon_aov ?? 0)}
+              />
+            );
+          })()}
           {stripeSummary && (
             <StripeSegmentCard
               grossCents={stripeSummary.direct_success_total_cents}
@@ -428,6 +457,8 @@ export default async function DashboardPage({ params }: { params: { date: string
               transactions={paypalSummary.direct_success_count}
               refunds={paypalSummary.refunds_count}
               uniqueCustomers={paypalSummary.direct_success_unique_customers}
+              excludedTransfersCount={paypalSummary.excluded_internal_transfers_count}
+              excludedTransfersNetCents={paypalSummary.excluded_internal_transfers_net_cents}
             />
           )}
         </div>

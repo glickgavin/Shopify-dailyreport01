@@ -51,6 +51,9 @@ export interface ProcessedDay {
   nonCashReturning: SummaryBlock;
   internalNew: SummaryBlock;
   internalReturning: SummaryBlock;
+  amazon: SummaryBlock;
+  amazonNew: SummaryBlock;
+  amazonReturning: SummaryBlock;
   products: ProductLine[];
   memOrders: MemberOrder[];
 }
@@ -134,6 +137,9 @@ export function processDay(
   const nonCashReturning = emptyBlock();
   const internalNew = emptyBlock();
   const internalReturning = emptyBlock();
+  const amazon = emptyBlock();
+  const amazonNew = emptyBlock();
+  const amazonReturning = emptyBlock();
 
   const totalOrders = new Set<string>();
   const physCashOrders = new Set<string>();
@@ -147,6 +153,9 @@ export function processDay(
   const nonCashReturningOrders = new Set<string>();
   const internalNewOrders = new Set<string>();
   const internalReturningOrders = new Set<string>();
+  const amazonOrders = new Set<string>();
+  const amazonNewOrders = new Set<string>();
+  const amazonReturningOrders = new Set<string>();
 
   const productMap = new Map<string, ProductLine & { orderSet: Set<string> }>();
   const memOrderMap = new Map<string, MemberOrder>();
@@ -182,8 +191,31 @@ export function processDay(
     if (type === 'Physical') {
       const ct = row.customer_type;
       const isInternal = internalOrderNames.has(row.order_name);
+      const isAmazon = row.channel === 'amazon';
 
-      if (isInternal) {
+      if (isAmazon) {
+        // Amazon orders form their own segment, taking precedence over
+        // internal/cash/non-cash routing. They still count in `total`
+        // above, but are excluded from cust_new/cust_returning cross-totals
+        // because Codisto creates synthetic customer records that don't
+        // represent the same humans as direct Shopify customers — mixing
+        // them would pollute new/returning rates for the direct business.
+        amazon.netSales += row.net_sales;
+        amazon.shipping += row.shipping_charges;
+        amazon.revenue  += revenue;
+        amazon.cogs     += row.cost_of_goods_sold;
+        amazon.qty      += row.quantity_ordered;
+        amazonOrders.add(row.order_name);
+
+        const amzBlock  = ct === 'new' ? amazonNew : amazonReturning;
+        const amzOrders = ct === 'new' ? amazonNewOrders : amazonReturningOrders;
+        amzBlock.netSales += row.net_sales;
+        amzBlock.shipping += row.shipping_charges;
+        amzBlock.revenue  += revenue;
+        amzBlock.cogs     += row.cost_of_goods_sold;
+        amzBlock.qty      += row.quantity_ordered;
+        amzOrders.add(row.order_name);
+      } else if (isInternal) {
         const intBlock  = ct === 'new' ? internalNew : internalReturning;
         const intOrders = ct === 'new' ? internalNewOrders : internalReturningOrders;
         intBlock.netSales += row.net_sales;
@@ -226,8 +258,8 @@ export function processDay(
         ncOrders.add(row.order_name);
       }
 
-      // cross-totals by customer type (physical only, excludes internal)
-      if (!isInternal) {
+      // cross-totals by customer type (physical only, excludes internal & amazon)
+      if (!isInternal && !isAmazon) {
         const custBlock = ct === 'new' ? custNew : custReturning;
         const custOrderSet = ct === 'new' ? custNewOrders : custReturningOrders;
         custBlock.netSales += row.net_sales;
@@ -301,6 +333,9 @@ export function processDay(
   finalise(nonCashReturning, nonCashReturningOrders);
   finalise(internalNew, internalNewOrders);
   finalise(internalReturning, internalReturningOrders);
+  finalise(amazon, amazonOrders);
+  finalise(amazonNew, amazonNewOrders);
+  finalise(amazonReturning, amazonReturningOrders);
 
   // finalise products
   const products: ProductLine[] = [];
@@ -321,6 +356,7 @@ export function processDay(
     custNew, custReturning,
     cashNew, cashReturning, nonCashNew, nonCashReturning,
     internalNew, internalReturning,
+    amazon, amazonNew, amazonReturning,
     products, memOrders: memOrderList,
   };
 }
