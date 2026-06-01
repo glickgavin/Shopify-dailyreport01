@@ -198,8 +198,8 @@ export default async function MembershipPage() {
                 marginBottom: 8,
               }}>{label}</div>
               <div style={{
-                fontFamily: 'var(--font-serif)', fontSize: '1.875rem', fontWeight: 600,
-                lineHeight: 1, color: alert ? '#dc2626' : 'var(--text)',
+                fontSize: '1.875rem', fontWeight: 600,
+                lineHeight: 1.1, letterSpacing: '-0.02em', color: alert ? '#dc2626' : 'var(--text)',
               }}>{value}</div>
               <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: alert ? '#ef4444' : 'var(--muted)', marginTop: 8 }}>
                 {sub}
@@ -217,7 +217,7 @@ export default async function MembershipPage() {
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 16, padding: '22px 24px',
         }}>
-          <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>
+          <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 16 }}>
             What the data is telling you
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18 }}>

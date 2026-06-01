@@ -114,7 +114,7 @@ function ChartCard({
           {flag}
         </span>
       )}
-      <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.1rem', fontWeight: 600, marginBottom: 2 }}>{title}</div>
+      <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: 2 }}>{title}</div>
       <div style={{ fontSize: '0.77rem', color: MUTED, marginBottom: 14, lineHeight: 1.45, paddingRight: flag ? 110 : 0 }}>{desc}</div>
       <div style={{ flex: 1 }}>{children}</div>
     </div>
