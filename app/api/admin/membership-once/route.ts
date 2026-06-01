@@ -8,18 +8,24 @@ import { supabaseAdmin } from '@/lib/supabase';
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// One-shot 90-day membership backfill — remove this file after use.
-const ONE_TIME_KEY = 'mem-backfill-2026-06-01-k8x3m7p2';
+// One-shot 90-day membership backfill. Guarded by CRON_SECRET.
+// Remove this file and its vercel.json cron entry after first successful run.
+
+function authorized(req: NextRequest): boolean {
+  const secret = process.env.CRON_SECRET;
+  if (!secret) return false;
+  const header = req.headers.get('authorization');
+  const query  = req.nextUrl.searchParams.get('secret');
+  return header === `Bearer ${secret}` || query === secret;
+}
 
 export async function GET(req: NextRequest) {
-  const key = req.nextUrl.searchParams.get('key');
-  if (key !== ONE_TIME_KEY) {
+  if (!authorized(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const tz = process.env.STORE_TIMEZONE ?? 'America/Los_Angeles';
-  const daysParam = req.nextUrl.searchParams.get('days');
-  const days = Math.min(parseInt(daysParam ?? '90', 10), 90);
+  const days = 90;
 
   const dates: string[] = [];
   for (let i = days; i >= 1; i--) {
