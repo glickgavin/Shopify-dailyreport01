@@ -5,6 +5,7 @@ import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
 import { saveDay, upsertMembershipBillingEvents } from '@/lib/persistence';
 import { runMembershipStatusSnapshot } from '@/lib/membership-status';
+import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
 import { postDailySummary } from '@/lib/slack';
 import { checkAlerts } from '@/lib/alerts';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -59,6 +60,9 @@ export async function runPipeline(
 
   const snap = await runMembershipStatusSnapshot(date);
   console.log(`[pipeline] Membership snapshot date=${snap.snapshot_date} total=${snap.total} active=${snap.active} new=${snap.new_members} intro_cancelled=${snap.intro_cancelled} suspect=${snap.involuntary_suspect} churned=${snap.churned} billed_this_period=${snap.billed_this_period}`);
+
+  const metrics = await computeAndSaveMembershipMetrics(date);
+  console.log(`[pipeline] Membership metrics active=${metrics.active_members} new=${metrics.new_signups} mrr=${metrics.mrr_net.toFixed(2)} churn=${(metrics.avg_monthly_churn * 100).toFixed(1)}% ltv_conservative=${metrics.conservative_ltv.toFixed(2)} ltv_projected=${metrics.projected_ltv.toFixed(2)} one_and_done=${(metrics.one_and_done_rate * 100).toFixed(1)}%`);
 
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });

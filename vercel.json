@@ -17,6 +17,10 @@
       "schedule": "25 7 * * *"
     },
     {
+      "path": "/api/cron/membership-metrics",
+      "schedule": "35 7 * * *"
+    },
+    {
       "path": "/api/cron/analytics-sync",
       "schedule": "0 * * * *"
     },
