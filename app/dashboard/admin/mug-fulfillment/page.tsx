@@ -5,8 +5,7 @@ import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase';
 import MugJobDrawer from './MugJobDrawer';
 import {
-  approvePdf, approveSubmit, approveGoLive,
-  generatePdf, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
+  fulfillOrder, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
 } from './actions';
 import BackfillForm from './BackfillForm';
 
@@ -381,8 +380,8 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                             View
                           </Link>
 
-                          {/* Tile override URL — shown when state is received */}
-                          {job.state === 'received' && (
+                          {/* Tile override URL — shown when state is received or failed */}
+                          {['received', 'failed'].includes(job.state) && (
                             <form action={setTileOverrideUrl} style={{ display: 'flex', gap: 4 }}>
                               <input type="hidden" name="job_id" value={job.id} />
                               <input
@@ -396,44 +395,19 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                             </form>
                           )}
 
-                          {/* Approve PDF — show when no approval yet */}
-                          {!job.manual_approval && (
-                            <form action={approvePdf}>
+                          {/* Fulfill — single button for received/failed: approve + generate PDF + submit to Gelato */}
+                          {['received', 'failed'].includes(job.state) && (
+                            <form action={fulfillOrder}>
                               <input type="hidden" name="job_id" value={job.id} />
-                              <button type="submit" style={btnStyle('blue')}>Approve PDF</button>
+                              <button type="submit" style={btnStyle('green')}>Fulfill</button>
                             </form>
                           )}
 
-                          {/* Generate PDF — show when approved >= pdf_only and state allows it */}
-                          {(['pdf_only', 'submit', 'go_live'] as string[]).includes(job.manual_approval ?? '') &&
-                           ['received', 'generating', 'failed'].includes(job.state) && (
-                            <form action={generatePdf}>
-                              <input type="hidden" name="job_id" value={job.id} />
-                              <button type="submit" style={btnStyle('green')}>Generate PDF</button>
-                            </form>
-                          )}
-
-                          {/* Approve Submit — show when file_ready and only pdf_only approval */}
-                          {job.state === 'file_ready' && job.manual_approval === 'pdf_only' && (
-                            <form action={approveSubmit}>
-                              <input type="hidden" name="job_id" value={job.id} />
-                              <button type="submit" style={btnStyle('blue')}>Approve Submit</button>
-                            </form>
-                          )}
-
-                          {/* Submit to Gelato — show when file_ready and submit or higher approval */}
-                          {job.state === 'file_ready' && (['submit', 'go_live'] as string[]).includes(job.manual_approval ?? '') && (
+                          {/* Submit to Gelato — PDF already generated, just submit */}
+                          {job.state === 'file_ready' && (
                             <form action={submitGelato}>
                               <input type="hidden" name="job_id" value={job.id} />
                               <button type="submit" style={btnStyle('purple')}>Submit to Gelato</button>
-                            </form>
-                          )}
-
-                          {/* Approve Go-Live — show when draft_created and submit approval */}
-                          {job.state === 'draft_created' && job.manual_approval === 'submit' && (
-                            <form action={approveGoLive}>
-                              <input type="hidden" name="job_id" value={job.id} />
-                              <button type="submit" style={btnStyle('blue')}>Approve Go-Live</button>
                             </form>
                           )}
 
