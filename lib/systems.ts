@@ -35,4 +35,13 @@ export const SYSTEMS: SystemEntry[] = [
     category: 'Creative',
     status: 'operational',
   },
+  {
+    id: 'membership-analytics',
+    name: 'Membership Analytics',
+    description: 'VIP subscription metrics — cohort retention, LTV, churn',
+    url: 'https://shopifydailyreport01.vercel.app/dashboard/membership',
+    category: 'Analytics',
+    healthUrl: 'https://shopifydailyreport01.vercel.app/api/health/membership',
+    status: 'operational',
+  },
 ];

@@ -20,6 +20,7 @@ import { upsertMembershipBillingEvents } from '@/lib/persistence';
 import { supabaseAdmin } from '@/lib/supabase';
 import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
+import { checkMembershipAlerts } from '@/lib/membership-alerts';
 
 export const runtime     = 'nodejs';
 export const maxDuration = 300;
@@ -102,10 +103,29 @@ export async function GET(req: NextRequest) {
     ` projected_ltv=${metrics.projected_ltv.toFixed(2)}`,
   );
 
+  // ── Step 4: Data-quality check ────────────────────────────────────────────
+  const memAlerts = await checkMembershipAlerts(metrics);
+  if (memAlerts.length > 0) {
+    console.log(
+      `[membership-once-full] alerts count=${memAlerts.length} ` +
+      memAlerts.map((a) => `${a.level}:${a.rule}`).join(', '),
+    );
+    await supabaseAdmin.from('job_logs').insert({
+      date:     today,
+      job_type: 'membership_alert',
+      status:   'alert',
+      message:  memAlerts.map((a) => a.message).join(' | '),
+      meta:     { alerts: memAlerts },
+    });
+  } else {
+    console.log(`[membership-once-full] alerts none`);
+  }
+
   return NextResponse.json({
     status: 'ok',
     backfill: { dates_processed: BACKFILL_DAYS, total_rows: totalRows, intro: totalIntro, recurring: totalRecurring },
     snapshot: snap,
     metrics,
+    alerts: memAlerts,
   });
 }

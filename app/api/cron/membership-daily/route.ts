@@ -23,9 +23,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
+import { WebClient } from '@slack/web-api';
 import { syncMembershipEventsForDate } from '@/lib/membership-sync';
 import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
+import { checkMembershipAlerts } from '@/lib/membership-alerts';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export const runtime    = 'nodejs';
 export const maxDuration = 120;
@@ -76,7 +79,34 @@ export async function GET(req: NextRequest) {
       ` ltv_projected=${metrics.projected_ltv.toFixed(2)}`,
     );
 
-    return NextResponse.json({ status: 'ok', sync, snapshot: snap, metrics });
+    // ── Step 4: data-quality alerts ───────────────────────────────────────────
+    const memAlerts = await checkMembershipAlerts(metrics);
+    if (memAlerts.length > 0) {
+      console.log(
+        `[membership-daily] step4/alerts count=${memAlerts.length} ` +
+        memAlerts.map((a) => `${a.level}:${a.rule}`).join(', '),
+      );
+      const token   = process.env.SLACK_BOT_TOKEN;
+      const channel = process.env.SLACK_CHANNEL_ID;
+      if (token && channel && process.env.DRY_RUN !== 'true') {
+        const lines = memAlerts.map((a) => `${a.level === 'red' ? '🔴' : '🟡'} ${a.message}`).join('\n');
+        await new WebClient(token).chat.postMessage({
+          channel,
+          text: `⚠️ *Membership alert* for ${metricsDate}\n${lines}`,
+        });
+      }
+      await supabaseAdmin.from('job_logs').insert({
+        date:     metricsDate,
+        job_type: 'membership_alert',
+        status:   'alert',
+        message:  memAlerts.map((a) => a.message).join(' | '),
+        meta:     { alerts: memAlerts },
+      });
+    } else {
+      console.log(`[membership-daily] step4/alerts none`);
+    }
+
+    return NextResponse.json({ status: 'ok', sync, snapshot: snap, metrics, alerts: memAlerts });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[membership-daily] error: ${msg}`);

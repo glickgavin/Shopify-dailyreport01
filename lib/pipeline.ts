@@ -8,6 +8,7 @@ import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
 import { postDailySummary } from '@/lib/slack';
 import { checkAlerts } from '@/lib/alerts';
+import { checkMembershipAlerts } from '@/lib/membership-alerts';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAds } from '@/lib/ads';
 
@@ -63,6 +64,17 @@ export async function runPipeline(
 
   const metrics = await computeAndSaveMembershipMetrics(date);
   console.log(`[pipeline] Membership metrics active=${metrics.active_members} new=${metrics.new_signups} mrr=${metrics.mrr_net.toFixed(2)} churn=${(metrics.avg_monthly_churn * 100).toFixed(1)}% ltv_conservative=${metrics.conservative_ltv.toFixed(2)} ltv_projected=${metrics.projected_ltv.toFixed(2)} one_and_done=${(metrics.one_and_done_rate * 100).toFixed(1)}%`);
+
+  const memAlerts = await checkMembershipAlerts(metrics);
+  if (memAlerts.length > 0) {
+    console.log(`[pipeline] Membership alerts: ${memAlerts.map((a) => `${a.level}:${a.rule}`).join(', ')}`);
+    const token = process.env.SLACK_BOT_TOKEN;
+    const channel = process.env.SLACK_CHANNEL_ID;
+    if (token && channel && process.env.DRY_RUN !== 'true') {
+      const lines = memAlerts.map((a) => `${a.level === 'red' ? '🔴' : '🟡'} ${a.message}`).join('\n');
+      await new WebClient(token).chat.postMessage({ channel, text: `⚠️ *Membership alert* for ${date}\n${lines}` });
+    }
+  }
 
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });

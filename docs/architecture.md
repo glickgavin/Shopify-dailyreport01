@@ -213,3 +213,160 @@ npx tsx scripts/test-slack.ts
 - [x] Slack app created, `chat:write` scope, bot added to `#daily-sales-report`
 - [x] Shopify OAuth app created, scopes granted
 - [x] First manual cron run verified end-to-end
+
+---
+
+## Membership Pipeline
+
+### Overview
+
+VIP Membership subscriptions (`$9.99 intro → $39.99/mo`) are tracked through a
+three-layer pipeline that runs daily at 07:20 UTC (5 minutes after the main cron):
+
+```
+Vercel Cron (07:20 UTC daily)
+        │
+        ▼
+GET /api/cron/membership-daily
+        │
+        ├─► Step 1 – sync      lib/membership-sync.ts
+        │       Fetch yesterday's Shopify orders, detect membership charges,
+        │       upsert into membership_billing_events.
+        │
+        ├─► Step 2 – snapshot  lib/membership-status.ts
+        │       Derive each member's current status from all events to date,
+        │       write one row per member into membership_status_snapshots.
+        │
+        ├─► Step 3 – metrics   lib/membership-metrics.ts
+        │       Compute cohort triangle, survival curve, LTV, churn; upsert
+        │       one row for today into membership_metrics_daily.
+        │
+        └─► Step 4 – alerts    lib/membership-alerts.ts
+                Flag if active_members swings >30% day-over-day or MRR = $0.
+                Writes to job_logs (job_type = 'membership_alert') + Slack.
+```
+
+### Three Data Layers
+
+| Layer | Table | Append-only? | Notes |
+|---|---|---|---|
+| Raw events | `membership_billing_events` | Yes | One row per Shopify billing charge; upserted on `(customer_id, charged_at)` |
+| Daily snapshots | `membership_status_snapshots` | Yes (one row per member per snapshot date) | Derived status at that point in time |
+| Daily metrics | `membership_metrics_daily` | No (upserted on `metric_date`) | Recomputed from all events each run |
+
+**Why the snapshot layer cannot be backfilled after the fact:**
+`membership_status_snapshots` captures each member's status as of the snapshot
+date by replaying all billing events up to (but not beyond) that date. Running the
+snapshot for a past date today would use today's event set — including events that
+didn't exist on that past date — producing incorrect "as-of" status. The snapshot
+is therefore append-only: past rows are never re-written, and missing dates cannot
+be reconstructed accurately from the current event set alone.
+
+### Membership-Charge Detection Rule
+
+A Shopify line item is classified as a membership billing event when both conditions hold:
+
+```
+title matches /VIP Membership/i   AND   amount > 0
+```
+
+Source: `lib/queries/orders.ts` → `membershipBillingRows` filter.
+
+- `is_intro = true` when the line item's price matches the intro price (`$9.99`);
+  `false` for all recurring charges (`$39.99`).
+- Refunds (`amount ≤ 0`) are excluded from billing events; they are logged in
+  `daily_summary` via the standard order pipeline.
+
+### Survival-Based LTV Method
+
+LTV is computed in two variants, both derived from the empirical cohort retention triangle:
+
+**Conservative LTV** — empirical curve only, no extrapolation:
+```
+LTV_conservative = Σ(k=0..K) survival[k] × price(k)
+```
+where `survival[k]` = fraction of original cohort still active at month *k*,
+`price(0)` = intro price, `price(k≥1)` = recurring price, and *K* is the last
+observed month with data.
+
+**Projected LTV** — empirical curve + geometric tail:
+```
+LTV_projected = LTV_conservative + survival[K] × tail_retention^1/(1−tail_retention) × recurring_price
+```
+The tail adds the expected value of all future months assuming members who survive
+past the observed window churn at a constant `tail_retention` rate per month.
+
+**Adjusting the tail-retention assumption:**
+The `tail_retention` value is stored in `cohort_data.ltv_assumptions.tail_retention`
+on each `membership_metrics_daily` row. It is set inside `lib/membership-metrics.ts`:
+
+```typescript
+// lib/membership-metrics.ts — search for tailRetention
+const tailRetention = 1 - avgMonthlyChurn;   // derived from observed churn
+```
+
+To override (e.g., to model a conservative scenario), set `tail_retention` directly
+in the metrics computation or add an env var (`MEMBERSHIP_TAIL_RETENTION`) and read
+it there. Re-run step 3 to regenerate metrics with the new assumption.
+
+### Simplee Status Source and Its Limitations
+
+**Decision (from initial architecture):** Voluntary cancellations vs. involuntary
+churn (failed payment) are *not* distinguished within the Shopify event stream.
+Both appear as an absence of a renewal charge. The authoritative split lives in
+the **Simplee** subscription-management app, which tracks explicit cancellation
+requests separately from payment failures.
+
+**Limitation:** The daily pipeline has no API integration with Simplee. The
+`membership_status_snapshots.involuntary_suspect` flag is a heuristic (e.g., a
+member who had billing activity then silence without an explicit cancel signal),
+not a confirmed failed-payment count. Treat the `involuntary_suspect` column as
+an approximation only. For the true cancellation vs. failed-payment breakdown,
+export the report directly from the Simplee dashboard.
+
+### Manual Re-run
+
+Override any step's date via query params (all default to today/yesterday):
+
+```bash
+# Full chain for a specific date
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://shopifydailyreport01.vercel.app/api/cron/membership-daily\
+?sync_date=2026-05-01&snapshot_date=2026-05-01&metrics_date=2026-05-01"
+
+# Step 3 only (re-compute metrics without re-syncing events)
+curl -H "Authorization: Bearer $CRON_SECRET" \
+  "https://shopifydailyreport01.vercel.app/api/cron/membership-daily\
+?sync_date=skip&snapshot_date=skip&metrics_date=2026-05-01"
+```
+
+Note: passing `sync_date=skip` is not implemented as a no-op shortcut — to
+re-run only metrics, trigger `computeAndSaveMembershipMetrics` directly via
+a local script or the Supabase edge function.
+
+### Logs and Alerts
+
+| Location | What's there |
+|---|---|
+| Vercel runtime logs | All `[membership-daily]` and `[membership-once-full]` console lines |
+| `job_logs` table | `job_type = 'membership_alert'`, `status = 'alert'`, alerts as `meta.alerts[]` |
+| Slack (`SLACK_CHANNEL_ID`) | `⚠️ Membership alert` message with 🔴/🟡 per rule |
+| `/systems` health page | Pings `/api/health/membership`; reports degraded if last row > 2 days old |
+
+**Alert rules:**
+
+| Rule | Level | Trigger |
+|---|---|---|
+| `membership_mrr_zero` | 🔴 red | `mrr_net = 0` — sync likely failed |
+| `membership_active_swing` | 🔴 red | `active_members` swings > 30% day-over-day |
+
+The threshold is configurable via `ALERT_MEM_ACTIVE_SWING_PCT` (default `30`).
+
+### Membership Tables
+
+| Table | Purpose |
+|---|---|
+| `membership_billing_events` | Raw charge records; one row per billing event |
+| `membership_sync_state` | Cursor tracking last synced `charged_at` timestamp |
+| `membership_status_snapshots` | Per-member status snapshot per day (append-only) |
+| `membership_metrics_daily` | Computed KPIs + cohort JSONB; one row per day (upserted) |
