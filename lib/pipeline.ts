@@ -4,6 +4,7 @@ import { toZonedTime, format } from 'date-fns-tz';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
 import { saveDay, upsertMembershipBillingEvents } from '@/lib/persistence';
+import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { postDailySummary } from '@/lib/slack';
 import { checkAlerts } from '@/lib/alerts';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -55,6 +56,9 @@ export async function runPipeline(
       .eq('id', 1);
   }
   console.log(`[pipeline] Saved (membership billing events: ${memCount})`);
+
+  const snapCount = await runMembershipStatusSnapshot(date);
+  console.log(`[pipeline] Membership status snapshot: ${snapCount} customers`);
 
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });
