@@ -766,6 +766,150 @@ export type Database = {
         }
         Relationships: []
       }
+      membership_billing_events: {
+        Row: {
+          charged_at: string
+          created_at: string
+          currency: string
+          customer_id: string
+          id: number
+          is_intro: boolean
+          line_index: number
+          net_amount: number
+          raw: Json
+          shopify_order_id: string
+        }
+        Insert: {
+          charged_at: string
+          created_at?: string
+          currency?: string
+          customer_id: string
+          id?: number
+          is_intro?: boolean
+          line_index?: number
+          net_amount: number
+          raw?: Json
+          shopify_order_id: string
+        }
+        Update: {
+          charged_at?: string
+          created_at?: string
+          currency?: string
+          customer_id?: string
+          id?: number
+          is_intro?: boolean
+          line_index?: number
+          net_amount?: number
+          raw?: Json
+          shopify_order_id?: string
+        }
+        Relationships: []
+      }
+      membership_metrics_daily: {
+        Row: {
+          active_members: number
+          avg_monthly_churn: number
+          cohort_data: Json
+          conservative_ltv: number
+          created_at: string
+          metric_date: string
+          mrr_net: number
+          new_signups: number
+          one_and_done_rate: number
+          projected_ltv: number
+          updated_at: string
+        }
+        Insert: {
+          active_members?: number
+          avg_monthly_churn?: number
+          cohort_data?: Json
+          conservative_ltv?: number
+          created_at?: string
+          metric_date: string
+          mrr_net?: number
+          new_signups?: number
+          one_and_done_rate?: number
+          projected_ltv?: number
+          updated_at?: string
+        }
+        Update: {
+          active_members?: number
+          avg_monthly_churn?: number
+          cohort_data?: Json
+          conservative_ltv?: number
+          created_at?: string
+          metric_date?: string
+          mrr_net?: number
+          new_signups?: number
+          one_and_done_rate?: number
+          projected_ltv?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      membership_status_snapshots: {
+        Row: {
+          contract_status: string | null
+          created_at: string
+          customer_id: string
+          first_seen_month: string
+          is_active: boolean
+          last_charge_amount: number
+          snapshot_date: string
+          was_billed_this_period: boolean
+        }
+        Insert: {
+          contract_status?: string | null
+          created_at?: string
+          customer_id: string
+          first_seen_month: string
+          is_active?: boolean
+          last_charge_amount?: number
+          snapshot_date: string
+          was_billed_this_period?: boolean
+        }
+        Update: {
+          contract_status?: string | null
+          created_at?: string
+          customer_id?: string
+          first_seen_month?: string
+          is_active?: boolean
+          last_charge_amount?: number
+          snapshot_date?: string
+          was_billed_this_period?: boolean
+        }
+        Relationships: []
+      }
+      membership_sync_state: {
+        Row: {
+          id: number
+          last_run_at: string | null
+          last_run_error: string | null
+          last_run_rows: number | null
+          last_run_status: string | null
+          last_synced_charged_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          id?: number
+          last_run_at?: string | null
+          last_run_error?: string | null
+          last_run_rows?: number | null
+          last_run_status?: string | null
+          last_synced_charged_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          last_run_at?: string | null
+          last_run_error?: string | null
+          last_run_rows?: number | null
+          last_run_status?: string | null
+          last_synced_charged_at?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       mug_fulfillment_events: {
         Row: {
           created_at: string
