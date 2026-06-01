@@ -13,6 +13,10 @@
       "schedule": "15 7 * * *"
     },
     {
+      "path": "/api/cron/membership-snapshot",
+      "schedule": "25 7 * * *"
+    },
+    {
       "path": "/api/cron/analytics-sync",
       "schedule": "0 * * * *"
     },

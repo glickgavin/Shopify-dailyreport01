@@ -57,8 +57,8 @@ export async function runPipeline(
   }
   console.log(`[pipeline] Saved (membership billing events: ${memCount})`);
 
-  const snapCount = await runMembershipStatusSnapshot(date);
-  console.log(`[pipeline] Membership status snapshot: ${snapCount} customers`);
+  const snap = await runMembershipStatusSnapshot(date);
+  console.log(`[pipeline] Membership snapshot date=${snap.snapshot_date} total=${snap.total} active=${snap.active} new=${snap.new_members} intro_cancelled=${snap.intro_cancelled} suspect=${snap.involuntary_suspect} churned=${snap.churned} billed_this_period=${snap.billed_this_period}`);
 
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });
