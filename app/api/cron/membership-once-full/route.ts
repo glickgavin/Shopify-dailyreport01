@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
       job_type: 'membership_alert',
       status:   'alert',
       message:  memAlerts.map((a) => a.message).join(' | '),
-      meta:     { alerts: memAlerts },
+      meta:     JSON.parse(JSON.stringify({ alerts: memAlerts })),
     });
   } else {
     console.log(`[membership-once-full] alerts none`);
