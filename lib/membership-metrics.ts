@@ -162,7 +162,7 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
   const cohortTriangle: Record<string, Record<number, number>> = {};
   const realizedRevenuePerStarter: Record<string, number> = {};
 
-  for (const [cohortAbsM, members] of cohortMap) {
+  for (const [cohortAbsM, members] of Array.from(cohortMap)) {
     const key = absMonthToStr(cohortAbsM);
     cohortTriangle[key] = {};
 

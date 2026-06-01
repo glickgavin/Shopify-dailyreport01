@@ -156,7 +156,7 @@ export async function runMembershipStatusSnapshot(
   const asOf = new Date(`${date}T23:59:59Z`);
   const rows: SnapshotRow[] = [];
 
-  for (const [cid, evts] of byCustomer) {
+  for (const [cid, evts] of Array.from(byCustomer)) {
     const row = inferOne(cid, evts, asOf);
     rows.push(row);
     result.total++;
