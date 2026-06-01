@@ -67,6 +67,7 @@ export interface MembershipMetricsResult {
   projected_ltv:     number;
   cohort_data: {
     cohort_triangle:              Record<string, Record<number, number>>;
+    cohort_sizes:                 Record<string, number>;
     survival_curve:               SurvivalPoint[];
     billing_cycle_distribution:   { billed_1: number; billed_2: number; billed_3: number; billed_4plus: number };
     realized_revenue_per_starter: Record<string, number>;
@@ -160,10 +161,12 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
   }
 
   const cohortTriangle: Record<string, Record<number, number>> = {};
+  const cohortSizes: Record<string, number> = {};
   const realizedRevenuePerStarter: Record<string, number> = {};
 
   for (const [cohortAbsM, members] of Array.from(cohortMap)) {
     const key = absMonthToStr(cohortAbsM);
+    cohortSizes[key] = members.length;
     cohortTriangle[key] = {};
 
     for (let k = 0; cohortAbsM + k <= lastComplete; k++) {
@@ -280,6 +283,7 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
     projected_ltv:     Math.round(projectedLtv * 100) / 100,
     cohort_data: {
       cohort_triangle:              cohortTriangle,
+      cohort_sizes:                 cohortSizes,
       survival_curve:               survivalCurve,
       billing_cycle_distribution:   billingCycleDist,
       realized_revenue_per_starter: realizedRevenuePerStarter,

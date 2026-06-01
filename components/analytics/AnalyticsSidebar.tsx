@@ -10,7 +10,8 @@ const NAV = [
       { href: '/dashboard/range',    label: 'Range Report' },
       { href: '/dashboard/ads',      label: 'Ad Report' },
       { href: '/dashboard/meta-ads', label: 'Meta Ads' },
-      { href: '/dashboard/history',  label: 'History' },
+      { href: '/dashboard/history',    label: 'History' },
+      { href: '/dashboard/membership', label: 'Membership' },
     ],
   },
   {
