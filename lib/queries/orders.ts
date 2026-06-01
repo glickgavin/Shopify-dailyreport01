@@ -29,6 +29,22 @@ export interface PaymentRow {
   net_payments: number;
 }
 
+/**
+ * One row per qualifying VIP Membership line item extracted from a paid order.
+ * A line qualifies when title matches /VIP Membership/i AND net_amount > 0.
+ * is_intro = true when net_amount < $20 (intro price is $9.99; recurring is $39.99).
+ */
+export interface MembershipBillingRow {
+  shopify_order_id: string;
+  line_index:       number;
+  customer_id:      string;
+  charged_at:       string;
+  net_amount:       number;
+  currency:         string;
+  is_intro:         boolean;
+  raw:              Record<string, unknown>;
+}
+
 const ORDERS_QUERY = `
   query GetOrders($filter: String!, $cursor: String) {
     orders(first: 250, query: $filter, after: $cursor) {
@@ -113,7 +129,7 @@ function isoRange(date: string, tz: string): { start: string; end: string } {
   };
 }
 
-export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: OrderRow[]; paymentRows: PaymentRow[] }> {
+export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: OrderRow[]; paymentRows: PaymentRow[]; membershipBillingRows: MembershipBillingRow[] }> {
   const tz = process.env.STORE_TIMEZONE ?? 'America/Los_Angeles';
   const d = date ?? format(toZonedTime(subDays(new Date(), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const { start, end } = isoRange(d, tz);
@@ -131,6 +147,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
 
   const orderRows: OrderRow[] = [];
   const paymentRows: PaymentRow[] = [];
+  const membershipBillingRows: MembershipBillingRow[] = [];
 
   // Compute customer_type per order_name
   const orderCustomerType = new Map<string, 'new' | 'returning'>();
@@ -229,8 +246,32 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         customer_type: orderCustomerType.get(order.name) ?? 'new',
         channel,
       });
+
+      // Membership billing event — title must match /VIP Membership/i, net > 0,
+      // and order must have a customer (Simplee always creates a customer record).
+      if (/vip membership/i.test(li.title) && lineRevenue > 0 && order.customer) {
+        const grossAmount = parseFloat(li.originalTotalSet.shopMoney.amount) || 0;
+        membershipBillingRows.push({
+          shopify_order_id: order.name,
+          line_index:       i,
+          customer_id:      order.customer.id,
+          charged_at:       order.createdAt,
+          net_amount:       lineRevenue,
+          currency:         'USD',
+          // intro price is $9.99; recurring is $39.99 — threshold of $20 handles both
+          is_intro:         lineRevenue < 20.00,
+          raw: {
+            order_name:       order.name,
+            line_title:       li.title,
+            line_variant:     li.variantTitle ?? null,
+            gross_amount:     grossAmount,
+            discount:         Math.round((grossAmount - lineRevenue) * 100) / 100,
+            customer_orders:  Number(order.customer.numberOfOrders),
+          },
+        });
+      }
     }
   }
 
-  return { orderRows, paymentRows };
+  return { orderRows, paymentRows, membershipBillingRows };
 }

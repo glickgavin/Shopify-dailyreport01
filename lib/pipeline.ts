@@ -3,7 +3,7 @@ import { subDays } from 'date-fns';
 import { toZonedTime, format } from 'date-fns-tz';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
-import { saveDay } from '@/lib/persistence';
+import { saveDay, upsertMembershipBillingEvents } from '@/lib/persistence';
 import { postDailySummary } from '@/lib/slack';
 import { checkAlerts } from '@/lib/alerts';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -30,14 +30,31 @@ export async function runPipeline(
 
   console.log(`[pipeline] Starting for date: ${date}`);
 
-  const { orderRows, paymentRows } = await fetchOrdersForDate(date);
-  console.log(`[pipeline] Fetched ${orderRows.length} order rows, ${paymentRows.length} payment rows`);
+  const { orderRows, paymentRows, membershipBillingRows } = await fetchOrdersForDate(date);
+  console.log(`[pipeline] Fetched ${orderRows.length} order rows, ${paymentRows.length} payment rows, ${membershipBillingRows.length} membership billing rows`);
 
   const processed = processDay(orderRows, paymentRows, date);
   console.log(`[pipeline] Processed: revenue=${processed.total.revenue}, orders=${processed.total.orders}`);
 
   await saveDay(processed, orderRows, paymentRows);
-  console.log(`[pipeline] Saved`);
+
+  const memCount = await upsertMembershipBillingEvents(membershipBillingRows);
+  if (membershipBillingRows.length > 0) {
+    const maxChargedAt = membershipBillingRows.reduce(
+      (max, r) => (r.charged_at > max ? r.charged_at : max),
+      membershipBillingRows[0].charged_at,
+    );
+    await supabaseAdmin
+      .from('membership_sync_state')
+      .update({
+        last_synced_charged_at: maxChargedAt,
+        last_run_at:            new Date().toISOString(),
+        last_run_status:        'success',
+        last_run_rows:          memCount,
+      })
+      .eq('id', 1);
+  }
+  console.log(`[pipeline] Saved (membership billing events: ${memCount})`);
 
   const prevDate = format(toZonedTime(subDays(new Date(date), 1), tz), 'yyyy-MM-dd', { timeZone: tz });
   const sevenDayStart = format(toZonedTime(subDays(new Date(date), 8), tz), 'yyyy-MM-dd', { timeZone: tz });

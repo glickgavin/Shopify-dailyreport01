@@ -1,6 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import type { ProcessedDay } from '@/lib/business-rules';
-import type { OrderRow, PaymentRow } from '@/lib/queries/orders';
+import type { OrderRow, PaymentRow, MembershipBillingRow } from '@/lib/queries/orders';
 import type { Json } from '@/lib/types/database';
 
 export async function saveDay(
@@ -149,4 +149,35 @@ export async function saveDay(
     payment_rows: paymentRows as unknown as Json,
   });
   if (rawErr) throw new Error(`raw_data insert: ${rawErr.message}`);
+}
+
+/**
+ * Upsert membership billing events extracted from a day's orders.
+ * Uses ON CONFLICT DO NOTHING (ignoreDuplicates) so re-running the daily
+ * pipeline for the same date is fully idempotent.
+ * Returns the number of rows submitted for upsert.
+ */
+export async function upsertMembershipBillingEvents(
+  rows: MembershipBillingRow[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+
+  const { error } = await supabaseAdmin
+    .from('membership_billing_events')
+    .upsert(
+      rows.map((r) => ({
+        shopify_order_id: r.shopify_order_id,
+        line_index:       r.line_index,
+        customer_id:      r.customer_id,
+        charged_at:       r.charged_at,
+        net_amount:       r.net_amount,
+        currency:         r.currency,
+        is_intro:         r.is_intro,
+        raw:              r.raw as unknown as Json,
+      })),
+      { onConflict: 'shopify_order_id,line_index', ignoreDuplicates: true },
+    );
+
+  if (error) throw new Error(`membership_billing_events upsert: ${error.message}`);
+  return rows.length;
 }

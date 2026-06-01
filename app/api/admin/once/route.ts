@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 
   for (const date of dates) {
     try {
-      const { orderRows, paymentRows } = await fetchOrdersForDate(date);
+      const { orderRows, paymentRows } = await fetchOrdersForDate(date); // membershipBillingRows handled by pipeline
       const processed = processDay(orderRows, paymentRows, date);
       await saveDay(processed, orderRows, paymentRows);
       results[date] = {
