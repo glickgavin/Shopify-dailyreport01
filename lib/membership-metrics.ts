@@ -142,7 +142,7 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
   const allCustomers = Array.from(profiles.values());
 
   // ── 1. Active members ──────────────────────────────────────────────────────
-  const activeMembersCount = (snapRows ?? []).filter(r => r.is_active).length;
+  const activeMembersCount = (snapRows ?? []).filter((r: { is_active: boolean }) => r.is_active).length;
 
   // ── 2. New signups: first charge in the current calendar month ─────────────
   const newSignups = allCustomers.filter(p => p.firstAbsMonth === currentAbsMonth).length;

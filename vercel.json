@@ -13,12 +13,12 @@
       "schedule": "15 7 * * *"
     },
     {
-      "path": "/api/cron/membership-snapshot",
-      "schedule": "25 7 * * *"
+      "path": "/api/cron/membership-daily",
+      "schedule": "20 7 * * *"
     },
     {
-      "path": "/api/cron/membership-metrics",
-      "schedule": "35 7 * * *"
+      "path": "/api/cron/membership-once-full",
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/analytics-sync",

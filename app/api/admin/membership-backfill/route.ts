@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   if (singleDate) {
     dates.push(singleDate);
   } else {
-    const days = Math.min(parseInt(daysParam ?? '30', 10), 90);
+    const days = Math.min(parseInt(daysParam ?? '30', 10), 365);
     for (let i = days; i >= 1; i--) {
       dates.push(
         format(toZonedTime(subDays(new Date(), i), tz), 'yyyy-MM-dd', { timeZone: tz }),
