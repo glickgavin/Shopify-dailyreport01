@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase';
+import { fetchAdsRangeRaw } from '@/lib/ads';
 import HistoryPeriodTable from './HistoryPeriodTable';
 import HistoryCharts from './HistoryCharts';
 import HistoryTable from './HistoryTable';
@@ -36,16 +37,17 @@ export type PeriodEntry = {
   prior: PeriodStats | null;
 };
 
-function aggregate(slice: HistoryRow[]): PeriodStats {
-  const revenue = slice.reduce((s, r) => s + r.total_revenue, 0);
-  const orders  = slice.reduce((s, r) => s + r.total_orders, 0);
-  const profit  = slice.reduce((s, r) => s + r.total_profit, 0);
+function aggregate(slice: HistoryRow[], adsByDate: Map<string, number>): PeriodStats {
+  const revenue  = slice.reduce((s, r) => s + r.total_revenue, 0);
+  const orders   = slice.reduce((s, r) => s + r.total_orders, 0);
+  const profit   = slice.reduce((s, r) => s + r.total_profit, 0);
+  const adSpend  = slice.reduce((s, r) => s + (adsByDate.get(r.date) ?? 0), 0);
   return {
     revenue,
     orders,
     aov:    orders > 0 ? revenue / orders : 0,
     margin: revenue > 0 ? (profit / revenue) * 100 : 0,
-    gp:     profit,
+    gp:     profit - adSpend,
   };
 }
 
@@ -53,34 +55,43 @@ export default async function HistoryPage() {
   const sixtyDaysAgo = new Date();
   sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 61);
   const startDate = sixtyDaysAgo.toISOString().slice(0, 10);
+  const today     = new Date().toISOString().slice(0, 10);
 
-  const { data: rows } = await supabaseAdmin
-    .from('daily_summary')
-    .select('date,total_revenue,total_net_sales,total_orders,total_margin,total_aov,total_profit,phys_cash_revenue,phys_non_cash_revenue,mem_revenue,mem_orders,amazon_revenue')
-    .gte('date', startDate)
-    .order('date', { ascending: false });
+  const [{ data: rows }, adsRaw] = await Promise.all([
+    supabaseAdmin
+      .from('daily_summary')
+      .select('date,total_revenue,total_net_sales,total_orders,total_margin,total_aov,total_profit,phys_cash_revenue,phys_non_cash_revenue,mem_revenue,mem_orders,amazon_revenue')
+      .gte('date', startDate)
+      .order('date', { ascending: false }),
+    fetchAdsRangeRaw(startDate, today),
+  ]);
+
+  // Build ad spend lookup: date → spend
+  const adsByDate = new Map<string, number>(
+    adsRaw.map((r) => [r.report_date, r.spend]),
+  );
 
   const allRows: HistoryRow[] = (rows ?? []).map((r) => ({
-    date:                 r.date,
-    total_revenue:        r.total_revenue        ?? 0,
-    total_net_sales:      r.total_net_sales       ?? 0,
-    total_orders:         r.total_orders          ?? 0,
-    total_margin:         r.total_margin          ?? 0,
-    total_aov:            r.total_aov             ?? 0,
-    total_profit:         r.total_profit          ?? 0,
-    phys_cash_revenue:    r.phys_cash_revenue     ?? 0,
-    phys_non_cash_revenue: r.phys_non_cash_revenue ?? 0,
-    mem_revenue:          r.mem_revenue           ?? 0,
-    mem_orders:           r.mem_orders            ?? 0,
-    amazon_revenue:       r.amazon_revenue        ?? 0,
+    date:                  r.date,
+    total_revenue:         r.total_revenue         ?? 0,
+    total_net_sales:       r.total_net_sales        ?? 0,
+    total_orders:          r.total_orders           ?? 0,
+    total_margin:          r.total_margin           ?? 0,
+    total_aov:             r.total_aov              ?? 0,
+    total_profit:          r.total_profit           ?? 0,
+    phys_cash_revenue:     r.phys_cash_revenue      ?? 0,
+    phys_non_cash_revenue: r.phys_non_cash_revenue  ?? 0,
+    mem_revenue:           r.mem_revenue            ?? 0,
+    mem_orders:            r.mem_orders             ?? 0,
+    amazon_revenue:        r.amazon_revenue         ?? 0,
   }));
 
   // rows are newest-first; slice into periods
   const periods: PeriodEntry[] = [1, 3, 7, 30].map((n) => ({
     label:   n === 1 ? '1D' : n === 3 ? '3D' : n === 7 ? '7D' : '30D',
     days:    n,
-    current: aggregate(allRows.slice(0, n)),
-    prior:   allRows.length >= n * 2 ? aggregate(allRows.slice(n, n * 2)) : null,
+    current: aggregate(allRows.slice(0, n), adsByDate),
+    prior:   allRows.length >= n * 2 ? aggregate(allRows.slice(n, n * 2), adsByDate) : null,
   }));
 
   const chartRows = [...allRows].slice(0, 30).reverse(); // oldest-first for charts
@@ -131,3 +142,4 @@ export default async function HistoryPage() {
     </div>
   );
 }
+

@@ -38,7 +38,7 @@ const METRICS: Array<{
   { key: 'orders',  label: 'Orders',   fmt: (n) => n.toLocaleString(),          deltaType: 'pct', higherIsBetter: true  },
   { key: 'aov',     label: 'AOV',      fmt: (n) => fmtRev(n),                  deltaType: 'pct', higherIsBetter: true  },
   { key: 'margin',  label: 'Margin',   fmt: (n) => `${n.toFixed(1)}%`,         deltaType: 'pp',  higherIsBetter: true  },
-  { key: 'gp',      label: 'Gross Profit', fmt: fmtRev,                        deltaType: 'pct', higherIsBetter: true  },
+  { key: 'gp',      label: 'GP − Ads',    fmt: fmtRev,                         deltaType: 'pct', higherIsBetter: true  },
 ];
 
 const PERIOD_LABELS: Record<string, string> = {
