@@ -30,6 +30,7 @@ const NAV = [
     items: [
       { href: '/dashboard/admin',                 label: 'Admin Dashboard', exact: true },
       { href: '/dashboard/admin/mug-fulfillment', label: 'Mug Fulfillment' },
+      { href: '/systems',                          label: 'Systems' },
     ],
   },
   {
