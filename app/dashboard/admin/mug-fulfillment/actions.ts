@@ -84,8 +84,26 @@ export async function fulfillOrder(formData: FormData) {
     .eq('id', jobId);
   await logEvent(jobId, 'admin_approval', { payload: { approval: 'go_live', triggered_by: 'fulfill' } });
 
-  // ── Step 1: Generate PDF (skip if already have a print_file_url) ─────────────
+  // ── Step 1: Generate PDF (skip if already have a print_file_url AND file exists) ──
   let printFileUrl = job.print_file_url;
+
+  // Webhook pre-populates print_file_url from Shopify order attributes before any PDF is
+  // uploaded here. Verify the file actually exists in storage before trusting the URL.
+  if (printFileUrl) {
+    const { data: listed } = await supabaseAdmin.storage
+      .from(process.env.SUPABASE_MUG_PRINTS_BUCKET ?? 'mug-prints')
+      .list('mugs', { search: `${job.tile_id}.pdf` });
+    if (!listed || listed.length === 0) {
+      await logEvent(jobId, 'pdf_url_stale', {
+        payload: { stale_url: printFileUrl, reason: 'file_not_in_storage' },
+      });
+      await supabaseAdmin
+        .from('mug_fulfillment_jobs')
+        .update({ print_file_url: null, updated_at: new Date().toISOString() })
+        .eq('id', jobId);
+      printFileUrl = null;
+    }
+  }
 
   if (!printFileUrl) {
     const { data: claimed } = await supabaseAdmin
