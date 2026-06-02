@@ -117,6 +117,17 @@ export async function patchOrder(gelatoOrderId: string, patch: Record<string, un
   return res.json() as Promise<GelatoOrder>;
 }
 
+// Cancel an order. Gelato rejects PATCH-ing the print file on an already-placed
+// order (returns 550), so a stale order from a prior attempt must be cancelled
+// before re-creating a fresh draft. Best-effort: 404 (already gone) is not an error.
+export async function cancelOrder(gelatoOrderId: string): Promise<void> {
+  const res = await gelatoFetch(`/v4/orders/${gelatoOrderId}:cancel`, { method: 'POST' });
+  if (!res.ok && res.status !== 404) {
+    const text = await res.text();
+    throw new Error(`Gelato cancelOrder failed (${res.status}): ${text}`);
+  }
+}
+
 export async function createDraftOrder(payload: GelatoCreateDraftPayload): Promise<GelatoDraftOrder> {
   const testMode = process.env.GELATO_TEST_MODE === 'true';
   const body = { ...payload, orderType: 'draft' };

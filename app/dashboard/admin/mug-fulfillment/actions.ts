@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
-import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder } from '@/lib/mugs/gelato';
+import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder, cancelOrder } from '@/lib/mugs/gelato';
 import { shopifyGraphQL } from '@/lib/shopify';
 import type { Json } from '@/lib/types/database';
 
@@ -217,15 +217,35 @@ export async function fulfillOrder(formData: FormData) {
     const existing = await findOrderByReference(lineItemRef);
     let order;
 
-    if (existing) {
+    // Only a draft order can have its print file patched. A placed (live) order's
+    // files are immutable — Gelato returns 550 if you try. A found order here is
+    // almost always a stale order from a prior attempt (re-fulfill after reset), so
+    // cancel it and create a fresh draft with the new file.
+    const existingIsDraft = (existing?.status ?? '').toLowerCase() === 'draft';
+
+    if (existing && existingIsDraft) {
       await logEvent(jobId, 'gelato_existing_found', {
-        payload: { gelato_order_id: existing.id, status: existing.status },
+        payload: { gelato_order_id: existing.id, status: existing.status, action: 'patch' },
       });
       order = await patchOrder(existing.id, {
         items: [{ itemReferenceId: lineItemRef, files: [{ type: 'default', url: printFileUrl }] }],
       });
       await logEvent(jobId, 'gelato_patched', { payload: { gelato_order_id: order.id, status: order.status } });
     } else {
+      if (existing) {
+        await logEvent(jobId, 'gelato_existing_found', {
+          payload: { gelato_order_id: existing.id, status: existing.status, action: 'cancel_and_recreate' },
+        });
+        // Best-effort cancel of the stale order — don't let a cancel failure block resubmission.
+        try {
+          await cancelOrder(existing.id);
+          await logEvent(jobId, 'gelato_stale_cancelled', { payload: { gelato_order_id: existing.id } });
+        } catch (cancelErr) {
+          await logEvent(jobId, 'gelato_stale_cancel_failed', {
+            payload: { gelato_order_id: existing.id, error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) },
+          });
+        }
+      }
       await logEvent(jobId, 'gelato_draft_attempt', { payload: { order_reference_id: lineItemRef } });
       const draft = await createDraftOrder(draftPayload);
       await logEvent(jobId, 'gelato_draft_created', { payload: { gelato_draft_id: draft.id, status: draft.status } });
@@ -400,17 +420,19 @@ export async function submitGelato(formData: FormData) {
       },
     };
 
-    // Check if Shopify-Gelato integration already created this order.
-    // If so, patch the existing order with the print file rather than creating a duplicate.
     const lineItemRef = String(job.shopify_line_item_id);
     const existing = await findOrderByReference(lineItemRef);
 
+    // Only a draft order's print file can be patched — a placed (live) order's files
+    // are immutable and Gelato returns 550. A found order here is almost always a stale
+    // order from a prior attempt, so cancel it and create a fresh draft.
+    const existingIsDraft = (existing?.status ?? '').toLowerCase() === 'draft';
+
     let order;
-    if (existing) {
+    if (existing && existingIsDraft) {
       await logEvent(jobId, 'gelato_existing_found', {
-        payload: { gelato_order_id: existing.id, status: existing.status, source: 'shopify_integration' },
+        payload: { gelato_order_id: existing.id, status: existing.status, action: 'patch' },
       });
-      // Patch the existing order with our print file URL
       order = await patchOrder(existing.id, {
         items: [{
           itemReferenceId: lineItemRef,
@@ -421,7 +443,19 @@ export async function submitGelato(formData: FormData) {
         payload: { gelato_order_id: order.id, status: order.status },
       });
     } else {
-      // No existing Gelato order — create a new one
+      if (existing) {
+        await logEvent(jobId, 'gelato_existing_found', {
+          payload: { gelato_order_id: existing.id, status: existing.status, action: 'cancel_and_recreate' },
+        });
+        try {
+          await cancelOrder(existing.id);
+          await logEvent(jobId, 'gelato_stale_cancelled', { payload: { gelato_order_id: existing.id } });
+        } catch (cancelErr) {
+          await logEvent(jobId, 'gelato_stale_cancel_failed', {
+            payload: { gelato_order_id: existing.id, error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr) },
+          });
+        }
+      }
       await logEvent(jobId, 'gelato_draft_attempt', {
         payload: { order_reference_id: draftPayload.orderReferenceId },
       });

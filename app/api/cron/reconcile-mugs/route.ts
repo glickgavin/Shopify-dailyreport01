@@ -38,8 +38,8 @@ function authorized(req: NextRequest): boolean {
 }
 
 // Map Gelato status → our state
-function gelatoStatusToState(status: string): string | null {
-  switch (status.toLowerCase()) {
+function gelatoStatusToState(status: string | null | undefined): string | null {
+  switch ((status ?? '').toLowerCase()) {
     case 'passed':    return 'passed';
     case 'printed':   return 'printed';
     case 'shipped':   return 'shipped';
