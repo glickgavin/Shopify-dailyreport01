@@ -26,6 +26,7 @@ export type PeriodStats = {
   orders: number;
   aov: number;
   margin: number;
+  gp: number;
 };
 
 export type PeriodEntry = {
@@ -44,6 +45,7 @@ function aggregate(slice: HistoryRow[]): PeriodStats {
     orders,
     aov:    orders > 0 ? revenue / orders : 0,
     margin: revenue > 0 ? (profit / revenue) * 100 : 0,
+    gp:     profit,
   };
 }
 
