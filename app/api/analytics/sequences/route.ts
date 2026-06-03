@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
   if (!from || !to) return NextResponse.json({ error: 'from and to required' }, { status: 400 });
 
-  const { data, error } = await supabaseAdmin.rpc('analytics_top_sequences', {
+  const { data, error } = await (supabaseAdmin as any).rpc('analytics_top_sequences', {
     p_from: from, p_to: to, p_start: start, p_top_n: 25,
   });
 

@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
 
   if (!anchor || !from || !to) return NextResponse.json({ error: 'anchor, from and to required' }, { status: 400 });
 
-  const { data, error } = await supabaseAdmin.rpc('analytics_event_neighborhood', {
+  const { data, error } = await (supabaseAdmin as any).rpc('analytics_event_neighborhood', {
     p_anchor: anchor, p_from: from, p_to: to, p_depth: 3, p_top_n: 8,
   });
 

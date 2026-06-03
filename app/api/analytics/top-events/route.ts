@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
 
   if (!from || !to) return NextResponse.json({ error: 'from and to required' }, { status: 400 });
 
-  const { data, error } = await supabaseAdmin.rpc('analytics_top_event_labels', {
+  const { data, error } = await (supabaseAdmin as any).rpc('analytics_top_event_labels', {
     p_from: from, p_to: to, p_top_n: 60,
   });
 
