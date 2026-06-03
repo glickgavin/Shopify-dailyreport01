@@ -23,6 +23,7 @@ const NAV = [
       { href: '/analytics/journey',      label: 'User Journey' },
       { href: '/analytics/funnel',       label: 'Funnel Builder' },
       { href: '/analytics/behaviors',    label: 'Behavior Lab' },
+      { href: '/analytics/paths',        label: 'Path Analysis' },
     ],
   },
   {
