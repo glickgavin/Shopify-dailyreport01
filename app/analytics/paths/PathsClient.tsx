@@ -3,8 +3,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Period = '1D' | '3D' | '7D';
+type Period = 'yesterday' | '1D' | '3D' | '7D' | '30D';
 type Tab = 'sequences' | 'explorer';
+
+const PERIOD_LABEL: Record<Period, string> = {
+  yesterday: 'Yesterday', '1D': '1D', '3D': '3D', '7D': '7D', '30D': '30D',
+};
 
 interface SequenceRow {
   step1: string | null;
@@ -31,10 +35,14 @@ interface TopEvent {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getRange(period: Period) {
-  const to   = new Date();
-  const days = period === '1D' ? 1 : period === '3D' ? 3 : 7;
-  const from = new Date(to.getTime() - days * 24 * 60 * 60 * 1000);
-  return { from: from.toISOString(), to: to.toISOString() };
+  const now = new Date();
+  if (period === 'yesterday') {
+    const start = new Date(now); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0);
+    const end   = new Date(now); end.setHours(0, 0, 0, 0);
+    return { from: start.toISOString(), to: end.toISOString() };
+  }
+  const days = period === '1D' ? 1 : period === '3D' ? 3 : period === '7D' ? 7 : 30;
+  return { from: new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString(), to: now.toISOString() };
 }
 
 function eventColor(label: string | null): string {
@@ -57,18 +65,18 @@ function shortLabel(label: string | null): string {
 
 function PeriodTabs({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
-      {(['1D', '3D', '7D'] as Period[]).map(p => (
+    <div style={{ display: 'flex', gap: 3 }}>
+      {(['yesterday', '1D', '3D', '7D', '30D'] as Period[]).map(p => (
         <button key={p} onClick={() => onChange(p)} style={{
-          padding: '0.35rem 0.85rem',
-          fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
+          padding: '0.3rem 0.7rem',
+          fontSize: '0.75rem', fontFamily: 'var(--font-mono)',
           fontWeight: value === p ? 700 : 400,
           background: value === p ? '#1a1a2e' : 'transparent',
           color: value === p ? '#fff' : 'var(--muted)',
           border: `1px solid ${value === p ? '#1a1a2e' : 'var(--border)'}`,
-          borderRadius: 6, cursor: 'pointer',
+          borderRadius: 6, cursor: 'pointer', whiteSpace: 'nowrap',
         }}>
-          {p}
+          {PERIOD_LABEL[p]}
         </button>
       ))}
     </div>
@@ -85,27 +93,35 @@ function Spinner() {
 
 // ── Step badge ────────────────────────────────────────────────────────────────
 
+function parseLabel(label: string): { primary: string; secondary: string | null } {
+  if (label.startsWith('page_view: ')) {
+    return { primary: label.slice('page_view: '.length) || '/', secondary: null };
+  }
+  const at = label.indexOf(' @ ');
+  if (at > -1) return { primary: label.slice(0, at), secondary: label.slice(at + 3) };
+  return { primary: label, secondary: null };
+}
+
 function StepBadge({ label }: { label: string | null }) {
   if (!label) return <span style={{ color: 'var(--muted)', fontSize: '0.72rem' }}>—</span>;
   const color = eventColor(label);
-  const text  = shortLabel(label);
-  const isPage = label.startsWith('page_view');
+  const { primary, secondary } = parseLabel(label);
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5,
-      background: color + '18',
-      border: `1px solid ${color}44`,
-      borderRadius: 5,
-      padding: '0.2rem 0.55rem',
+      background: color + '18', border: `1px solid ${color}44`,
+      borderRadius: 5, padding: '0.2rem 0.55rem',
       fontSize: '0.72rem', fontFamily: 'var(--font-mono)',
-      color, maxWidth: 160, overflow: 'hidden',
+      color, maxWidth: 200, overflow: 'hidden',
     }}>
-      <span style={{
-        width: 6, height: 6, borderRadius: '50%',
-        background: color, flexShrink: 0,
-      }} />
-      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {isPage ? text : text}
+      <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+      <span style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primary}</span>
+        {secondary && (
+          <span style={{ fontSize: '0.65em', opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {secondary}
+          </span>
+        )}
       </span>
     </span>
   );
@@ -147,7 +163,7 @@ function SequencesView({
         >
           <option value="">Any event (session start)</option>
           {topEvents.map(e => (
-            <option key={e.label} value={e.label}>{shortLabel(e.label)} ({e.cnt.toLocaleString()})</option>
+            <option key={e.label} value={e.label}>{e.label} ({e.cnt.toLocaleString()})</option>
           ))}
         </select>
         {startFilter && (
@@ -242,9 +258,12 @@ function EventCard({
       borderRadius: 6, padding: '0.5rem 0.65rem',
       marginBottom: 5,
     }}>
-      <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {shortLabel(label)}
-      </div>
+      {(() => { const { primary, secondary } = parseLabel(label); return (
+        <div style={{ marginBottom: 4, overflow: 'hidden' }}>
+          <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primary}</div>
+          {secondary && <div style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{secondary}</div>}
+        </div>
+      ); })()}
       <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginBottom: 4, overflow: 'hidden' }}>
         <div style={{ width: `${barWidth}%`, height: '100%', background: color, borderRadius: 2 }} />
       </div>
@@ -343,7 +362,7 @@ function ExplorerView({
         >
           <option value="">Select an event…</option>
           {topEvents.map(e => (
-            <option key={e.label} value={e.label}>{shortLabel(e.label)} ({e.cnt.toLocaleString()})</option>
+            <option key={e.label} value={e.label}>{e.label} ({e.cnt.toLocaleString()})</option>
           ))}
         </select>
         {anchorEvent && totalAnchorSessions > 0 && (
@@ -447,7 +466,7 @@ function ArrowDivider({ direction }: { direction: 'left' | 'right' }) {
 
 export default function PathsClient() {
   const [tab,       setTab]       = useState<Tab>('sequences');
-  const [period,    setPeriod]    = useState<Period>('7D');
+  const [period,    setPeriod]    = useState<Period>('yesterday');
   const [startFilter, setStartFilter] = useState('');
   const [anchorEvent, setAnchorEvent] = useState('');
 
