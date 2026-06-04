@@ -73,6 +73,12 @@ export interface GelatoOrder {
   // getOrderStatus normalises both into "status" so callers can use one field.
   status?: string;
   fulfillmentStatus?: string;
+  // REST GET returns top-level "shipment" (singular); webhooks nest under "fulfillment.shipments".
+  shipment?: {
+    trackingCode?: string;
+    trackingUrl?: string;
+    shipmentMethodName?: string;
+  };
   fulfillment?: {
     shipmentMethodName?: string;
     shipments?: Array<{

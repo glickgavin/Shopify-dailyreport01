@@ -10,10 +10,11 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 // Reconcile cron — runs every 10 minutes via Vercel cron.
-// Drives two transitions:
-//   1. Kick pending generate-pdf / submit-gelato jobs that are stuck in failed state
+// Drives three actions:
+//   1. Kick pending generate-pdf / submit-gelato jobs stuck in failed state
 //      but whose backoff window has passed (reset to previous state).
 //   2. Poll Gelato for submitted/passed/printed jobs and advance state.
+//   3. Retry Shopify fulfillment push for shipped/delivered jobs that never got one.
 
 async function logEvent(
   jobId: string,
@@ -56,10 +57,11 @@ export async function GET(req: NextRequest) {
 
   const now = new Date().toISOString();
   const results: Record<string, number> = {
-    requeued:  0,
-    polled:    0,
-    advanced:  0,
-    errors:    0,
+    requeued:        0,
+    polled:          0,
+    advanced:        0,
+    shopify_retried: 0,
+    errors:          0,
   };
 
   // ── 1. Re-queue failed jobs whose backoff window has passed ─────────────────
@@ -114,9 +116,10 @@ export async function GET(req: NextRequest) {
         updated_at: new Date().toISOString(),
       };
 
-      // Capture tracking info when shipped
+      // Capture tracking info when shipped.
+      // REST API returns top-level "shipment"; webhooks nest under "fulfillment.shipments".
       if (newState === 'shipped' || newState === 'delivered') {
-        const shipment = gelatoOrder.fulfillment?.shipments?.[0];
+        const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
         if (shipment?.trackingCode)       updatePayload.tracking_number  = shipment.trackingCode;
         if (shipment?.trackingUrl)        updatePayload.tracking_url     = shipment.trackingUrl;
         if (shipment?.shipmentMethodName) updatePayload.tracking_company = shipment.shipmentMethodName;
@@ -136,11 +139,8 @@ export async function GET(req: NextRequest) {
           payload:    { gelato_status: gelatoOrder.status, state: newState },
         });
 
-        // Push line-item fulfillment + tracking to Shopify.
-        // Runs on both webhook and cron paths so missed webhooks are caught.
-        // pushTrackingToShopify is idempotent — skips if already pushed.
         if (newState === 'shipped') {
-          const shipment = gelatoOrder.fulfillment?.shipments?.[0];
+          const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
           await pushTrackingToShopify({
             id:                    job.id,
             shopify_order_id:      job.shopify_order_id,
@@ -161,6 +161,58 @@ export async function GET(req: NextRequest) {
         from_state: job.state,
         error:      msg,
         payload:    { context: 'gelato_poll' },
+      });
+    }
+  }
+
+  // ── 3. Retry Shopify push for shipped/delivered jobs missing a fulfillment ID ─
+  // Covers jobs that were advanced before the Shopify push was working correctly.
+  const { data: unfulfilledJobs } = await supabaseAdmin
+    .from('mug_fulfillment_jobs')
+    .select('id, gelato_order_id, shopify_order_id, shopify_line_item_id, quantity, tracking_number, tracking_url, tracking_company')
+    .in('state', ['shipped', 'delivered'])
+    .is('shopify_fulfillment_id', null)
+    .not('gelato_order_id', 'is', null)
+    .limit(10);
+
+  for (const job of unfulfilledJobs ?? []) {
+    try {
+      // Re-fetch from Gelato to get tracking info (was missing when these jobs were first advanced)
+      const gelatoOrder = await getOrderStatus(job.gelato_order_id!);
+      const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
+
+      // Persist tracking if we got it and it's not already stored
+      if (shipment?.trackingCode && !job.tracking_number) {
+        await supabaseAdmin
+          .from('mug_fulfillment_jobs')
+          .update({
+            tracking_number:  shipment.trackingCode,
+            tracking_url:     shipment.trackingUrl     ?? null,
+            tracking_company: shipment.shipmentMethodName ?? null,
+            updated_at:       new Date().toISOString(),
+          })
+          .eq('id', job.id);
+      }
+
+      await pushTrackingToShopify({
+        id:                    job.id,
+        shopify_order_id:      job.shopify_order_id,
+        shopify_line_item_id:  job.shopify_line_item_id,
+        shopify_fulfillment_id: null,
+        tracking_number:       shipment?.trackingCode       ?? job.tracking_number  ?? null,
+        tracking_url:          shipment?.trackingUrl        ?? job.tracking_url     ?? null,
+        tracking_company:      shipment?.shipmentMethodName ?? job.tracking_company ?? null,
+        quantity:              job.quantity ?? 1,
+      });
+
+      results.shopify_retried++;
+    } catch (err) {
+      results.errors++;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[reconcile-mugs] shopify retry job ${job.id} error:`, msg);
+      await logEvent(job.id, 'error', {
+        error:   msg,
+        payload: { context: 'shopify_retry' },
       });
     }
   }
