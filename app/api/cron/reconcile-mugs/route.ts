@@ -104,6 +104,18 @@ export async function GET(req: NextRequest) {
     results.polled++;
     try {
       const gelatoOrder = await getOrderStatus(job.gelato_order_id!);
+
+      // Temporary: log raw Gelato fields once per job so we can verify the response shape.
+      await logEvent(job.id, 'gelato_poll_raw', {
+        from_state: job.state,
+        payload: {
+          gelato_order_id:   job.gelato_order_id,
+          status:            gelatoOrder.status,
+          fulfillmentStatus: (gelatoOrder as Record<string, unknown>).fulfillmentStatus,
+          raw_keys:          Object.keys(gelatoOrder as object),
+        },
+      });
+
       const newState = gelatoStatusToState(gelatoOrder.status);
 
       if (!newState || newState === job.state) continue;

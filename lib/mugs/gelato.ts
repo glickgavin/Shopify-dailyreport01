@@ -69,7 +69,10 @@ export interface GelatoDraftOrder {
 export interface GelatoOrder {
   id: string;
   orderReferenceId: string;
-  status: string;
+  // Gelato webhooks send "status"; the REST GET endpoint sends "fulfillmentStatus".
+  // getOrderStatus normalises both into "status" so callers can use one field.
+  status?: string;
+  fulfillmentStatus?: string;
   fulfillment?: {
     shipmentMethodName?: string;
     shipments?: Array<{
@@ -100,7 +103,12 @@ export async function getOrderStatus(gelatoOrderId: string): Promise<GelatoOrder
     const text = await res.text();
     throw new Error(`Gelato getOrder failed (${res.status}): ${text}`);
   }
-  return res.json() as Promise<GelatoOrder>;
+  const order = await res.json() as GelatoOrder;
+  // Normalise: REST API uses fulfillmentStatus; webhooks use status.
+  if (!order.status && order.fulfillmentStatus) {
+    order.status = order.fulfillmentStatus;
+  }
+  return order;
 }
 
 // Patch an existing order — used to update print file URL on a Shopify-integrated order,
