@@ -10,6 +10,10 @@ import type { Json } from '@/lib/types/database';
 //   2. Find the open fulfillment order line item matching our Shopify line item
 //   3. Call fulfillmentCreateV2 with just that line item + tracking info
 //   4. Store the returned shopify_fulfillment_id (idempotency guard for retries)
+//
+//   If no open FO is found, also checks existing fulfillments on the order. If
+//   the line item was already fulfilled (e.g. via Gelato's own Shopify integration
+//   or manually), stores that fulfillment ID to stop retrying.
 
 // ── Event logging ─────────────────────────────────────────────────────────────
 
@@ -28,35 +32,52 @@ async function logEvent(
   });
 }
 
-// ── Fulfillment order lookup ──────────────────────────────────────────────────
+// ── Fulfillment order + existing fulfillment lookup ───────────────────────────
 
-interface FulfillmentOrdersResponse {
-  order: {
-    fulfillmentOrders: {
-      nodes: Array<{
-        id: string;
-        status: string;
-        lineItems: {
-          nodes: Array<{
-            id: string;
-            lineItem: { id: string };
-            remainingQuantity: number;
-          }>;
-        };
-      }>;
-    };
-  } | null;
+interface OrderFulfillmentData {
+  fulfillmentOrders: {
+    nodes: Array<{
+      id: string;
+      status: string;
+      lineItems: {
+        nodes: Array<{
+          id: string;
+          lineItem: { id: string };
+          remainingQuantity: number;
+        }>;
+      };
+    }>;
+  };
+  fulfillments: {
+    nodes: Array<{
+      id: string;
+      status: string;
+      lineItems: {
+        nodes: Array<{
+          lineItem: { id: string };
+        }>;
+      };
+    }>;
+  };
 }
 
-async function findFulfillmentOrderLineItem(
+interface OrderFulfillmentResponse {
+  order: OrderFulfillmentData | null;
+}
+
+async function getOrderFulfillmentData(
   shopifyOrderId: string,
   shopifyLineItemId: string,
-): Promise<{ fulfillmentOrderId: string; foLineItemId: string } | null> {
+): Promise<
+  | { type: 'open';     fulfillmentOrderId: string; foLineItemId: string }
+  | { type: 'existing'; fulfillmentId: string }
+  | { type: 'not_found' }
+> {
   const orderId    = `gid://shopify/Order/${shopifyOrderId}`;
   const lineItemId = `gid://shopify/LineItem/${shopifyLineItemId}`;
 
-  const data = await shopifyGraphQL<FulfillmentOrdersResponse>(
-    `query GetFulfillmentOrders($orderId: ID!) {
+  const data = await shopifyGraphQL<OrderFulfillmentResponse>(
+    `query GetOrderFulfillments($orderId: ID!) {
        order(id: $orderId) {
          fulfillmentOrders(first: 20) {
            nodes {
@@ -71,23 +92,47 @@ async function findFulfillmentOrderLineItem(
              }
            }
          }
+         fulfillments(first: 20) {
+           nodes {
+             id
+             status
+             lineItems(first: 50) {
+               nodes {
+                 lineItem { id }
+               }
+             }
+           }
+         }
        }
      }`,
     { orderId },
   );
 
-  for (const fo of data.order?.fulfillmentOrders?.nodes ?? []) {
-    // Only look in open fulfillment orders
-    if (fo.status === 'CLOSED' || fo.status === 'CANCELLED') continue;
+  const order = data.order;
+  if (!order) return { type: 'not_found' };
 
+  // Check for an open fulfillment order line item first
+  for (const fo of order.fulfillmentOrders?.nodes ?? []) {
+    if (fo.status === 'CLOSED' || fo.status === 'CANCELLED') continue;
     for (const li of fo.lineItems?.nodes ?? []) {
       if (li.lineItem.id === lineItemId && li.remainingQuantity > 0) {
-        return { fulfillmentOrderId: fo.id, foLineItemId: li.id };
+        return { type: 'open', fulfillmentOrderId: fo.id, foLineItemId: li.id };
       }
     }
   }
 
-  return null;
+  // No open FO — check if already fulfilled via an existing fulfillment
+  for (const f of order.fulfillments?.nodes ?? []) {
+    if (f.status === 'CANCELLED') continue;
+    for (const li of f.lineItems?.nodes ?? []) {
+      if (li.lineItem.id === lineItemId) {
+        const numericId = f.id.split('/').pop() ?? f.id;
+        return { type: 'existing', fulfillmentId: numericId };
+      }
+    }
+  }
+
+  return { type: 'not_found' };
 }
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -104,20 +149,45 @@ export interface MugJobForFulfillment {
 }
 
 export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<void> {
-  // Idempotency — if we already created a fulfillment for this job, skip.
+  // Idempotency — if we already created (or found) a fulfillment for this job, skip.
   if (job.shopify_fulfillment_id) {
     return;
   }
 
   try {
-    const foItem = await findFulfillmentOrderLineItem(
+    const result = await getOrderFulfillmentData(
       job.shopify_order_id,
       job.shopify_line_item_id,
     );
 
-    if (!foItem) {
-      // Fulfillment order line item not found — could be already fulfilled or
-      // the order is on a different fulfillment service. Log and move on.
+    if (result.type === 'existing') {
+      // Already fulfilled in Shopify (Gelato auto-integration or manual). Store the
+      // existing fulfillment ID so we stop retrying this job.
+      await (supabaseAdmin as any)
+        .from('mug_fulfillment_jobs')
+        .update({ shopify_fulfillment_id: result.fulfillmentId, updated_at: new Date().toISOString() })
+        .eq('id', job.id)
+        .is('shopify_fulfillment_id', null);
+
+      await logEvent(job.id, 'shopify_fulfillment_already_done', {
+        payload: {
+          shopify_fulfillment_id: result.fulfillmentId,
+          shopify_order_id:       job.shopify_order_id,
+          shopify_line_item_id:   job.shopify_line_item_id,
+        },
+      });
+      return;
+    }
+
+    if (result.type === 'not_found') {
+      // No open FO and no existing fulfillment — order may be on a third-party
+      // fulfillment service or the line item ID is wrong. Log and stop.
+      await (supabaseAdmin as any)
+        .from('mug_fulfillment_jobs')
+        .update({ shopify_fulfillment_id: 'not_found', updated_at: new Date().toISOString() })
+        .eq('id', job.id)
+        .is('shopify_fulfillment_id', null);
+
       await logEvent(job.id, 'shopify_fulfillment_skipped', {
         payload: {
           reason:               'fulfillment_order_line_item_not_found',
@@ -128,6 +198,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       return;
     }
 
+    // result.type === 'open' — create the fulfillment
     interface FulfillmentCreateResponse {
       fulfillmentCreateV2: {
         fulfillment: { id: string; status: string } | null;
@@ -135,7 +206,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       };
     }
 
-    const result = await shopifyGraphQL<FulfillmentCreateResponse>(
+    const createResult = await shopifyGraphQL<FulfillmentCreateResponse>(
       `mutation FulfillmentCreate($fulfillment: FulfillmentV2Input!) {
          fulfillmentCreateV2(fulfillment: $fulfillment) {
            fulfillment { id status }
@@ -145,9 +216,9 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       {
         fulfillment: {
           lineItemsByFulfillmentOrder: [{
-            fulfillmentOrderId:           foItem.fulfillmentOrderId,
-            fulfillmentOrderLineItems:    [{
-              id:       foItem.foLineItemId,
+            fulfillmentOrderId:        result.fulfillmentOrderId,
+            fulfillmentOrderLineItems: [{
+              id:       result.foLineItemId,
               quantity: job.quantity ?? 1,
             }],
           }],
@@ -161,19 +232,17 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       },
     );
 
-    const userErrors = result.fulfillmentCreateV2?.userErrors ?? [];
+    const userErrors = createResult.fulfillmentCreateV2?.userErrors ?? [];
     if (userErrors.length > 0) {
       const msg = userErrors.map(e => `${e.field.join('.')}: ${e.message}`).join('; ');
       throw new Error(`Shopify userErrors: ${msg}`);
     }
 
-    const gid = result.fulfillmentCreateV2?.fulfillment?.id;
+    const gid = createResult.fulfillmentCreateV2?.fulfillment?.id;
     if (!gid) throw new Error('fulfillmentCreateV2 returned no fulfillment id');
 
-    // Strip GID prefix: "gid://shopify/Fulfillment/123456" → "123456"
     const numericId = gid.split('/').pop() ?? gid;
 
-    // Store fulfillment ID — only write if still null (race-safe)
     await (supabaseAdmin as any)
       .from('mug_fulfillment_jobs')
       .update({ shopify_fulfillment_id: numericId, updated_at: new Date().toISOString() })
@@ -190,8 +259,6 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    // Log failure visibly in events table — don't throw so state transitions
-    // are not blocked by a Shopify push failure.
     await logEvent(job.id, 'shopify_fulfillment_failed', {
       error: msg,
       payload: {
