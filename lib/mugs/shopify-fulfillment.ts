@@ -1,45 +1,15 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { shopifyGraphQL } from '@/lib/shopify';
 import type { Json } from '@/lib/types/database';
 
 // Pushes a line-item-level fulfillment to Shopify when Gelato ships a mug order.
-// Uses the Shopify Admin GraphQL API (FulfillmentOrder model) with SHOPIFY_ADMIN_API_TOKEN.
+// Uses the shared shopifyGraphQL client from lib/shopify.ts (OAuth token flow).
 //
 // Flow:
 //   1. Fetch fulfillment orders for the Shopify order
 //   2. Find the open fulfillment order line item matching our Shopify line item
 //   3. Call fulfillmentCreateV2 with just that line item + tracking info
 //   4. Store the returned shopify_fulfillment_id (idempotency guard for retries)
-
-// ── GraphQL client (uses SHOPIFY_ADMIN_API_TOKEN, same as REST calls) ────────
-
-async function gql<T>(query: string, variables: unknown): Promise<T> {
-  const domain  = process.env.SHOPIFY_STORE_DOMAIN!;
-  const token   = process.env.SHOPIFY_ADMIN_API_TOKEN!;
-  const version = process.env.SHOPIFY_API_VERSION ?? '2024-04';
-
-  if (!domain || !token) {
-    throw new Error('SHOPIFY_STORE_DOMAIN or SHOPIFY_ADMIN_API_TOKEN not configured');
-  }
-
-  const res = await fetch(`https://${domain}/admin/api/${version}/graphql.json`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': token,
-    },
-    body: JSON.stringify({ query, variables }),
-  });
-
-  if (!res.ok) {
-    throw new Error(`Shopify GraphQL HTTP ${res.status}: ${await res.text()}`);
-  }
-
-  const json = await res.json() as { data?: T; errors?: { message: string }[] };
-  if (json.errors?.length) {
-    throw new Error(`Shopify GraphQL errors: ${json.errors.map(e => e.message).join('; ')}`);
-  }
-  return json.data as T;
-}
 
 // ── Event logging ─────────────────────────────────────────────────────────────
 
@@ -85,7 +55,7 @@ async function findFulfillmentOrderLineItem(
   const orderId    = `gid://shopify/Order/${shopifyOrderId}`;
   const lineItemId = `gid://shopify/LineItem/${shopifyLineItemId}`;
 
-  const data = await gql<FulfillmentOrdersResponse>(
+  const data = await shopifyGraphQL<FulfillmentOrdersResponse>(
     `query GetFulfillmentOrders($orderId: ID!) {
        order(id: $orderId) {
          fulfillmentOrders(first: 20) {
@@ -165,7 +135,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       };
     }
 
-    const result = await gql<FulfillmentCreateResponse>(
+    const result = await shopifyGraphQL<FulfillmentCreateResponse>(
       `mutation FulfillmentCreate($fulfillment: FulfillmentV2Input!) {
          fulfillmentCreateV2(fulfillment: $fulfillment) {
            fulfillment { id status }
