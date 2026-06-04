@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase';
+import { pushTrackingToShopify } from '@/lib/mugs/shopify-fulfillment';
 import type { Database, Json } from '@/lib/types/database';
 
 type MugJobUpdate = Database['public']['Tables']['mug_fulfillment_jobs']['Update'];
@@ -36,51 +37,6 @@ function gelatoStatusToState(status: string | null | undefined): string | null {
   }
 }
 
-async function notifyShopifyFulfillment(job: {
-  shopify_order_id: number | string;
-  shopify_line_item_id: number | string;
-  tracking_code?: string | null;
-  tracking_url?: string | null;
-  shipment_method?: string | null;
-}) {
-  const domain  = process.env.SHOPIFY_STORE_DOMAIN;
-  const token   = process.env.SHOPIFY_ADMIN_API_TOKEN;
-  const version = process.env.SHOPIFY_API_VERSION ?? '2024-04';
-
-  if (!domain || !token) {
-    console.warn('[gelato-webhook] SHOPIFY_ADMIN_API_TOKEN not set — skipping Shopify fulfillment');
-    return;
-  }
-
-  // Create a fulfillment via Shopify Admin REST
-  const body = {
-    fulfillment: {
-      location_id: null,   // Shopify will use the default location
-      tracking_number: job.tracking_code ?? undefined,
-      tracking_url:    job.tracking_url  ?? undefined,
-      tracking_company: job.shipment_method ?? 'Gelato',
-      line_items_by_fulfillment_order: undefined,  // legacy API: fulfills all
-      notify_customer: true,
-    },
-  };
-
-  const res = await fetch(
-    `https://${domain}/admin/api/${version}/orders/${job.shopify_order_id}/fulfillments.json`,
-    {
-      method:  'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': token,
-      },
-      body: JSON.stringify(body),
-    },
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    console.error(`[gelato-webhook] Shopify fulfillment create failed (${res.status}): ${text}`);
-  }
-}
 
 export async function POST(req: NextRequest) {
   const rawBody = Buffer.from(await req.arrayBuffer());
@@ -127,7 +83,7 @@ export async function POST(req: NextRequest) {
   // Look up job by gelato_order_id first, fall back to orderReferenceId (line_item_id)
   let jobQuery = supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, state, shopify_order_id, shopify_line_item_id')
+    .select('id, state, shopify_order_id, shopify_line_item_id, quantity')
     .limit(1);
 
   if (gelatoOrderId) {
@@ -178,14 +134,17 @@ export async function POST(req: NextRequest) {
     payload:    { gelato_status: gelatoStatus, event },
   });
 
-  // Create Shopify fulfillment once Gelato ships
+  // Push line-item fulfillment + tracking to Shopify once Gelato ships
   if (newState === 'shipped') {
-    await notifyShopifyFulfillment({
+    await pushTrackingToShopify({
+      id:                    job.id,
       shopify_order_id:      job.shopify_order_id,
       shopify_line_item_id:  job.shopify_line_item_id,
-      tracking_code:         updatePayload.tracking_number  ?? null,
+      shopify_fulfillment_id: null,  // not yet set; idempotency handled inside helper
+      tracking_number:       updatePayload.tracking_number  ?? null,
       tracking_url:          updatePayload.tracking_url     ?? null,
-      shipment_method:       updatePayload.tracking_company ?? null,
+      tracking_company:      updatePayload.tracking_company ?? null,
+      quantity:              job.quantity ?? 1,
     });
   }
 

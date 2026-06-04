@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getOrderStatus } from '@/lib/mugs/gelato';
+import { pushTrackingToShopify } from '@/lib/mugs/shopify-fulfillment';
 import type { Database, Json } from '@/lib/types/database';
 
 type MugJobUpdate = Database['public']['Tables']['mug_fulfillment_jobs']['Update'];
@@ -93,7 +94,7 @@ export async function GET(req: NextRequest) {
   // ── 2. Poll Gelato for in-flight orders ────────────────────────────────────
   const { data: inFlightJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, gelato_order_id, state, attempts')
+    .select('id, gelato_order_id, state, attempts, shopify_order_id, shopify_line_item_id, quantity')
     .in('state', ['submitted', 'passed', 'printed'])
     .not('gelato_order_id', 'is', null)
     .order('updated_at', { ascending: true })
@@ -133,6 +134,23 @@ export async function GET(req: NextRequest) {
           to_state:   newState,
           payload:    { gelato_status: gelatoOrder.status, state: newState },
         });
+
+        // Push line-item fulfillment + tracking to Shopify.
+        // Runs on both webhook and cron paths so missed webhooks are caught.
+        // pushTrackingToShopify is idempotent — skips if already pushed.
+        if (newState === 'shipped') {
+          const shipment = gelatoOrder.fulfillment?.shipments?.[0];
+          await pushTrackingToShopify({
+            id:                    job.id,
+            shopify_order_id:      job.shopify_order_id,
+            shopify_line_item_id:  job.shopify_line_item_id,
+            shopify_fulfillment_id: null,
+            tracking_number:       shipment?.trackingCode       ?? updatePayload.tracking_number  ?? null,
+            tracking_url:          shipment?.trackingUrl        ?? updatePayload.tracking_url     ?? null,
+            tracking_company:      shipment?.shipmentMethodName ?? updatePayload.tracking_company ?? null,
+            quantity:              job.quantity ?? 1,
+          });
+        }
       }
     } catch (err) {
       results.errors++;
