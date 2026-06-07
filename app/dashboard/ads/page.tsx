@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { format, subDays, parseISO, getDay } from 'date-fns';
+import { format, subDays, parseISO, getDay, startOfWeek, endOfWeek, addWeeks } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAdsRangeRaw } from '@/lib/ads';
 import type { AdsRow } from '@/lib/ads';
@@ -98,15 +98,16 @@ export default async function AdReportPage() {
   const d30str       = format(subDays(new Date(), 30), 'yyyy-MM-dd'); // 30d start + DoW start
   const d31str       = format(subDays(new Date(), 31), 'yyyy-MM-dd'); // 30d prior end
   const d60str       = format(subDays(new Date(), 60), 'yyyy-MM-dd'); // 30d prior start
-  const d65str       = format(subDays(new Date(), 65), 'yyyy-MM-dd'); // fetch window start
+  const d65str       = format(subDays(new Date(), 65), 'yyyy-MM-dd'); // chart window start
+  const d80str       = format(subDays(new Date(), 80), 'yyyy-MM-dd'); // fetch window start (covers 10 weeks + prior)
 
-  // Fetch 66 days of raw data (covers chart + all prior periods including 30d prior start at day-60)
+  // Fetch 81 days of raw data (covers chart + all prior periods + 10-week table with prior)
   const [adsRaw, { data: summaryRaw }] = await Promise.all([
-    fetchAdsRangeRaw(d65str, todayStr),
+    fetchAdsRangeRaw(d80str, todayStr),
     supabaseAdmin
       .from('daily_summary')
       .select('date,total_orders,total_revenue,phys_cash_orders,phys_non_cash_orders,amazon_orders')
-      .gte('date', d65str)
+      .gte('date', d80str)
       .lte('date', todayStr)
       .order('date', { ascending: true }),
   ]);
@@ -141,6 +142,27 @@ export default async function AdReportPage() {
       prev: periodStats(sliceAds(adsRaw, d60str, d31str),  sliceSummary(sumRows, d60str, d31str)),
     },
   ];
+
+  // ── weekly stats (current week + 9 prior) ────────────────────────────────
+  const currentWeekMonday = startOfWeek(new Date(), { weekStartsOn: 1 });
+  const weekRows = Array.from({ length: 10 }, (_, i) => {
+    const wMon      = addWeeks(currentWeekMonday, -i);
+    const wSun      = i === 0 ? new Date() : endOfWeek(wMon, { weekStartsOn: 1 });
+    const wStartStr = format(wMon,  'yyyy-MM-dd');
+    const wEndStr   = format(wSun,  'yyyy-MM-dd');
+    const label     = i === 0
+      ? `${format(wMon, 'MMM d')} – today`
+      : `${format(wMon, 'MMM d')} – ${format(wSun, 'MMM d')}`;
+
+    const prevMon      = addWeeks(wMon, -1);
+    const prevSun      = endOfWeek(prevMon, { weekStartsOn: 1 });
+    const prevStartStr = format(prevMon, 'yyyy-MM-dd');
+    const prevEndStr   = format(prevSun,  'yyyy-MM-dd');
+
+    const curr = periodStats(sliceAds(adsRaw, wStartStr, wEndStr),    sliceSummary(sumRows, wStartStr, wEndStr));
+    const prev = periodStats(sliceAds(adsRaw, prevStartStr, prevEndStr), sliceSummary(sumRows, prevStartStr, prevEndStr));
+    return { label, curr, prev };
+  });
 
   // ── chart data (last 60 days) ─────────────────────────────────────────────
   const adsMap = new Map(adsRaw.map((r) => [r.report_date, r]));
@@ -304,6 +326,72 @@ export default async function AdReportPage() {
             </table>
             <div style={{ padding: '0.5rem 1rem', background: 'var(--surface2)', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
               CPA (Meta) = ad spend ÷ Meta-attributed purchases · Blended Orders = cash + non-cash + Amazon product orders (excl. memberships &amp; internal) · CPA (Blended) = ad spend ÷ blended orders · ROAS = Shopify revenue ÷ ad spend · vs Prior compares CPA (Meta) to equivalent prior period
+            </div>
+          </div>
+
+          {/* ── WEEKLY TABLE ────────────────────────────────────────────── */}
+          <SectionLabel>Performance by Week</SectionLabel>
+          <div style={{
+            background: 'var(--surface)',
+            borderRadius: 14,
+            border: '1px solid var(--border)',
+            overflow: 'hidden',
+            marginBottom: '2rem',
+          }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                  {['Week', 'Spend', 'Purchases', 'Blended Orders', 'CPA (Meta)', 'CPA (Blended)', 'ROAS', 'vs Prior'].map((h) => (
+                    <th key={h} style={{
+                      padding: '0.75rem 1rem',
+                      textAlign: h === 'Week' ? 'left' : 'right',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.65rem',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.07em',
+                      color: 'var(--muted)',
+                      fontWeight: 500,
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {weekRows.map(({ label, curr, prev }, i) => {
+                  const trendCpa = trendPct(curr.cpaM, prev.cpaM);
+                  return (
+                    <tr key={label} style={{
+                      borderBottom: i < weekRows.length - 1 ? '1px solid var(--border)' : 'none',
+                      background: i === 0 ? 'rgba(99,102,241,0.04)' : i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent',
+                    }}>
+                      <td style={{ padding: '0.75rem 1rem', fontWeight: i === 0 ? 700 : 500, fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{label}</td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 500 }}>
+                        {curr.spend > 0 ? fmt(curr.spend) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
+                        {curr.purchases > 0 ? curr.purchases : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#6b7280' }}>
+                        {curr.productOrders > 0 ? curr.productOrders : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#1d4ed8' }}>
+                        {curr.cpaM !== null ? fmtDec(curr.cpaM) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: '#6b7280' }}>
+                        {curr.cpaB !== null ? fmtDec(curr.cpaB) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: curr.roas !== null && curr.roas >= 1 ? '#1D9E75' : '#e53e3e' }}>
+                        {curr.roas !== null ? `${curr.roas.toFixed(2)}×` : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
+                        <TrendBadge pct={trendCpa} inverted />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ padding: '0.5rem 1rem', background: 'var(--surface2)', borderTop: '1px solid var(--border)', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+              Weeks run Mon–Sun · current week is partial · vs Prior compares CPA (Meta) to the preceding week
             </div>
           </div>
 
