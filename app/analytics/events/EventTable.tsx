@@ -157,12 +157,14 @@ function EventDetailDrawer({ event, onClose }: { event: AnalyticsEvent; onClose:
 export default function EventTable({ events, allTypes, activeType, searchParams }: Props) {
   const router = useRouter();
   const [page, setPage]         = useState(1);
-  const [fTime, setFTime]       = useState('');
-  const [fName, setFName]       = useState('');
-  const [fCat, setFCat]         = useState('');
-  const [fPath, setFPath]       = useState('');
-  const [fDevice, setFDevice]   = useState('');
-  const [fSession, setFSession] = useState('');
+  const [fTime, setFTime]             = useState('');
+  const [fName, setFName]             = useState('');
+  const [fCat, setFCat]               = useState('');
+  const [fPath, setFPath]             = useState('');
+  const [fDevice, setFDevice]         = useState('');
+  const [fSession, setFSession]       = useState('');
+  const [fLocation, setFLocation]     = useState('');
+  const [fButtonLabel, setFButtonLabel] = useState('');
   const [selected, setSelected] = useState<AnalyticsEvent | null>(null);
 
   const closeDrawer = useCallback(() => setSelected(null), []);
@@ -177,20 +179,22 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
   }
 
   const filtered = useMemo(() => events.filter(e => {
-    if (fTime   && !contains(e.created_at ? new Date(e.created_at).toLocaleString() : '', fTime)) return false;
-    if (fName   && !contains(e.event_type, fName))      return false;
-    if (fCat    && !contains(e.event_category, fCat))   return false;
-    if (fPath   && !contains(e.page_path, fPath))       return false;
-    if (fDevice && e.device_type?.toLowerCase() !== fDevice) return false;
-    if (fSession && !contains(e.session_id, fSession))  return false;
+    if (fTime        && !contains(e.created_at ? new Date(e.created_at).toLocaleString() : '', fTime)) return false;
+    if (fName        && !contains(e.event_type, fName))      return false;
+    if (fCat         && !contains(e.event_category, fCat))   return false;
+    if (fPath        && !contains(e.page_path, fPath))       return false;
+    if (fDevice      && e.device_type?.toLowerCase() !== fDevice) return false;
+    if (fSession     && !contains(e.session_id, fSession))   return false;
+    if (fLocation    && !contains((e.properties as Record<string, string> | null)?.location, fLocation)) return false;
+    if (fButtonLabel && !contains((e.properties as Record<string, string> | null)?.button_label, fButtonLabel)) return false;
     return true;
-  }), [events, fTime, fName, fCat, fPath, fDevice, fSession]);
+  }), [events, fTime, fName, fCat, fPath, fDevice, fSession, fLocation, fButtonLabel]);
 
   const totalPages     = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage       = Math.min(page, totalPages);
   const paged          = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
   const resetPage      = () => setPage(1);
-  const hasLocalFilter = fTime || fName || fCat || fPath || fDevice || fSession;
+  const hasLocalFilter = fTime || fName || fCat || fPath || fDevice || fSession || fLocation || fButtonLabel;
 
   return (
     <div>
@@ -220,7 +224,7 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
         </span>
         {hasLocalFilter && (
           <button
-            onClick={() => { setFTime(''); setFName(''); setFCat(''); setFPath(''); setFDevice(''); setFSession(''); resetPage(); }}
+            onClick={() => { setFTime(''); setFName(''); setFCat(''); setFPath(''); setFDevice(''); setFSession(''); setFLocation(''); setFButtonLabel(''); resetPage(); }}
             style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}
           >Clear column filters</button>
         )}
@@ -236,27 +240,35 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
               <th style={thStyle}>Page Path</th>
               <th style={{ ...thStyle, width: 100 }}>Device</th>
               <th style={{ ...thStyle, width: 140 }}>Session</th>
+              <th style={{ ...thStyle, width: 130 }}>Location</th>
+              <th style={{ ...thStyle, width: 150 }}>Button Label</th>
             </tr>
             <tr style={{ borderBottom: '2px solid var(--border)' }}>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <input value={fTime}    onChange={e => { setFTime(e.target.value);    resetPage(); }} placeholder="Search time…"    style={filterInputStyle} />
+                <input value={fTime}        onChange={e => { setFTime(e.target.value);        resetPage(); }} placeholder="Search time…"    style={filterInputStyle} />
               </th>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <input value={fName}    onChange={e => { setFName(e.target.value);    resetPage(); }} placeholder="Search event…"   style={filterInputStyle} />
+                <input value={fName}        onChange={e => { setFName(e.target.value);        resetPage(); }} placeholder="Search event…"   style={filterInputStyle} />
               </th>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <input value={fCat}     onChange={e => { setFCat(e.target.value);     resetPage(); }} placeholder="Search…"         style={filterInputStyle} />
+                <input value={fCat}         onChange={e => { setFCat(e.target.value);         resetPage(); }} placeholder="Search…"         style={filterInputStyle} />
               </th>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <input value={fPath}    onChange={e => { setFPath(e.target.value);    resetPage(); }} placeholder="Search path…"    style={filterInputStyle} />
+                <input value={fPath}        onChange={e => { setFPath(e.target.value);        resetPage(); }} placeholder="Search path…"    style={filterInputStyle} />
               </th>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <select value={fDevice} onChange={e => { setFDevice(e.target.value);  resetPage(); }} style={{ ...filterInputStyle, cursor: 'pointer' }}>
+                <select value={fDevice}     onChange={e => { setFDevice(e.target.value);      resetPage(); }} style={{ ...filterInputStyle, cursor: 'pointer' }}>
                   {DEVICES.map(d => <option key={d} value={d}>{d || 'All'}</option>)}
                 </select>
               </th>
               <th style={{ padding: '0.4rem 0.85rem' }}>
-                <input value={fSession} onChange={e => { setFSession(e.target.value); resetPage(); }} placeholder="Search session…" style={filterInputStyle} />
+                <input value={fSession}     onChange={e => { setFSession(e.target.value);     resetPage(); }} placeholder="Search session…" style={filterInputStyle} />
+              </th>
+              <th style={{ padding: '0.4rem 0.85rem' }}>
+                <input value={fLocation}    onChange={e => { setFLocation(e.target.value);    resetPage(); }} placeholder="Search…"         style={filterInputStyle} />
+              </th>
+              <th style={{ padding: '0.4rem 0.85rem' }}>
+                <input value={fButtonLabel} onChange={e => { setFButtonLabel(e.target.value); resetPage(); }} placeholder="Search…"         style={filterInputStyle} />
               </th>
             </tr>
           </thead>
@@ -292,11 +304,17 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
                 <td style={{ ...tdStyle, color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {e.session_id ?? '—'}
                 </td>
+                <td style={{ ...tdStyle, color: 'var(--muted)', fontSize: '0.78rem', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(e.properties as Record<string, string> | null)?.location ?? '—'}
+                </td>
+                <td style={{ ...tdStyle, color: 'var(--muted)', fontSize: '0.78rem', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {(e.properties as Record<string, string> | null)?.button_label ?? '—'}
+                </td>
               </tr>
             ))}
             {paged.length === 0 && (
               <tr>
-                <td colSpan={6} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+                <td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
                   No events match the current filters.
                 </td>
               </tr>
