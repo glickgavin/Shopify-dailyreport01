@@ -6,7 +6,7 @@ import { computeDerivedKPIs } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct,
-  KpiCard, TintCard, SegmentCard, StripeSegmentCard, SectionLabel,
+  KpiCard, TintCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel,
 } from '../_components/cards';
 
 export const dynamic = 'force-dynamic';
@@ -147,6 +147,54 @@ function aggStripeSnapshots(snaps: { payload: unknown }[]): StripeSummary | null
   return agg;
 }
 
+// ── paypal aggregation ────────────────────────────────────────────────────────
+
+type PayPalSummary = {
+  direct_success_count: number;
+  direct_success_total_cents: number;
+  direct_success_unique_customers: number;
+  refunds_count: number;
+  refunds_total_cents: number;
+  excluded_internal_transfers_count?: number;
+  excluded_internal_transfers_net_cents?: number;
+  denied_count: number;
+  denied_total_cents: number;
+  shopify_filtered_count: number;
+};
+
+function aggPaypalSnapshots(snaps: { payload: unknown }[]): PayPalSummary | null {
+  if (!snaps.length) return null;
+  const agg: PayPalSummary = {
+    direct_success_count: 0,
+    direct_success_total_cents: 0,
+    direct_success_unique_customers: 0,
+    refunds_count: 0,
+    refunds_total_cents: 0,
+    excluded_internal_transfers_count: 0,
+    excluded_internal_transfers_net_cents: 0,
+    denied_count: 0,
+    denied_total_cents: 0,
+    shopify_filtered_count: 0,
+  };
+  let hasData = false;
+  for (const snap of snaps) {
+    const s = (snap.payload as { summary: PayPalSummary }).summary;
+    if (!s) continue;
+    hasData = true;
+    agg.direct_success_count         += s.direct_success_count ?? 0;
+    agg.direct_success_total_cents   += s.direct_success_total_cents ?? 0;
+    agg.direct_success_unique_customers += s.direct_success_unique_customers ?? 0;
+    agg.refunds_count                += s.refunds_count ?? 0;
+    agg.refunds_total_cents          += s.refunds_total_cents ?? 0;
+    agg.excluded_internal_transfers_count  = (agg.excluded_internal_transfers_count ?? 0) + (s.excluded_internal_transfers_count ?? 0);
+    agg.excluded_internal_transfers_net_cents = (agg.excluded_internal_transfers_net_cents ?? 0) + (s.excluded_internal_transfers_net_cents ?? 0);
+    agg.denied_count                 += s.denied_count ?? 0;
+    agg.denied_total_cents           += s.denied_total_cents ?? 0;
+    agg.shopify_filtered_count       += s.shopify_filtered_count ?? 0;
+  }
+  return hasData ? agg : null;
+}
+
 // ── page ─────────────────────────────────────────────────────────────────────
 
 export default async function RangePage({
@@ -163,11 +211,12 @@ export default async function RangePage({
     { data: segmentRows },
     { data: memTypeRows },
     { data: stripeSnaps },
+    { data: paypalSnaps },
     ads,
   ] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
-      .select('total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,total_orders,total_qty,phys_cash_revenue,phys_cash_net_sales,phys_cash_shipping,phys_cash_cogs,phys_cash_profit,phys_cash_orders,phys_cash_qty,phys_non_cash_revenue,phys_non_cash_net_sales,phys_non_cash_shipping,phys_non_cash_cogs,phys_non_cash_profit,phys_non_cash_orders,phys_non_cash_qty,mem_revenue,mem_net_sales,mem_shipping,mem_cogs,mem_profit,mem_orders,mem_qty')
+      .select('total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,total_orders,total_qty,phys_cash_revenue,phys_cash_net_sales,phys_cash_shipping,phys_cash_cogs,phys_cash_profit,phys_cash_orders,phys_cash_qty,phys_non_cash_revenue,phys_non_cash_net_sales,phys_non_cash_shipping,phys_non_cash_cogs,phys_non_cash_profit,phys_non_cash_orders,phys_non_cash_qty,mem_revenue,mem_net_sales,mem_shipping,mem_cogs,mem_profit,mem_orders,mem_qty,amazon_revenue,amazon_net_sales,amazon_shipping,amazon_cogs,amazon_profit,amazon_orders,amazon_qty')
       .gte('date', startDate)
       .lte('date', endDate),
     supabaseAdmin
@@ -187,6 +236,11 @@ export default async function RangePage({
       .lte('date', endDate),
     supabaseAdmin
       .from('stripe_daily_snapshot')
+      .select('payload')
+      .gte('date', startDate)
+      .lte('date', endDate),
+    supabaseAdmin
+      .from('paypal_daily_snapshot')
       .select('payload')
       .gte('date', startDate)
       .lte('date', endDate),
@@ -211,6 +265,10 @@ export default async function RangePage({
   const membership = aggSummaryRows(rows as Record<string, number>[], {
     revenue: 'mem_revenue', netSales: 'mem_net_sales', shipping: 'mem_shipping',
     cogs: 'mem_cogs', profit: 'mem_profit', orders: 'mem_orders', qty: 'mem_qty',
+  });
+  const amazon = aggSummaryRows(rows as Record<string, number>[], {
+    revenue: 'amazon_revenue', netSales: 'amazon_net_sales', shipping: 'amazon_shipping',
+    cogs: 'amazon_cogs', profit: 'amazon_profit', orders: 'amazon_orders', qty: 'amazon_qty',
   });
 
   // ── aggregate customer segments ───────────────────────────────────────────
@@ -255,11 +313,12 @@ export default async function RangePage({
   const memNew       = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;
   const memRecurring = (memTypeRows ?? []).filter((m) => m.membership_type === 'recurring').length;
 
-  // ── stripe aggregation ────────────────────────────────────────────────────
-  const stripeSummary = aggStripeSnapshots((stripeSnaps ?? []) as { payload: unknown }[]);
+  // ── stripe / paypal aggregation ───────────────────────────────────────────
+  const stripeSummary  = aggStripeSnapshots((stripeSnaps  ?? []) as { payload: unknown }[]);
+  const paypalSummary  = aggPaypalSnapshots((paypalSnaps  ?? []) as { payload: unknown }[]);
 
   // ── derived KPIs ──────────────────────────────────────────────────────────
-  const productOrders = physCash.orders + physNonCash.orders;
+  const productOrders = physCash.orders + physNonCash.orders + amazon.orders;
 
   const summaryAsProcessed = {
     total:      { revenue: total.revenue, profit: total.profit, orders: total.orders },
@@ -589,6 +648,21 @@ export default async function RangePage({
               aov={membership.aov}
               breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
             />
+            {amazon.orders > 0 && (
+              <SegmentCard
+                title="Amazon"
+                theme="amazon"
+                revenue={amazon.revenue}
+                orders={amazon.orders}
+                qty={amazon.qty}
+                netSales={amazon.netSales}
+                shipping={amazon.shipping}
+                cogs={amazon.cogs}
+                profit={amazon.profit}
+                margin={amazon.margin}
+                aov={amazon.aov}
+              />
+            )}
             {stripeSummary && (
               <StripeSegmentCard
                 grossCents={stripeSummary.direct_success_total_cents}
@@ -596,6 +670,17 @@ export default async function RangePage({
                 charges={stripeSummary.direct_success_count}
                 refunds={stripeSummary.refunds_count}
                 uniqueCustomers={stripeSummary.direct_success_unique_customers}
+              />
+            )}
+            {paypalSummary && (
+              <PayPalSegmentCard
+                grossCents={paypalSummary.direct_success_total_cents}
+                refundCents={paypalSummary.refunds_total_cents}
+                transactions={paypalSummary.direct_success_count}
+                refunds={paypalSummary.refunds_count}
+                uniqueCustomers={paypalSummary.direct_success_unique_customers}
+                excludedTransfersCount={paypalSummary.excluded_internal_transfers_count}
+                excludedTransfersNetCents={paypalSummary.excluded_internal_transfers_net_cents}
               />
             )}
           </div>
@@ -647,36 +732,40 @@ export default async function RangePage({
                   </thead>
                   <tbody>
                     {(() => {
-                      const rows = [
-                        { segLabel: 'Cash',     ct: 'new',       s: cashNew,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
-                        { segLabel: 'Cash',     ct: 'returning', s: cashRet,    payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
-                        { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew, payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
-                        { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet, payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
-                        { segLabel: 'Internal', ct: 'new',       s: internalNew, payAccent: '#92400e',              ctAccent: '#1d4ed8' },
-                        { segLabel: 'Internal', ct: 'returning', s: internalRet, payAccent: '#92400e',              ctAccent: '#6b7280' },
+                      const tableRows = [
+                        { segLabel: 'Cash',     ct: 'new',       s: cashNew,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
+                        { segLabel: 'Cash',     ct: 'returning', s: cashRet,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
+                        { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
+                        { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
+                        { segLabel: 'Internal', ct: 'new',       s: internalNew, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
+                        { segLabel: 'Internal', ct: 'returning', s: internalRet, payAccent: '#92400e',               ctAccent: '#6b7280' },
+                        ...(amazonNew.orders > 0 || amazonRet.orders > 0 ? [
+                          { segLabel: 'Amazon', ct: 'new',       s: amazonNew,   payAccent: '#B26B00',               ctAccent: '#1d4ed8' },
+                          { segLabel: 'Amazon', ct: 'returning', s: amazonRet,   payAccent: '#B26B00',               ctAccent: '#6b7280' },
+                        ] : []),
                       ];
-                      return rows.map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
-                      <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < rows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
-                        <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{segLabel}</td>
-                        <td style={{ padding: '0.5rem 0.75rem' }}>
-                          <span style={{
-                            fontSize: '0.65rem',
-                            fontFamily: 'var(--font-mono)',
-                            padding: '0.15rem 0.4rem',
-                            borderRadius: 5,
-                            background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
-                            color: ctAccent,
-                            fontWeight: 600,
-                            textTransform: 'uppercase',
-                            letterSpacing: '0.05em',
-                          }}>{ct}</span>
-                        </td>
-                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s.orders}</td>
-                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s.revenue)}</td>
-                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.netSales)}</td>
-                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s.margin)}</td>
-                        <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.aov)}</td>
-                      </tr>
+                      return tableRows.map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
+                        <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < tableRows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
+                          <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{segLabel}</td>
+                          <td style={{ padding: '0.5rem 0.75rem' }}>
+                            <span style={{
+                              fontSize: '0.65rem',
+                              fontFamily: 'var(--font-mono)',
+                              padding: '0.15rem 0.4rem',
+                              borderRadius: 5,
+                              background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
+                              color: ctAccent,
+                              fontWeight: 600,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.05em',
+                            }}>{ct}</span>
+                          </td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s.orders}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s.revenue)}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.netSales)}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s.margin)}</td>
+                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.aov)}</td>
+                        </tr>
                       ));
                     })()}
                   </tbody>
@@ -749,6 +838,53 @@ export default async function RangePage({
                 )}
                 <div style={{ marginTop: '1rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
                   {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── PAYPAL ──────────────────────────────────────────────────── */}
+          {paypalSummary && (
+            <div className="desktop-only">
+              <SectionLabel>PayPal Payments</SectionLabel>
+              <div style={{
+                background: 'var(--surface)',
+                borderRadius: 14,
+                border: '1.5px solid #003087',
+                padding: '1.5rem',
+                marginBottom: '2rem',
+              }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ background: '#e8f0fe', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #b3c6f7' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#003087', marginBottom: '0.5rem' }}>Successful (direct)</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#003087', marginBottom: '0.25rem' }}>
+                      {fmt(paypalSummary.direct_success_total_cents / 100)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#001f5b' }}>
+                      {paypalSummary.direct_success_count} transactions · {paypalSummary.direct_success_unique_customers} customers
+                    </div>
+                  </div>
+                  <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
+                      {fmt(paypalSummary.refunds_total_cents / 100)}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
+                      {paypalSummary.refunds_count} refunds
+                    </div>
+                  </div>
+                  <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Denied</div>
+                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
+                      {paypalSummary.denied_count}
+                    </div>
+                    <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
+                      {fmt(paypalSummary.denied_total_cents / 100)} attempted
+                    </div>
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                  {paypalSummary.shopify_filtered_count} Shopify-routed PayPal transactions excluded · PayPal totals not included in Cash In
                 </div>
               </div>
             </div>
@@ -837,30 +973,30 @@ export default async function RangePage({
                     key={`${p.title}-${p.variant}`}
                     style={{
                       borderBottom: i < products.length - 1 ? '1px solid var(--border)' : 'none',
-                      background: i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent',
+                      background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)',
                     }}
                   >
-                    <td style={{ padding: '0.75rem 1rem', fontWeight: 500 }}>{p.title}</td>
-                    <td style={{ padding: '0.75rem 1rem', color: 'var(--muted)' }}>{p.variant || '—'}</td>
-                    <td style={{ padding: '0.75rem 1rem' }}>
+                    <td style={{ padding: '0.625rem 1rem', fontWeight: 500 }}>{p.title}</td>
+                    <td style={{ padding: '0.625rem 1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>{p.variant || '—'}</td>
+                    <td style={{ padding: '0.625rem 1rem' }}>
                       <span style={{
-                        fontSize: '0.7rem',
+                        fontSize: '0.65rem',
                         fontFamily: 'var(--font-mono)',
-                        padding: '0.2rem 0.5rem',
-                        borderRadius: 6,
-                        background: p.item_type === 'Membership' ? 'var(--nc-green-light)' : 'var(--cash-blue-light)',
-                        color: p.item_type === 'Membership' ? 'var(--nc-green-dark)' : 'var(--cash-blue-dark)',
-                        fontWeight: 500,
-                      }}>
-                        {p.item_type === 'Membership' ? 'MEM' : 'PHY'}
-                      </span>
+                        padding: '0.15rem 0.4rem',
+                        borderRadius: 5,
+                        background: p.item_type === 'Physical' ? '#dbeafe' : p.item_type === 'Membership' ? '#ede9fe' : '#dcfce7',
+                        color: p.item_type === 'Physical' ? '#1d4ed8' : p.item_type === 'Membership' ? '#5b21b6' : '#15803d',
+                        fontWeight: 600,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                      }}>{p.item_type}</span>
                     </td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.qty}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>{p.orders}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.shipping)}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.cogs)}</td>
-                    <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.qty}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.orders}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--muted)' }}>{fmtDec(p.shipping)}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--muted)' }}>{fmtDec(p.cogs)}</td>
+                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
                   </tr>
                 ))}
               </tbody>
