@@ -26,6 +26,82 @@ async function logEvent(
   });
 }
 
+// ── mug:ready customer re-selection resolver ──────────────────────────────────
+
+const MUG_CHOICE_QUERY = `
+  query GetOrderMugChoice($id: ID!) {
+    order(id: $id) {
+      tags
+      metafield(namespace: "custom", key: "mug_choice") {
+        value
+      }
+    }
+  }
+`;
+
+interface MugChoiceMetafield {
+  tile_id: string;
+  image_url: string;
+  source?: string;
+  updated_at?: string;
+}
+
+interface MugReadyOverride {
+  tileId: string | null;
+  tileOverrideUrl: string | null;
+}
+
+async function applyMugReadyOverride(
+  jobId: string,
+  shopifyOrderId: string,
+  currentTileId: string | null,
+): Promise<MugReadyOverride> {
+  try {
+    const gid = `gid://shopify/Order/${shopifyOrderId}`;
+    const result = await shopifyGraphQL<{
+      order: { tags: string[]; metafield: { value: string } | null } | null;
+    }>(MUG_CHOICE_QUERY, { id: gid });
+
+    const order = result.order;
+    if (!order?.tags.includes('mug:ready') || !order.metafield) {
+      return { tileId: currentTileId, tileOverrideUrl: null };
+    }
+
+    let mugChoice: MugChoiceMetafield;
+    try {
+      mugChoice = JSON.parse(order.metafield.value) as MugChoiceMetafield;
+    } catch {
+      return { tileId: currentTileId, tileOverrideUrl: null };
+    }
+
+    if (!mugChoice.image_url) return { tileId: currentTileId, tileOverrideUrl: null };
+
+    const newTileId = mugChoice.tile_id ?? currentTileId;
+
+    await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .update({ tile_id: newTileId, tile_override_url: mugChoice.image_url, updated_at: new Date().toISOString() })
+      .eq('id', jobId);
+
+    await logEvent(jobId, 'customer_reselection_applied', {
+      payload: {
+        original_tile_id: currentTileId,
+        new_tile_id: newTileId,
+        image_url: mugChoice.image_url,
+        source: mugChoice.source,
+        metafield_updated_at: mugChoice.updated_at,
+      },
+    });
+
+    return { tileId: newTileId, tileOverrideUrl: mugChoice.image_url };
+  } catch (err) {
+    await logEvent(jobId, 'customer_reselection_check_failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { tileId: currentTileId, tileOverrideUrl: null };
+  }
+}
+
 // ── approval actions ──────────────────────────────────────────────────────────
 
 export async function approvePdf(formData: FormData) {
@@ -105,6 +181,22 @@ export async function fulfillOrder(formData: FormData) {
     }
   }
 
+  // Check for customer re-selection via mug:ready tag before generating PDF
+  const { tileId: effectiveTileId, tileOverrideUrl: effectiveOverrideUrl } =
+    await applyMugReadyOverride(jobId, String(job.shopify_order_id), job.tile_id);
+
+  // If the customer re-selected, clear any cached PDF so we regenerate with the new image
+  if (effectiveOverrideUrl && printFileUrl) {
+    await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .update({ print_file_url: null, updated_at: new Date().toISOString() })
+      .eq('id', jobId);
+    await logEvent(jobId, 'pdf_regeneration_required', {
+      payload: { reason: 'mug:ready_customer_reselection', cleared_url: printFileUrl },
+    });
+    printFileUrl = null;
+  }
+
   if (!printFileUrl) {
     const { data: claimed } = await supabaseAdmin
       .from('mug_fulfillment_jobs')
@@ -120,11 +212,11 @@ export async function fulfillOrder(formData: FormData) {
     await logEvent(jobId, 'state_transition', { from_state: fromState, to_state: 'generating' });
 
     try {
-      if (!job.tile_id) throw new Error('tile_id is null');
-      await logEvent(jobId, 'pdf_gen', { payload: { tile_id: job.tile_id } });
+      if (!effectiveTileId) throw new Error('tile_id is null');
+      await logEvent(jobId, 'pdf_gen', { payload: { tile_id: effectiveTileId, override_url: effectiveOverrideUrl ?? null } });
 
-      const pdfBuffer  = await buildMugPrintPdf(job.tile_id, job.tile_override_url);
-      const storagePath = `mugs/${job.tile_id}.pdf`;
+      const pdfBuffer  = await buildMugPrintPdf(effectiveTileId, effectiveOverrideUrl ?? job.tile_override_url);
+      const storagePath = `mugs/${effectiveTileId}.pdf`;
 
       const { error: uploadErr } = await supabaseAdmin.storage
         .from(process.env.SUPABASE_MUG_PRINTS_BUCKET ?? 'mug-prints')
@@ -283,7 +375,7 @@ export async function generatePdf(formData: FormData) {
   // Fetch the job
   const { data: job, error: fetchErr } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, tile_id, tile_override_url, attempts')
+    .select('id, tile_id, tile_override_url, shopify_order_id, attempts')
     .eq('id', jobId)
     .eq('state', 'received')
     .maybeSingle();
@@ -306,16 +398,20 @@ export async function generatePdf(formData: FormData) {
     return;
   }
 
+  // Check for customer re-selection via mug:ready tag before generating PDF
+  const { tileId: effectiveTileId, tileOverrideUrl: effectiveOverrideUrl } =
+    await applyMugReadyOverride(jobId, String(job.shopify_order_id), job.tile_id);
+
   await logEvent(jobId, 'state_transition', { from_state: 'received', to_state: 'generating' });
 
   try {
-    if (!job.tile_id) throw new Error('tile_id is null');
+    if (!effectiveTileId) throw new Error('tile_id is null');
 
-    await logEvent(jobId, 'pdf_gen', { payload: { tile_id: job.tile_id } });
+    await logEvent(jobId, 'pdf_gen', { payload: { tile_id: effectiveTileId, override_url: effectiveOverrideUrl ?? null } });
 
-    const pdfBuffer = await buildMugPrintPdf(job.tile_id, job.tile_override_url);
+    const pdfBuffer = await buildMugPrintPdf(effectiveTileId, effectiveOverrideUrl ?? job.tile_override_url);
 
-    const storagePath = `mugs/${job.tile_id}.pdf`;
+    const storagePath = `mugs/${effectiveTileId}.pdf`;
     const { error: uploadErr } = await supabaseAdmin.storage
       .from(process.env.SUPABASE_MUG_PRINTS_BUCKET ?? 'mug-prints')
       .upload(storagePath, pdfBuffer, { contentType: 'application/pdf', upsert: true });
