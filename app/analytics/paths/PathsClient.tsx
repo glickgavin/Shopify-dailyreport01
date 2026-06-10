@@ -244,34 +244,66 @@ function SequencesView({
 
 // ── Neighborhood event card ───────────────────────────────────────────────────
 
-function EventCard({
-  label, sessions, pct, maxSessions,
-}: {
+function EventCard({ label, sessions, pct, maxSessions, onHide, featured }: {
   label: string; sessions: number; pct: number; maxSessions: number;
+  /** When provided, renders a small × on hover that calls this with the label. */
+  onHide?: (label: string) => void;
+  /** Top event in the column — slightly larger and bolder. */
+  featured?: boolean;
 }) {
   const color = eventColor(label);
   const barWidth = maxSessions > 0 ? (sessions / maxSessions) * 100 : 0;
   return (
-    <div style={{
-      background: 'var(--surface2)', border: `1px solid ${color}33`,
-      borderLeft: `3px solid ${color}`,
-      borderRadius: 6, padding: '0.5rem 0.65rem',
-      marginBottom: 5,
-    }}>
+    <div
+      className="path-event-card"
+      style={{
+        background: 'var(--surface2)',
+        border: `1px solid ${featured ? color + '66' : color + '33'}`,
+        borderLeft: `${featured ? 4 : 3}px solid ${color}`,
+        borderRadius: 6,
+        padding: featured ? '0.6rem 0.7rem' : '0.5rem 0.65rem',
+        marginBottom: 5,
+        position: 'relative',
+        boxShadow: featured ? `0 1px 3px ${color}22` : 'none',
+      }}>
+      {onHide && (
+        <button
+          type="button"
+          aria-label={`Hide ${label}`}
+          title="Hide this event"
+          onClick={() => onHide(label)}
+          onMouseEnter={e => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.background = 'var(--border)'; }}
+          onMouseLeave={e => { e.currentTarget.style.opacity = '0.45'; e.currentTarget.style.background = 'transparent'; }}
+          style={{
+            position: 'absolute', top: 4, right: 4,
+            width: 16, height: 16, padding: 0,
+            border: 'none', borderRadius: 4,
+            background: 'transparent', color: 'var(--muted)',
+            fontSize: '0.85rem', lineHeight: 1, cursor: 'pointer',
+            opacity: 0.45, transition: 'opacity 0.12s, background 0.12s',
+          }}>
+          ×
+        </button>
+      )}
       {(() => { const { primary, secondary } = parseLabel(label); return (
-        <div style={{ marginBottom: 4, overflow: 'hidden' }}>
-          <div style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{primary}</div>
+        <div style={{ marginBottom: 4, overflow: 'hidden', paddingRight: onHide ? 14 : 0 }}>
+          <div style={{
+            fontSize: featured ? '0.78rem' : '0.72rem',
+            fontFamily: 'var(--font-mono)', color: 'var(--text)',
+            fontWeight: featured ? 600 : 400,
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>{primary}</div>
           {secondary && <div style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{secondary}</div>}
         </div>
       ); })()}
-      <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginBottom: 4, overflow: 'hidden' }}>
+      <div style={{ height: featured ? 4 : 3, background: 'var(--border)', borderRadius: 2, marginBottom: 4, overflow: 'hidden' }}>
         <div style={{ width: `${barWidth}%`, height: '100%', background: color, borderRadius: 2 }} />
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
           {sessions.toLocaleString()} sessions
         </span>
-        <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color }}>
+        <span style={{ fontSize: featured ? '0.78rem' : '0.7rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color }}>
           {pct}%
         </span>
       </div>
@@ -282,11 +314,12 @@ function EventCard({
 // ── Neighborhood column ───────────────────────────────────────────────────────
 
 function NeighborhoodColumn({
-  label, events, maxSessions,
+  label, events, maxSessions, onHide,
 }: {
   label: string;
   events: NeighborhoodRow[];
   maxSessions: number;
+  onHide?: (label: string) => void;
 }) {
   return (
     <div style={{ flex: '1 1 0', minWidth: 0 }}>
@@ -300,13 +333,15 @@ function NeighborhoodColumn({
       {events.length === 0 ? (
         <div style={{ fontSize: '0.65rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', textAlign: 'center', padding: '0.5rem 0' }}>—</div>
       ) : (
-        events.map(e => (
+        events.map((e, i) => (
           <EventCard
             key={e.event_label}
             label={e.event_label}
             sessions={e.sessions}
             pct={e.pct}
             maxSessions={maxSessions}
+            onHide={onHide}
+            featured={i === 0}
           />
         ))
       )}
@@ -318,6 +353,7 @@ function NeighborhoodColumn({
 
 function ExplorerView({
   neighborhood, anchorEvent, loading, topEvents, totalAnchorSessions, onAnchorChange,
+  hidden, onHide, onUnhide, onClearHidden,
 }: {
   neighborhood: NeighborhoodRow[];
   anchorEvent: string;
@@ -325,6 +361,10 @@ function ExplorerView({
   topEvents: TopEvent[];
   totalAnchorSessions: number;
   onAnchorChange: (v: string) => void;
+  hidden: string[];
+  onHide: (label: string) => void;
+  onUnhide: (label: string) => void;
+  onClearHidden: () => void;
 }) {
   const before = (offset: number) =>
     neighborhood.filter(r => r.direction === 'before' && r.step_offset === offset);
@@ -371,9 +411,58 @@ function ExplorerView({
           </span>
         )}
         <span style={{ fontSize: '0.65rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginLeft: 'auto' }}>
-          3 steps before · 3 steps after · top 8 events per step
+          3 steps before · 3 steps after · top 5 events per step
         </span>
       </div>
+
+      {/* Hidden events chips — only show when something is hidden */}
+      {hidden.length > 0 && (
+        <div style={{
+          background: 'var(--surface)', border: '1px dashed var(--border)',
+          borderRadius: 10, padding: '0.65rem 0.85rem',
+          display: 'flex', flexWrap: 'wrap', gap: '0.4rem', alignItems: 'center',
+        }}>
+          <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginRight: 4 }}>
+            Hidden ({hidden.length})
+          </span>
+          {hidden.map(label => {
+            const color = eventColor(label);
+            return (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onUnhide(label)}
+                title="Restore this event"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5,
+                  padding: '0.2rem 0.5rem',
+                  background: color + '12', border: `1px solid ${color}33`,
+                  borderRadius: 5, cursor: 'pointer',
+                  fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color,
+                  maxWidth: 240,
+                }}
+              >
+                <span style={{ width: 5, height: 5, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{shortLabel(label)}</span>
+                <span style={{ marginLeft: 4, opacity: 0.7, fontWeight: 700 }}>×</span>
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={onClearHidden}
+            style={{
+              marginLeft: 'auto',
+              padding: '0.2rem 0.55rem',
+              background: 'transparent', border: '1px solid var(--border)',
+              borderRadius: 5, cursor: 'pointer',
+              fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+            }}
+          >
+            Clear all
+          </button>
+        </div>
+      )}
 
       {!anchorEvent ? (
         <div style={{
@@ -392,11 +481,11 @@ function ExplorerView({
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, minWidth: 900 }}>
 
             {/* Before columns — offset 3, 2, 1 */}
-            <NeighborhoodColumn label="3 steps before" events={before(3)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="3 steps before" events={before(3)} maxSessions={allSessions} onHide={onHide} />
             <ArrowDivider direction="right" />
-            <NeighborhoodColumn label="2 steps before" events={before(2)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="2 steps before" events={before(2)} maxSessions={allSessions} onHide={onHide} />
             <ArrowDivider direction="right" />
-            <NeighborhoodColumn label="1 step before"  events={before(1)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="1 step before"  events={before(1)} maxSessions={allSessions} onHide={onHide} />
 
             {/* Arrow in */}
             <ArrowDivider direction="right" />
@@ -433,11 +522,11 @@ function ExplorerView({
             <ArrowDivider direction="right" />
 
             {/* After columns — offset 1, 2, 3 */}
-            <NeighborhoodColumn label="1 step after"   events={after(1)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="1 step after"   events={after(1)} maxSessions={allSessions} onHide={onHide} />
             <ArrowDivider direction="right" />
-            <NeighborhoodColumn label="2 steps after"  events={after(2)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="2 steps after"  events={after(2)} maxSessions={allSessions} onHide={onHide} />
             <ArrowDivider direction="right" />
-            <NeighborhoodColumn label="3 steps after"  events={after(3)} maxSessions={allSessions} />
+            <NeighborhoodColumn label="3 steps after"  events={after(3)} maxSessions={allSessions} onHide={onHide} />
           </div>
 
           {neighborhood.length === 0 && (
@@ -462,6 +551,42 @@ function ArrowDivider({ direction }: { direction: 'left' | 'right' }) {
   );
 }
 
+// ── Settings persistence ──────────────────────────────────────────────────────
+// All Path Analysis settings live under a single localStorage key so we read
+// once on mount and write atomically on change. Schema is forward-compatible
+// — unknown keys are ignored on read, missing keys fall back to defaults.
+
+const SETTINGS_KEY = 'paths.settings.v1';
+
+interface PersistedSettings {
+  tab?: Tab;
+  period?: Period;
+  anchorEvent?: string;
+  startFilter?: string;
+  hidden?: string[];
+}
+
+function loadSettings(): PersistedSettings {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveSettings(s: PersistedSettings) {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+  } catch {
+    /* quota / private mode — silently ignore */
+  }
+}
+
 // ── Main page component ───────────────────────────────────────────────────────
 
 export default function PathsClient() {
@@ -469,6 +594,10 @@ export default function PathsClient() {
   const [period,    setPeriod]    = useState<Period>('yesterday');
   const [startFilter, setStartFilter] = useState('');
   const [anchorEvent, setAnchorEvent] = useState('');
+  const [hidden,    setHidden]    = useState<string[]>([]);
+  // Hydration flag: prevents writing the default state back to localStorage
+  // before we've had a chance to read what's stored.
+  const [hydrated,  setHydrated]  = useState(false);
 
   const [sequences,   setSequences]   = useState<SequenceRow[]>([]);
   const [neighborhood, setNeighborhood] = useState<NeighborhoodRow[]>([]);
@@ -480,6 +609,24 @@ export default function PathsClient() {
   const [evLoading,  setEvLoading]  = useState(false);
 
   const abortRef = useRef<AbortController | null>(null);
+
+  // Hydrate from localStorage ONCE on mount.
+  useEffect(() => {
+    const s = loadSettings();
+    if (s.tab === 'sequences' || s.tab === 'explorer') setTab(s.tab);
+    if (s.period && (['yesterday','1D','3D','7D','30D'] as const).includes(s.period)) setPeriod(s.period);
+    if (typeof s.anchorEvent === 'string') setAnchorEvent(s.anchorEvent);
+    if (typeof s.startFilter === 'string') setStartFilter(s.startFilter);
+    if (Array.isArray(s.hidden)) setHidden(s.hidden.filter((x): x is string => typeof x === 'string'));
+    setHydrated(true);
+  }, []);
+
+  // Persist whenever any tracked setting changes — only after hydration so
+  // we don't overwrite the user's saved state with our initial defaults.
+  useEffect(() => {
+    if (!hydrated) return;
+    saveSettings({ tab, period, anchorEvent, startFilter, hidden });
+  }, [hydrated, tab, period, anchorEvent, startFilter, hidden]);
 
   // Fetch top events whenever period changes
   useEffect(() => {
@@ -506,20 +653,21 @@ export default function PathsClient() {
     if (tab === 'sequences') fetchSequences(period, startFilter);
   }, [tab, period, startFilter, fetchSequences]);
 
-  // Fetch neighborhood when anchor is selected
-  const fetchNeighborhood = useCallback((anchor: string, p: Period) => {
+  // Fetch neighborhood when anchor, period, or hidden list changes. Hiding
+  // an event re-runs the query with a longer exclude list so the next-most-
+  // common event slides into the freed slot.
+  const fetchNeighborhood = useCallback((anchor: string, p: Period, excluded: string[]) => {
     if (!anchor) { setNeighborhood([]); setAnchorTotal(0); return; }
     const { from, to } = getRange(p);
     setNbLoading(true);
-    fetch(`/api/analytics/neighborhood?anchor=${encodeURIComponent(anchor)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    const excludeParam = excluded.length > 0
+      ? `&exclude=${encodeURIComponent(excluded.join(','))}`
+      : '';
+    fetch(`/api/analytics/neighborhood?anchor=${encodeURIComponent(anchor)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${excludeParam}`)
       .then(r => r.json())
       .then(d => {
         const rows: NeighborhoodRow[] = Array.isArray(d) ? d : [];
         setNeighborhood(rows);
-        // anchor total = max sessions at step_offset 1 (closest step)
-        const closest = rows.filter(r => r.step_offset === 1);
-        const maxClose = closest.length > 0 ? Math.max(...closest.map(r => r.sessions)) : 0;
-        // estimate from pct: sessions / pct * 100 for any row
         if (rows.length > 0) {
           const ref = rows[0];
           setAnchorTotal(ref.pct > 0 ? Math.round(ref.sessions / ref.pct * 100) : 0);
@@ -532,8 +680,8 @@ export default function PathsClient() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'explorer') fetchNeighborhood(anchorEvent, period);
-  }, [tab, anchorEvent, period, fetchNeighborhood]);
+    if (tab === 'explorer') fetchNeighborhood(anchorEvent, period, hidden);
+  }, [tab, anchorEvent, period, hidden, fetchNeighborhood]);
 
   // Switch tab handler
   const handleTabChange = (t: Tab) => {
@@ -542,9 +690,14 @@ export default function PathsClient() {
       fetchSequences(period, startFilter);
     }
     if (t === 'explorer' && anchorEvent) {
-      fetchNeighborhood(anchorEvent, period);
+      fetchNeighborhood(anchorEvent, period, hidden);
     }
   };
+
+  // Hidden-events handlers — keep the list de-duplicated and stable.
+  const handleHide       = useCallback((label: string) => setHidden(h => h.includes(label) ? h : [...h, label]), []);
+  const handleUnhide     = useCallback((label: string) => setHidden(h => h.filter(l => l !== label)), []);
+  const handleClearHidden = useCallback(() => setHidden([]), []);
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
@@ -609,6 +762,10 @@ export default function PathsClient() {
             topEvents={topEvents}
             totalAnchorSessions={anchorTotal}
             onAnchorChange={setAnchorEvent}
+            hidden={hidden}
+            onHide={handleHide}
+            onUnhide={handleUnhide}
+            onClearHidden={handleClearHidden}
           />
         )}
 
