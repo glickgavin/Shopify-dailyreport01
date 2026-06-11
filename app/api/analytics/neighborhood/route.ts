@@ -14,7 +14,6 @@ export async function GET(req: NextRequest) {
     ? exclude.split(',').map(s => s.trim()).filter(Boolean)
     : [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabaseAdmin as any).rpc('analytics_event_neighborhood', {
     p_anchor: anchor,
     p_from: from,
