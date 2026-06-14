@@ -67,7 +67,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   // Fetch state counts
   const { data: allJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity')
+    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at')
     .order('created_at', { ascending: false });
 
   const jobs = allJobs ?? [];
@@ -235,7 +235,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Order', 'Customer', 'State', 'Approval', 'Tile', 'PDF', 'Gelato', 'Att.', 'Last Error', 'Created', 'Actions'].map(h => (
+                  {['Order', 'Mug Ready', 'Customer', 'State', 'Approval', 'Tile', 'PDF', 'Gelato', 'Att.', 'Last Error', 'Created', 'Actions'].map(h => (
                     <th key={h} style={{
                       padding: '0.55rem 0.875rem', textAlign: 'left', whiteSpace: 'nowrap',
                       fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase',
@@ -247,7 +247,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
               <tbody>
                 {filteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={11} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                    <td colSpan={12} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
                       No jobs in this state.
                     </td>
                   </tr>
@@ -274,6 +274,30 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                         >
                           {job.shopify_order_name}
                         </a>
+                      </td>
+
+                      {/* Mug Ready */}
+                      <td style={{ padding: '0.55rem 0.875rem', whiteSpace: 'nowrap' }}>
+                        {(job as any).mug_ready ? (
+                          <span
+                            title={(job as any).mug_ready_at ? `Ready since ${new Date((job as any).mug_ready_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Customer confirmed'}
+                            style={{
+                              display: 'inline-block', padding: '0.2rem 0.5rem', borderRadius: 6,
+                              background: '#dcfce7', color: '#166534',
+                              fontSize: '0.7rem', fontFamily: 'var(--font-mono)', fontWeight: 600,
+                              textTransform: 'uppercase', cursor: 'help',
+                            }}
+                          >
+                            READY
+                          </span>
+                        ) : (
+                          <span
+                            title={(job as any).mug_ready_checked_at ? `Last checked ${new Date((job as any).mug_ready_checked_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : 'Not yet checked'}
+                            style={{ color: 'var(--muted)', fontSize: '0.75rem', cursor: 'help' }}
+                          >
+                            —
+                          </span>
+                        )}
                       </td>
 
                       {/* Customer */}

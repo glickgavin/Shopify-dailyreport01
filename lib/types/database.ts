@@ -962,10 +962,14 @@ export type Database = {
           id: string
           last_error: string | null
           manual_approval: string | null
+          mug_ready: boolean
+          mug_ready_at: string | null
+          mug_ready_checked_at: string | null
           next_attempt_at: string | null
           print_file_url: string | null
           quantity: number
           shipping_address: Json | null
+          shopify_fulfillment_id: string | null
           shopify_line_item_id: string
           shopify_order_id: string
           shopify_order_name: string
@@ -987,10 +991,14 @@ export type Database = {
           id?: string
           last_error?: string | null
           manual_approval?: string | null
+          mug_ready?: boolean
+          mug_ready_at?: string | null
+          mug_ready_checked_at?: string | null
           next_attempt_at?: string | null
           print_file_url?: string | null
           quantity?: number
           shipping_address?: Json | null
+          shopify_fulfillment_id?: string | null
           shopify_line_item_id: string
           shopify_order_id: string
           shopify_order_name: string
@@ -1012,10 +1020,14 @@ export type Database = {
           id?: string
           last_error?: string | null
           manual_approval?: string | null
+          mug_ready?: boolean
+          mug_ready_at?: string | null
+          mug_ready_checked_at?: string | null
           next_attempt_at?: string | null
           print_file_url?: string | null
           quantity?: number
           shipping_address?: Json | null
+          shopify_fulfillment_id?: string | null
           shopify_line_item_id?: string
           shopify_order_id?: string
           shopify_order_name?: string

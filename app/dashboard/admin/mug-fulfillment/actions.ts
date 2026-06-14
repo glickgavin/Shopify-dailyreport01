@@ -4,7 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
 import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder, cancelOrder } from '@/lib/mugs/gelato';
-import { shopifyGraphQL } from '@/lib/shopify';
+import { fetchMugReadyStatus } from '@/lib/mugs/mug-ready';
 import type { Json } from '@/lib/types/database';
 
 const MAGIC_MUG_PRODUCT_IDS = ['8600824643780'];
@@ -28,24 +28,6 @@ async function logEvent(
 
 // ── mug:ready customer re-selection resolver ──────────────────────────────────
 
-const MUG_CHOICE_QUERY = `
-  query GetOrderMugChoice($id: ID!) {
-    order(id: $id) {
-      tags
-      metafield(namespace: "custom", key: "mug_choice") {
-        value
-      }
-    }
-  }
-`;
-
-interface MugChoiceMetafield {
-  tile_id: string;
-  image_url: string;
-  source?: string;
-  updated_at?: string;
-}
-
 interface MugReadyOverride {
   tileId: string | null;
   tileOverrideUrl: string | null;
@@ -57,43 +39,30 @@ async function applyMugReadyOverride(
   currentTileId: string | null,
 ): Promise<MugReadyOverride> {
   try {
-    const gid = `gid://shopify/Order/${shopifyOrderId}`;
-    const result = await shopifyGraphQL<{
-      order: { tags: string[]; metafield: { value: string } | null } | null;
-    }>(MUG_CHOICE_QUERY, { id: gid });
+    const status = await fetchMugReadyStatus(shopifyOrderId);
 
-    const order = result.order;
-    if (!order?.tags.includes('mug:ready') || !order.metafield) {
+    if (!status.ready || !status.imageUrl) {
       return { tileId: currentTileId, tileOverrideUrl: null };
     }
 
-    let mugChoice: MugChoiceMetafield;
-    try {
-      mugChoice = JSON.parse(order.metafield.value) as MugChoiceMetafield;
-    } catch {
-      return { tileId: currentTileId, tileOverrideUrl: null };
-    }
-
-    if (!mugChoice.image_url) return { tileId: currentTileId, tileOverrideUrl: null };
-
-    const newTileId = mugChoice.tile_id ?? currentTileId;
+    const newTileId = status.tileId ?? currentTileId;
 
     await supabaseAdmin
       .from('mug_fulfillment_jobs')
-      .update({ tile_id: newTileId, tile_override_url: mugChoice.image_url, updated_at: new Date().toISOString() })
+      .update({ tile_id: newTileId, tile_override_url: status.imageUrl, updated_at: new Date().toISOString() })
       .eq('id', jobId);
 
     await logEvent(jobId, 'customer_reselection_applied', {
       payload: {
-        original_tile_id: currentTileId,
-        new_tile_id: newTileId,
-        image_url: mugChoice.image_url,
-        source: mugChoice.source,
-        metafield_updated_at: mugChoice.updated_at,
+        original_tile_id:     currentTileId,
+        new_tile_id:          newTileId,
+        image_url:            status.imageUrl,
+        source:               status.source,
+        metafield_updated_at: status.metafieldUpdatedAt,
       },
     });
 
-    return { tileId: newTileId, tileOverrideUrl: mugChoice.image_url };
+    return { tileId: newTileId, tileOverrideUrl: status.imageUrl };
   } catch (err) {
     await logEvent(jobId, 'customer_reselection_check_failed', {
       error: err instanceof Error ? err.message : String(err),
