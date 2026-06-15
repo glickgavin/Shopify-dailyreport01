@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
 
   const results = { checked: 0, newly_ready: 0, errors: 0 };
 
-  for (const [orderId, orderJobs] of orderToJobs) {
+  for (const [orderId, orderJobs] of Array.from(orderToJobs.entries())) {
     results.checked++;
     try {
       const status = await fetchMugReadyStatus(orderId);
