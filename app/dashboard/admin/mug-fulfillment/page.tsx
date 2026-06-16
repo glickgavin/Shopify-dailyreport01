@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { supabaseAdmin } from '@/lib/supabase';
 import MugJobDrawer from './MugJobDrawer';
 import {
-  fulfillOrder, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl,
+  fulfillOrder, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl, scanMugReady,
 } from './actions';
 import BackfillForm from './BackfillForm';
+import MugReadyScanForm from './MugReadyScanForm';
 
 export const revalidate = 0;
 
@@ -164,6 +165,8 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
         {/* Backfill single order */}
         <BackfillForm />
+        {/* Scan mug:ready status across recent orders */}
+        <MugReadyScanForm action={scanMugReady} />
         {backfillMsg && (
           <div style={{
             marginBottom: '1rem', padding: '0.6rem 1rem',

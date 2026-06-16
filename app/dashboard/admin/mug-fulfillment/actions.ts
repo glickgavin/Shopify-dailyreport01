@@ -724,3 +724,66 @@ export async function backfillSingleOrder(_prev: unknown, formData: FormData): P
   if (inserted === 0 && skipped > 0) return { ok: true, message: `Order ${order.name} already in DB (skipped ${skipped} line item(s))` };
   return { ok: true, message: `Backfilled ${inserted} line item(s) from ${order.name}${skipped ? `, ${skipped} already existed` : ''}` };
 }
+
+// ── scanMugReady ──────────────────────────────────────────────────────────────
+
+export async function scanMugReady(
+  _prev: unknown,
+  formData: FormData,
+): Promise<{ ok: boolean; message: string }> {
+  const daysRaw = parseInt((formData.get('days') as string) ?? '18', 10);
+  const days    = isNaN(daysRaw) || daysRaw < 1 ? 18 : Math.min(daysRaw, 90);
+  const cutoff  = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const now     = new Date().toISOString();
+
+  const activeStates = ['received', 'generating', 'file_ready', 'draft_created', 'submitted', 'passed', 'printed', 'failed'];
+
+  const { data: jobs, error: fetchErr } = await supabaseAdmin
+    .from('mug_fulfillment_jobs')
+    .select('id, shopify_order_id, mug_ready, mug_ready_at')
+    .in('state', activeStates)
+    .gte('created_at', cutoff)
+    .order('created_at', { ascending: false })
+    .limit(500);
+
+  if (fetchErr) return { ok: false, message: fetchErr.message };
+
+  const orderToJobs = new Map<string, typeof jobs>();
+  for (const job of jobs ?? []) {
+    if (!orderToJobs.has(job.shopify_order_id)) {
+      if (orderToJobs.size >= 200) break;
+      orderToJobs.set(job.shopify_order_id, []);
+    }
+    orderToJobs.get(job.shopify_order_id)!.push(job);
+  }
+
+  let checked = 0, newlyReady = 0, errors = 0;
+
+  for (const [orderId, orderJobs] of Array.from(orderToJobs.entries())) {
+    checked++;
+    try {
+      const status = await fetchMugReadyStatus(orderId);
+      for (const job of orderJobs ?? []) {
+        const justFlipped = !job.mug_ready && status.ready;
+        await (supabaseAdmin as any)
+          .from('mug_fulfillment_jobs')
+          .update({
+            mug_ready:            status.ready,
+            mug_ready_checked_at: now,
+            ...(justFlipped ? { mug_ready_at: now } : {}),
+            updated_at:           now,
+          })
+          .eq('id', job.id);
+        if (justFlipped) newlyReady++;
+      }
+    } catch {
+      errors++;
+    }
+  }
+
+  revalidatePath('/dashboard/admin/mug-fulfillment');
+  return {
+    ok: true,
+    message: `Scanned ${checked} orders over last ${days} days — ${newlyReady} newly ready${errors ? `, ${errors} errors` : ''}`,
+  };
+}
