@@ -1,16 +1,34 @@
 'use client';
 
-import { useActionState } from 'react';
+import { useFormState, useFormStatus } from 'react-dom';
 import type { scanMugReady } from './actions';
 
 type Result = { ok: boolean; message: string } | null;
+
+function SubmitButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      style={{
+        background: '#166534', color: '#fff', border: 'none',
+        borderRadius: 6, padding: '0.4rem 0.875rem',
+        fontSize: '0.8rem', fontFamily: 'var(--font-mono)', cursor: pending ? 'wait' : 'pointer',
+        opacity: pending ? 0.7 : 1,
+      }}
+    >
+      {pending ? 'Scanning…' : 'Scan'}
+    </button>
+  );
+}
 
 export default function MugReadyScanForm({
   action,
 }: {
   action: typeof scanMugReady;
 }) {
-  const [result, dispatch, pending] = useActionState<Result, FormData>(
+  const [result, dispatch] = useFormState<Result, FormData>(
     action as (prev: Result, fd: FormData) => Promise<Result>,
     null,
   );
@@ -40,18 +58,7 @@ export default function MugReadyScanForm({
           }}
         />
         <span style={{ fontSize: '0.8rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>days back</span>
-        <button
-          type="submit"
-          disabled={pending}
-          style={{
-            background: '#166534', color: '#fff', border: 'none',
-            borderRadius: 6, padding: '0.4rem 0.875rem',
-            fontSize: '0.8rem', fontFamily: 'var(--font-mono)', cursor: pending ? 'wait' : 'pointer',
-            opacity: pending ? 0.7 : 1,
-          }}
-        >
-          {pending ? 'Scanning…' : 'Scan'}
-        </button>
+        <SubmitButton />
       </form>
       {result && (
         <span style={{
