@@ -41,11 +41,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const cutoff = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-  const now    = new Date().toISOString();
+  // `days` param lets manual callers extend the lookback window beyond the default 3.
+  const daysParam = parseInt(req.nextUrl.searchParams.get('days') ?? '3', 10);
+  const days      = isNaN(daysParam) || daysParam < 1 ? 3 : Math.min(daysParam, 90);
+  const cutoff    = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const now       = new Date().toISOString();
 
   // Non-terminal states where a ready flag still matters.
   const activeStates = ['received', 'generating', 'file_ready', 'draft_created', 'submitted', 'passed', 'printed', 'failed'];
+
+  // Cap is raised when scanning a wider window manually.
+  const jobLimit   = days > 3 ? 500 : 200;
+  const orderLimit = days > 3 ? 200 : 50;
 
   const { data: jobs, error: fetchErr } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
@@ -53,18 +60,18 @@ export async function GET(req: NextRequest) {
     .in('state', activeStates)
     .gte('created_at', cutoff)
     .order('created_at', { ascending: false })
-    .limit(200);
+    .limit(jobLimit);
 
   if (fetchErr) {
     console.error('[mug-ready-scan] fetch error:', fetchErr.message);
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   }
 
-  // Dedupe by shopify_order_id — cap at 50 unique orders.
+  // Dedupe by shopify_order_id — cap raised for manual backfill runs.
   const orderToJobs = new Map<string, typeof jobs>();
   for (const job of jobs ?? []) {
     if (!orderToJobs.has(job.shopify_order_id)) {
-      if (orderToJobs.size >= 50) break;
+      if (orderToJobs.size >= orderLimit) break;
       orderToJobs.set(job.shopify_order_id, []);
     }
     orderToJobs.get(job.shopify_order_id)!.push(job);
@@ -123,7 +130,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ status: 'ok', ...results });
+  return NextResponse.json({ status: 'ok', days_scanned: days, ...results });
 }
 
 export async function POST(req: NextRequest) {
