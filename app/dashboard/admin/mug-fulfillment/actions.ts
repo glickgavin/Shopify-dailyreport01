@@ -5,6 +5,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { buildMugPrintPdf } from '@/lib/mugs/pdf-template';
 import { findOrderByReference, patchOrder, createDraftOrder, patchDraftToOrder, cancelOrder } from '@/lib/mugs/gelato';
 import { fetchMugReadyStatus } from '@/lib/mugs/mug-ready';
+import { shopifyGraphQL } from '@/lib/shopify';
 import type { Json } from '@/lib/types/database';
 
 const MAGIC_MUG_PRODUCT_IDS = ['8600824643780'];
