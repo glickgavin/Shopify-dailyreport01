@@ -61,6 +61,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
   const sp = await searchParams;
   const activeState   = sp.state ?? null;
+  const mugReadyOnly  = (sp as Record<string, string | undefined>).mug_ready === '1';
   const drawerId      = sp.drawer ?? null;
   const backfillMsg   = (sp as Record<string, string | undefined>).backfill_msg ?? null;
   const backfillOk    = (sp as Record<string, string | undefined>).backfill_ok === '1';
@@ -77,7 +78,12 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   for (const s of ALL_STATES) stateCounts[s] = 0;
   for (const j of jobs) stateCounts[j.state] = (stateCounts[j.state] ?? 0) + 1;
 
-  const filteredJobs = activeState ? jobs.filter(j => j.state === activeState) : jobs;
+  const mugReadyCount = jobs.filter(j => j.mug_ready).length;
+  const filteredJobs  = (() => {
+    let list = mugReadyOnly ? jobs.filter(j => j.mug_ready) : jobs;
+    if (activeState) list = list.filter(j => j.state === activeState);
+    return list;
+  })();
 
   // Fetch recent webhook/events log
   const { data: recentEvents } = await supabaseAdmin
@@ -105,6 +111,15 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   function stateUrl(s: string | null) {
     const params = new URLSearchParams();
     if (s) params.set('state', s);
+    if (mugReadyOnly) params.set('mug_ready', '1');
+    const qs = params.toString();
+    return `/dashboard/admin/mug-fulfillment${qs ? '?' + qs : ''}`;
+  }
+
+  function mugReadyUrl(on: boolean) {
+    const params = new URLSearchParams();
+    if (on) params.set('mug_ready', '1');
+    if (activeState) params.set('state', activeState);
     const qs = params.toString();
     return `/dashboard/admin/mug-fulfillment${qs ? '?' + qs : ''}`;
   }
@@ -112,6 +127,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   function drawerUrl(jobId: string) {
     const params = new URLSearchParams();
     if (activeState) params.set('state', activeState);
+    if (mugReadyOnly) params.set('mug_ready', '1');
     params.set('drawer', jobId);
     return `/dashboard/admin/mug-fulfillment?${params.toString()}`;
   }
@@ -187,14 +203,27 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
           borderRadius: 12, padding: '0.875rem 1rem',
         }}>
           <Link
-            href={stateUrl(null)}
+            href={mugReadyUrl(!mugReadyOnly)}
             style={{
               padding: '0.35rem 0.75rem', borderRadius: 20, fontSize: '0.78rem',
               fontFamily: 'var(--font-mono)', textDecoration: 'none',
-              background: !activeState ? '#1a1a2e' : 'var(--surface2)',
-              color: !activeState ? '#fff' : 'var(--muted)',
+              background: mugReadyOnly ? '#166534' : '#dcfce7',
+              color: mugReadyOnly ? '#fff' : '#166534',
+              border: '1px solid #bbf7d0',
+              fontWeight: mugReadyOnly ? 600 : 400,
+            }}
+          >
+            mug:ready ({mugReadyCount})
+          </Link>
+          <Link
+            href="/dashboard/admin/mug-fulfillment"
+            style={{
+              padding: '0.35rem 0.75rem', borderRadius: 20, fontSize: '0.78rem',
+              fontFamily: 'var(--font-mono)', textDecoration: 'none',
+              background: !activeState && !mugReadyOnly ? '#1a1a2e' : 'var(--surface2)',
+              color: !activeState && !mugReadyOnly ? '#fff' : 'var(--muted)',
               border: '1px solid var(--border)',
-              fontWeight: !activeState ? 600 : 400,
+              fontWeight: !activeState && !mugReadyOnly ? 600 : 400,
             }}
           >
             all ({jobs.length})
