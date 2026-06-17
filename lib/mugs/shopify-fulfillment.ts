@@ -48,17 +48,15 @@ interface OrderFulfillmentData {
       };
     }>;
   };
-  fulfillments: {
-    nodes: Array<{
-      id: string;
-      status: string;
-      lineItems: {
-        nodes: Array<{
-          lineItem: { id: string };
-        }>;
-      };
-    }>;
-  };
+  fulfillments: Array<{
+    id: string;
+    status: string;
+    lineItems: {
+      nodes: Array<{
+        lineItem: { id: string };
+      }>;
+    };
+  }>;
 }
 
 interface OrderFulfillmentResponse {
@@ -92,14 +90,12 @@ async function getOrderFulfillmentData(
              }
            }
          }
-         fulfillments(first: 20) {
-           nodes {
-             id
-             status
-             lineItems(first: 50) {
-               nodes {
-                 lineItem { id }
-               }
+         fulfillments {
+           id
+           status
+           lineItems(first: 50) {
+             nodes {
+               lineItem { id }
              }
            }
          }
@@ -122,7 +118,7 @@ async function getOrderFulfillmentData(
   }
 
   // No open FO — check if already fulfilled via an existing fulfillment
-  for (const f of order.fulfillments?.nodes ?? []) {
+  for (const f of order.fulfillments ?? []) {
     if (f.status === 'CANCELLED') continue;
     for (const li of f.lineItems?.nodes ?? []) {
       if (li.lineItem.id === lineItemId) {
