@@ -743,15 +743,16 @@ export async function scanMugReady(
     .select('id, shopify_order_id, mug_ready, mug_ready_at')
     .in('state', activeStates)
     .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .is('mug_ready_checked_at', null)           // skip already-checked to avoid re-hitting Shopify
+    .order('created_at', { ascending: true })   // oldest first so backfill covers the full range
+    .limit(2000);
 
   if (fetchErr) return { ok: false, message: fetchErr.message };
 
   const orderToJobs = new Map<string, typeof jobs>();
   for (const job of jobs ?? []) {
     if (!orderToJobs.has(job.shopify_order_id)) {
-      if (orderToJobs.size >= 200) break;
+      if (orderToJobs.size >= 500) break;
       orderToJobs.set(job.shopify_order_id, []);
     }
     orderToJobs.get(job.shopify_order_id)!.push(job);
