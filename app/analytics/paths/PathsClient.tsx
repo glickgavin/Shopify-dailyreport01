@@ -570,8 +570,11 @@ function PurchasesView({
 }) {
   if (loading) return <Spinner />;
 
-  const maxRevenue = entryPages[0]?.total_revenue ?? 0;
-  const maxPaths   = paths[0]?.purchases ?? 0;
+  const maxRevenue    = entryPages[0]?.total_revenue ?? 0;
+  const maxPaths      = paths[0]?.purchases ?? 0;
+  const totalPurchases = entryPages.reduce((s, r) => s + r.purchases, 0);
+  const totalRevenue   = entryPages.reduce((s, r) => s + Number(r.total_revenue), 0);
+  const blendedAOV     = totalPurchases > 0 ? totalRevenue / totalPurchases : 0;
 
   // Group pre-events by step
   const steps = [1, 2, 3, 4, 5];
@@ -635,6 +638,22 @@ function PurchasesView({
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
+                  <td colSpan={2} style={{ padding: '0.55rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontWeight: 600 }}>
+                    Total
+                  </td>
+                  <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                    {totalPurchases.toLocaleString()}
+                  </td>
+                  <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#16a34a' }}>
+                    ${totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontWeight: 600 }}>
+                    ${blendedAOV.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
