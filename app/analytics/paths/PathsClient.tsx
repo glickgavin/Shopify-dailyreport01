@@ -638,7 +638,11 @@ function PurchasesView({
             ))}
           </div>
         </div>
-        {entryPages.length === 0 ? empty : (
+        {entryPages.length === 0 ? empty : (() => {
+          const NO_SESSION = '(no browser session)';
+          const mainRows   = entryPages.filter(r => r.first_page !== NO_SESSION);
+          const noSession  = entryPages.find(r => r.first_page === NO_SESSION);
+          return (
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
@@ -653,7 +657,7 @@ function PurchasesView({
                 </tr>
               </thead>
               <tbody>
-                {entryPages.map((row, i) => (
+                {mainRows.map((row, i) => (
                   <tr key={row.first_page} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface2)' }}>
                     <td style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 36 }}>{i + 1}</td>
                     <td style={{ padding: '0.5rem 1rem' }}>
@@ -676,6 +680,26 @@ function PurchasesView({
                     </td>
                   </tr>
                 ))}
+                {noSession && (
+                  <tr style={{ borderTop: '1px dashed var(--border)', background: 'var(--surface2)', opacity: 0.7 }}>
+                    <td style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 36 }}>—</td>
+                    <td style={{ padding: '0.5rem 1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ height: 4, width: 4, background: 'var(--muted)', borderRadius: 2, flexShrink: 0 }} />
+                        <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontStyle: 'italic' }}>
+                          {NO_SESSION}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{Number(noSession.purchases).toLocaleString()}</td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+                      ${Number(noSession.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+                      ${Number(noSession.avg_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                )}
               </tbody>
               <tfoot>
                 <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
@@ -695,7 +719,8 @@ function PurchasesView({
               </tfoot>
             </table>
           </div>
-        )}
+          );
+        })()}
       </div>
 
       {/* ── Pre-purchase events ──────────────────────────────────────────── */}

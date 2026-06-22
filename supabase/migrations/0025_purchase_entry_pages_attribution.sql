@@ -1,6 +1,8 @@
 -- Add p_attribution parameter to analytics_purchase_entry_pages
--- 'last_touch' (default): session immediately before purchase (same session)
+-- 'last_touch' (default): session immediately before purchase
 -- 'first_touch': earliest session ever for that email (cross-session attribution)
+-- Also appends a '(no browser session)' row for purchases that couldn't be stitched,
+-- so the table totals always match the actual order count.
 
 create or replace function analytics_purchase_entry_pages(
   p_from        timestamptz,
@@ -53,13 +55,26 @@ language sql stable security definer as $$
       and e.event_name = 'page_view'
     order by s.purchase_id, e.created_at asc
   )
-  select
-    first_page,
-    count(*)::bigint       as purchases,
-    round(sum(revenue), 2) as total_revenue,
-    round(avg(revenue), 2) as avg_revenue
-  from  first_views
-  group by first_page
-  order by total_revenue desc nulls last
-  limit 50;
+  (
+    select
+      first_page,
+      count(*)::bigint       as purchases,
+      round(sum(revenue), 2) as total_revenue,
+      round(avg(revenue), 2) as avg_revenue
+    from  first_views
+    group by first_page
+    order by total_revenue desc nulls last
+    limit 50
+  )
+  union all
+  (
+    select
+      '(no browser session)'::text,
+      count(*)::bigint,
+      round(sum(revenue), 2),
+      round(avg(revenue), 2)
+    from  purchases
+    where id not in (select purchase_id from first_views)
+    having count(*) > 0
+  );
 $$;
