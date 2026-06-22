@@ -743,7 +743,7 @@ export async function scanMugReady(
     .select('id, shopify_order_id, mug_ready, mug_ready_at')
     .in('state', activeStates)
     .gte('created_at', cutoff)
-    .is('mug_ready_checked_at', null)           // skip already-checked to avoid re-hitting Shopify
+    .eq('mug_ready', false)                     // skip only confirmed-ready orders; re-check previously-checked-but-not-ready
     .order('created_at', { ascending: true })   // oldest first so backfill covers the full range
     .limit(2000);
 

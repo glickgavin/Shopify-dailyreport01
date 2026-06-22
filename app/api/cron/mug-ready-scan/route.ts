@@ -54,18 +54,37 @@ export async function GET(req: NextRequest) {
   const jobLimit   = days > 3 ? 500 : 200;
   const orderLimit = days > 3 ? 200 : 50;
 
-  const { data: jobs, error: fetchErr } = await supabaseAdmin
-    .from('mug_fulfillment_jobs')
-    .select('id, shopify_order_id, mug_ready, mug_ready_at')
-    .in('state', activeStates)
-    .gte('created_at', cutoff)
-    .order('created_at', { ascending: false })
-    .limit(jobLimit);
+  // Fetch two sets and merge:
+  // 1. Recent jobs (within the `days` window) — catches new orders quickly.
+  // 2. Older active jobs still waiting for mug:ready — so orders like a 10-day-old
+  //    "submitted" job aren't silently skipped after the initial backfill.
+  const [recentResult, stalePendingResult] = await Promise.all([
+    supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .select('id, shopify_order_id, mug_ready, mug_ready_at')
+      .in('state', activeStates)
+      .gte('created_at', cutoff)
+      .order('created_at', { ascending: false })
+      .limit(jobLimit),
+    supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .select('id, shopify_order_id, mug_ready, mug_ready_at')
+      .in('state', activeStates)
+      .lt('created_at', cutoff)   // older than the recent window
+      .eq('mug_ready', false)     // still not confirmed ready
+      .order('updated_at', { ascending: false })
+      .limit(100),                // reasonable cap for stale orders
+  ]);
 
-  if (fetchErr) {
-    console.error('[mug-ready-scan] fetch error:', fetchErr.message);
-    return NextResponse.json({ error: fetchErr.message }, { status: 500 });
+  if (recentResult.error) {
+    console.error('[mug-ready-scan] fetch error:', recentResult.error.message);
+    return NextResponse.json({ error: recentResult.error.message }, { status: 500 });
   }
+  if (stalePendingResult.error) {
+    console.error('[mug-ready-scan] stale fetch error:', stalePendingResult.error.message);
+  }
+
+  const jobs = [...(recentResult.data ?? []), ...(stalePendingResult.data ?? [])];
 
   // Dedupe by shopify_order_id — cap raised for manual backfill runs.
   const orderToJobs = new Map<string, typeof jobs>();
