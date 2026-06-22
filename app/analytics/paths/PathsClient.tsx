@@ -50,6 +50,11 @@ interface PurchasePathRow {
   purchases: number;
 }
 
+interface SessionPathRow {
+  path:     string;
+  sessions: number;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const PT = 'America/Los_Angeles';
@@ -580,11 +585,12 @@ function ExplorerView({
 // ── Purchases view ────────────────────────────────────────────────────────────
 
 function PurchasesView({
-  entryPages, preEvents, paths, loading, attribution, onAttributionChange,
+  entryPages, preEvents, paths, sessionPaths, loading, attribution, onAttributionChange,
 }: {
   entryPages:          EntryPageRow[];
   preEvents:           PreEventRow[];
   paths:               PurchasePathRow[];
+  sessionPaths:        SessionPathRow[];
   loading:             boolean;
   attribution:         Attribution;
   onAttributionChange: (a: Attribution) => void;
@@ -794,11 +800,11 @@ function PurchasesView({
         )}
       </div>
 
-      {/* ── Top paths ────────────────────────────────────────────────────── */}
+      {/* ── Top paths (email-stitched) ───────────────────────────────────── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
         <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Top Paths to Purchase</span>
-          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>last 5 events before order_placed · top 20</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>last 5 events before order_placed · email-stitched · top 20</span>
         </div>
         {paths.length === 0 ? empty : (
           <div style={{ padding: '0.5rem 0' }}>
@@ -839,6 +845,63 @@ function PurchasesView({
             })}
           </div>
         )}
+      </div>
+
+      {/* ── Session paths to purchase ─────────────────────────────────────── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Session Paths to Purchase</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+            up to 10 events · within-session only · top 10 converting paths
+          </span>
+        </div>
+        {sessionPaths.length === 0 ? empty : (() => {
+          const maxSessions = sessionPaths[0]?.sessions ?? 1;
+          return (
+            <div style={{ padding: '0.5rem 0' }}>
+              {sessionPaths.map((row, i) => {
+                const steps = row.path.split(' → ');
+                const barW  = Math.max(4, (row.sessions / maxSessions) * 280);
+                return (
+                  <div key={i} style={{
+                    padding: '0.75rem 1.25rem',
+                    borderBottom: i < sessionPaths.length - 1 ? '1px solid var(--border)' : 'none',
+                  }}>
+                    {/* Rank + count row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                      <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 20, flexShrink: 0 }}>
+                        {i + 1}
+                      </span>
+                      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ width: barW, height: 4, background: '#16a34a', borderRadius: 2, opacity: 0.55 }} />
+                        <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#16a34a' }}>
+                          {row.sessions} {row.sessions === 1 ? 'session' : 'sessions'}
+                        </span>
+                      </div>
+                    </div>
+                    {/* Path badges — wrapping row */}
+                    <div style={{ paddingLeft: 28, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                      {steps.map((step, si) => (
+                        <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <StepBadge label={step} />
+                          {si < steps.length - 1 && (
+                            <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>→</span>
+                          )}
+                        </div>
+                      ))}
+                      <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginLeft: 2 }}>→</span>
+                      <span style={{
+                        fontSize: '0.65rem', fontFamily: 'var(--font-mono)', fontWeight: 700,
+                        color: '#16a34a', background: '#dcfce7', border: '1px solid #bbf7d0',
+                        borderRadius: 5, padding: '0.2rem 0.45rem',
+                      }}>order_placed</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
       </div>
 
     </div>
@@ -915,6 +978,7 @@ export default function PathsClient() {
   const [entryPages,     setEntryPages]     = useState<EntryPageRow[]>([]);
   const [preEvents,      setPreEvents]      = useState<PreEventRow[]>([]);
   const [purchasePaths,  setPurchasePaths]  = useState<PurchasePathRow[]>([]);
+  const [sessionPaths,   setSessionPaths]   = useState<SessionPathRow[]>([]);
   const [purchLoading,   setPurchLoading]   = useState(false);
   const [attribution,    setAttribution]    = useState<Attribution>('last_touch');
 
@@ -1006,10 +1070,12 @@ export default function PathsClient() {
       fetch(`/api/analytics/purchases/entry-pages?${qs}&attribution=${attr}`).then(r => r.json()),
       fetch(`/api/analytics/purchases/pre-events?${qs}`).then(r => r.json()),
       fetch(`/api/analytics/purchases/paths?${qs}`).then(r => r.json()),
-    ]).then(([ep, pe, pp]) => {
+      fetch(`/api/analytics/purchases/session-paths?${qs}`).then(r => r.json()),
+    ]).then(([ep, pe, pp, sp]) => {
       setEntryPages(Array.isArray(ep) ? ep : []);
       setPreEvents(Array.isArray(pe) ? pe : []);
       setPurchasePaths(Array.isArray(pp) ? pp : []);
+      setSessionPaths(Array.isArray(sp) ? sp : []);
       setPurchLoading(false);
     }).catch(() => setPurchLoading(false));
   }, []);
@@ -1111,6 +1177,7 @@ export default function PathsClient() {
             entryPages={entryPages}
             preEvents={preEvents}
             paths={purchasePaths}
+            sessionPaths={sessionPaths}
             loading={purchLoading}
             attribution={attribution}
             onAttributionChange={a => { setAttribution(a); fetchPurchases(period, a); }}
