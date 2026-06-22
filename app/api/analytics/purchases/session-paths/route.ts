@@ -7,7 +7,9 @@ export async function GET(req: NextRequest) {
   const to   = searchParams.get('to');
   if (!from || !to) return NextResponse.json({ error: 'from and to required' }, { status: 400 });
 
-  const { data, error } = await (supabaseAdmin as any).rpc('analytics_session_paths_to_purchase', {
+  // Reuses the email-stitched purchase paths RPC with a wider step window (10 vs 5)
+  // and narrower top-N (10 vs 20) to show the most common full journeys.
+  const { data, error } = await (supabaseAdmin as any).rpc('analytics_purchase_paths', {
     p_from: from, p_to: to, p_steps: 10, p_top_n: 10,
   });
 

@@ -51,8 +51,8 @@ interface PurchasePathRow {
 }
 
 interface SessionPathRow {
-  path:     string;
-  sessions: number;
+  path:      string;
+  purchases: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -856,12 +856,12 @@ function PurchasesView({
           </span>
         </div>
         {sessionPaths.length === 0 ? empty : (() => {
-          const maxSessions = sessionPaths[0]?.sessions ?? 1;
+          const maxSessions = sessionPaths[0]?.purchases ?? 1;
           return (
             <div style={{ padding: '0.5rem 0' }}>
               {sessionPaths.map((row, i) => {
                 const steps = row.path.split(' → ');
-                const barW  = Math.max(4, (row.sessions / maxSessions) * 280);
+                const barW  = Math.max(4, (row.purchases / maxSessions) * 280);
                 return (
                   <div key={i} style={{
                     padding: '0.75rem 1.25rem',
@@ -875,7 +875,7 @@ function PurchasesView({
                       <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
                         <div style={{ width: barW, height: 4, background: '#16a34a', borderRadius: 2, opacity: 0.55 }} />
                         <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#16a34a' }}>
-                          {row.sessions} {row.sessions === 1 ? 'session' : 'sessions'}
+                          {row.purchases} {row.purchases === 1 ? 'purchase' : 'purchases'}
                         </span>
                       </div>
                     </div>
