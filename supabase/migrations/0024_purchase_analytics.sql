@@ -37,6 +37,7 @@ language sql stable security definer as $$
       on  br.email       = p.email
       and br.session_id  is not null
       and br.created_at <= p.purchased_at
+      and br.event_name != 'order_placed'
     order by p.id, br.created_at desc
   ),
   first_views as (
@@ -92,6 +93,7 @@ language sql stable security definer as $$
       on  br.email       = p.email
       and br.session_id  is not null
       and br.created_at <= p.purchased_at
+      and br.event_name != 'order_placed'
     order by p.id, br.created_at desc
   ),
   ranked as (
@@ -160,6 +162,7 @@ language sql stable security definer as $$
       on  br.email       = p.email
       and br.session_id  is not null
       and br.created_at <= p.purchased_at
+      and br.event_name != 'order_placed'
     order by p.id, br.created_at desc
   ),
   last_n as (
