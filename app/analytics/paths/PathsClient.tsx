@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Period = 'yesterday' | '1D' | '3D' | '7D' | '30D';
-type Tab = 'sequences' | 'explorer';
+type Tab = 'sequences' | 'explorer' | 'purchases';
 
 const PERIOD_LABEL: Record<Period, string> = {
   yesterday: 'Yesterday', '1D': '1D', '3D': '3D', '7D': '7D', '30D': '30D',
@@ -30,6 +30,24 @@ interface NeighborhoodRow {
 interface TopEvent {
   label: string;
   cnt: number;
+}
+
+interface EntryPageRow {
+  first_page:    string;
+  purchases:     number;
+  total_revenue: number;
+  avg_revenue:   number;
+}
+
+interface PreEventRow {
+  step:        number;
+  event_label: string;
+  occurrences: number;
+}
+
+interface PurchasePathRow {
+  path:      string;
+  purchases: number;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -540,6 +558,210 @@ function ExplorerView({
   );
 }
 
+// ── Purchases view ────────────────────────────────────────────────────────────
+
+function PurchasesView({
+  entryPages, preEvents, paths, loading,
+}: {
+  entryPages: EntryPageRow[];
+  preEvents:  PreEventRow[];
+  paths:      PurchasePathRow[];
+  loading:    boolean;
+}) {
+  if (loading) return <Spinner />;
+
+  const maxRevenue = entryPages[0]?.total_revenue ?? 0;
+  const maxPaths   = paths[0]?.purchases ?? 0;
+
+  // Group pre-events by step
+  const steps = [1, 2, 3, 4, 5];
+  const byStep = (s: number) => preEvents.filter(r => r.step === s);
+  const maxOcc  = Math.max(...preEvents.map(r => r.occurrences), 1);
+
+  const empty = (
+    <div style={{
+      padding: '3rem', textAlign: 'center',
+      color: 'var(--muted)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)',
+    }}>
+      No purchase data for this period
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+
+      {/* ── Entry pages ──────────────────────────────────────────────────── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Entry Pages</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>first page visited in the stitched session before purchase</span>
+        </div>
+        {entryPages.length === 0 ? empty : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                  {['#', 'First Page', 'Purchases', 'Revenue', 'AOV'].map((h, i) => (
+                    <th key={h} style={{
+                      padding: '0.55rem 1rem', textAlign: i >= 2 ? 'right' : 'left',
+                      fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+                      fontWeight: 500, whiteSpace: 'nowrap',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {entryPages.map((row, i) => (
+                  <tr key={row.first_page} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface2)' }}>
+                    <td style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 36 }}>{i + 1}</td>
+                    <td style={{ padding: '0.5rem 1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                          height: 4, width: Math.max(4, (row.total_revenue / maxRevenue) * 120),
+                          background: '#3b82f6', borderRadius: 2, flexShrink: 0,
+                        }} />
+                        <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>
+                          {row.first_page}
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)' }}>{row.purchases.toLocaleString()}</td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: '#16a34a', fontWeight: 600 }}>
+                      ${Number(row.total_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+                      ${Number(row.avg_revenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ── Pre-purchase events ──────────────────────────────────────────── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Pre-Purchase Journey</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>top events at each step immediately before purchase</span>
+        </div>
+        {preEvents.length === 0 ? empty : (
+          <div style={{ overflowX: 'auto', padding: '1.25rem' }}>
+            <div style={{ display: 'flex', gap: 8, minWidth: 700, alignItems: 'flex-start' }}>
+              {steps.map(s => {
+                const rows = byStep(s);
+                return (
+                  <div key={s} style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+                      textAlign: 'center', marginBottom: 8, fontWeight: 600,
+                    }}>
+                      {s === 1 ? '1 step before' : `${s} steps before`}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      {rows.length === 0 ? (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', textAlign: 'center', padding: '1rem 0' }}>—</div>
+                      ) : rows.map((r, ri) => {
+                        const color = eventColor(r.event_label);
+                        const barW  = Math.max(4, (r.occurrences / maxOcc) * 100);
+                        const { primary, secondary } = parseLabel(r.event_label);
+                        return (
+                          <div key={ri} style={{
+                            background: color + '12', border: `1px solid ${color}33`,
+                            borderRadius: 6, padding: '0.4rem 0.5rem',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 3 }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
+                              <span style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                                {primary}
+                              </span>
+                            </div>
+                            {secondary && (
+                              <div style={{ fontSize: '0.6rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginBottom: 3, paddingLeft: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {secondary}
+                              </div>
+                            )}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <div style={{ height: 3, width: `${barW}%`, background: color, borderRadius: 2, opacity: 0.6 }} />
+                              <span style={{ fontSize: '0.6rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                                {r.occurrences.toLocaleString()}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+              {/* Purchase endpoint */}
+              <div style={{ flex: '0 0 80px', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 22 }}>
+                <div style={{ fontSize: '0.65rem', fontFamily: 'var(--font-mono)', color: '#16a34a', fontWeight: 700, marginBottom: 8, textAlign: 'center' }}>→ purchase</div>
+                <div style={{
+                  background: '#dcfce7', border: '2px solid #16a34a',
+                  borderRadius: 8, padding: '0.5rem 0.4rem', textAlign: 'center',
+                }}>
+                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', margin: '0 auto 4px' }} />
+                  <div style={{ fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: '#166534', fontWeight: 600 }}>order_placed</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Top paths ────────────────────────────────────────────────────── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Top Paths to Purchase</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>last 5 events before order_placed · top 20</span>
+        </div>
+        {paths.length === 0 ? empty : (
+          <div style={{ padding: '0.5rem 0' }}>
+            {paths.map((row, i) => {
+              const steps = row.path.split(' → ');
+              const barW  = Math.max(4, (row.purchases / maxPaths) * 280);
+              return (
+                <div key={i} style={{
+                  padding: '0.6rem 1.25rem',
+                  borderBottom: i < paths.length - 1 ? '1px solid var(--border)' : 'none',
+                  display: 'flex', alignItems: 'center', gap: '1rem',
+                }}>
+                  <span style={{ fontSize: '0.7rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 20, flexShrink: 0 }}>{i + 1}</span>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', minWidth: 0 }}>
+                    {steps.map((step, si) => (
+                      <div key={si} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <StepBadge label={step} />
+                        {si < steps.length - 1 && (
+                          <span style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>→</span>
+                        )}
+                      </div>
+                    ))}
+                    <span style={{ fontSize: '0.65rem', color: 'var(--muted)', marginLeft: 2 }}>→</span>
+                    <span style={{
+                      fontSize: '0.65rem', fontFamily: 'var(--font-mono)', fontWeight: 700,
+                      color: '#16a34a', background: '#dcfce7', border: '1px solid #bbf7d0',
+                      borderRadius: 5, padding: '0.2rem 0.45rem',
+                    }}>purchase</span>
+                  </div>
+                  <div style={{ flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: barW, height: 4, background: '#16a34a', borderRadius: 2, opacity: 0.6 }} />
+                    <span style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600, color: '#16a34a', width: 28, textAlign: 'right' }}>
+                      {row.purchases}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+    </div>
+  );
+}
+
 function ArrowDivider({ direction }: { direction: 'left' | 'right' }) {
   return (
     <div style={{
@@ -604,6 +826,11 @@ export default function PathsClient() {
   const [topEvents,   setTopEvents]   = useState<TopEvent[]>([]);
   const [anchorTotal, setAnchorTotal] = useState(0);
 
+  const [entryPages,     setEntryPages]     = useState<EntryPageRow[]>([]);
+  const [preEvents,      setPreEvents]      = useState<PreEventRow[]>([]);
+  const [purchasePaths,  setPurchasePaths]  = useState<PurchasePathRow[]>([]);
+  const [purchLoading,   setPurchLoading]   = useState(false);
+
   const [seqLoading, setSeqLoading] = useState(false);
   const [nbLoading,  setNbLoading]  = useState(false);
   const [evLoading,  setEvLoading]  = useState(false);
@@ -613,7 +840,7 @@ export default function PathsClient() {
   // Hydrate from localStorage ONCE on mount.
   useEffect(() => {
     const s = loadSettings();
-    if (s.tab === 'sequences' || s.tab === 'explorer') setTab(s.tab);
+    if (s.tab === 'sequences' || s.tab === 'explorer' || s.tab === 'purchases') setTab(s.tab);
     if (s.period && (['yesterday','1D','3D','7D','30D'] as const).includes(s.period)) setPeriod(s.period);
     if (typeof s.anchorEvent === 'string') setAnchorEvent(s.anchorEvent);
     if (typeof s.startFilter === 'string') setStartFilter(s.startFilter);
@@ -683,6 +910,26 @@ export default function PathsClient() {
     if (tab === 'explorer') fetchNeighborhood(anchorEvent, period, hidden);
   }, [tab, anchorEvent, period, hidden, fetchNeighborhood]);
 
+  const fetchPurchases = useCallback((p: Period) => {
+    const { from, to } = getRange(p);
+    setPurchLoading(true);
+    const qs = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
+    Promise.all([
+      fetch(`/api/analytics/purchases/entry-pages?${qs}`).then(r => r.json()),
+      fetch(`/api/analytics/purchases/pre-events?${qs}`).then(r => r.json()),
+      fetch(`/api/analytics/purchases/paths?${qs}`).then(r => r.json()),
+    ]).then(([ep, pe, pp]) => {
+      setEntryPages(Array.isArray(ep) ? ep : []);
+      setPreEvents(Array.isArray(pe) ? pe : []);
+      setPurchasePaths(Array.isArray(pp) ? pp : []);
+      setPurchLoading(false);
+    }).catch(() => setPurchLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'purchases') fetchPurchases(period);
+  }, [tab, period, fetchPurchases]);
+
   // Switch tab handler
   const handleTabChange = (t: Tab) => {
     setTab(t);
@@ -691,6 +938,9 @@ export default function PathsClient() {
     }
     if (t === 'explorer' && anchorEvent) {
       fetchNeighborhood(anchorEvent, period, hidden);
+    }
+    if (t === 'purchases') {
+      fetchPurchases(period);
     }
   };
 
@@ -731,6 +981,7 @@ export default function PathsClient() {
           {([
             { key: 'sequences', label: 'Path Sequences' },
             { key: 'explorer',  label: 'Event Explorer' },
+            { key: 'purchases', label: 'Purchases' },
           ] as { key: Tab; label: string }[]).map(t => (
             <button key={t.key} onClick={() => handleTabChange(t.key)} style={{
               padding: '0.45rem 1.1rem',
@@ -754,7 +1005,7 @@ export default function PathsClient() {
             startFilter={startFilter}
             onStartChange={setStartFilter}
           />
-        ) : (
+        ) : tab === 'explorer' ? (
           <ExplorerView
             neighborhood={neighborhood}
             anchorEvent={anchorEvent}
@@ -766,6 +1017,13 @@ export default function PathsClient() {
             onHide={handleHide}
             onUnhide={handleUnhide}
             onClearHidden={handleClearHidden}
+          />
+        ) : (
+          <PurchasesView
+            entryPages={entryPages}
+            preEvents={preEvents}
+            paths={purchasePaths}
+            loading={purchLoading}
           />
         )}
 
