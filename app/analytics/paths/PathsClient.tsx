@@ -52,12 +52,31 @@ interface PurchasePathRow {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+const PT = 'America/Los_Angeles';
+
+// Returns the UTC Date corresponding to midnight on a given 'YYYY-MM-DD' Pacific date.
+function ptMidnight(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  // Pacific is UTC-7 (PDT) or UTC-8 (PST). Try each offset until PT hour reads 0.
+  for (const h of [7, 8]) {
+    const candidate = new Date(Date.UTC(y, m - 1, d, h, 0, 0));
+    const ptHour = parseInt(
+      new Intl.DateTimeFormat('en-US', { timeZone: PT, hour: 'numeric', hour12: false }).format(candidate),
+    );
+    if (ptHour === 0) return candidate;
+  }
+  return new Date(Date.UTC(y, m - 1, d, 8, 0, 0));
+}
+
 function getRange(period: Period) {
   const now = new Date();
   if (period === 'yesterday') {
-    const start = new Date(now); start.setDate(start.getDate() - 1); start.setHours(0, 0, 0, 0);
-    const end   = new Date(now); end.setHours(0, 0, 0, 0);
-    return { from: start.toISOString(), to: end.toISOString() };
+    // Use Pacific calendar dates so "yesterday" aligns with PT business day.
+    const todayPT   = now.toLocaleDateString('en-CA', { timeZone: PT }); // 'YYYY-MM-DD'
+    const [y, m, d] = todayPT.split('-').map(Number);
+    const yestPT    = new Date(Date.UTC(y, m - 1, d - 1, 12))
+                        .toLocaleDateString('en-CA', { timeZone: PT });
+    return { from: ptMidnight(yestPT).toISOString(), to: ptMidnight(todayPT).toISOString() };
   }
   const days = period === '1D' ? 1 : period === '3D' ? 3 : period === '7D' ? 7 : 30;
   return { from: new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString(), to: now.toISOString() };
@@ -561,12 +580,14 @@ function ExplorerView({
 // ── Purchases view ────────────────────────────────────────────────────────────
 
 function PurchasesView({
-  entryPages, preEvents, paths, loading,
+  entryPages, preEvents, paths, loading, attribution, onAttributionChange,
 }: {
-  entryPages: EntryPageRow[];
-  preEvents:  PreEventRow[];
-  paths:      PurchasePathRow[];
-  loading:    boolean;
+  entryPages:          EntryPageRow[];
+  preEvents:           PreEventRow[];
+  paths:               PurchasePathRow[];
+  loading:             boolean;
+  attribution:         Attribution;
+  onAttributionChange: (a: Attribution) => void;
 }) {
   if (loading) return <Spinner />;
 
@@ -595,9 +616,27 @@ function PurchasesView({
 
       {/* ── Entry pages ──────────────────────────────────────────────────── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.5rem' }}>
+        <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Entry Pages</span>
-          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>first page visited in the stitched session before purchase</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+            {attribution === 'last_touch'
+              ? 'first page of the session immediately before purchase'
+              : 'first page ever recorded for that email (cross-session)'}
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 7, padding: 3, gap: 2 }}>
+            {(['last_touch', 'first_touch'] as Attribution[]).map(a => (
+              <button key={a} onClick={() => onAttributionChange(a)} style={{
+                padding: '0.28rem 0.65rem',
+                fontSize: '0.7rem', fontFamily: 'var(--font-mono)',
+                fontWeight: attribution === a ? 700 : 400,
+                background: attribution === a ? '#1a1a2e' : 'transparent',
+                color: attribution === a ? '#fff' : 'var(--muted)',
+                border: 'none', borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap',
+              }}>
+                {a === 'last_touch' ? 'Last touch' : 'First touch'}
+              </button>
+            ))}
+          </div>
         </div>
         {entryPages.length === 0 ? empty : (
           <div style={{ overflowX: 'auto' }}>
@@ -799,12 +838,15 @@ function ArrowDivider({ direction }: { direction: 'left' | 'right' }) {
 
 const SETTINGS_KEY = 'paths.settings.v1';
 
+type Attribution = 'last_touch' | 'first_touch';
+
 interface PersistedSettings {
   tab?: Tab;
   period?: Period;
   anchorEvent?: string;
   startFilter?: string;
   hidden?: string[];
+  attribution?: Attribution;
 }
 
 function loadSettings(): PersistedSettings {
@@ -849,6 +891,7 @@ export default function PathsClient() {
   const [preEvents,      setPreEvents]      = useState<PreEventRow[]>([]);
   const [purchasePaths,  setPurchasePaths]  = useState<PurchasePathRow[]>([]);
   const [purchLoading,   setPurchLoading]   = useState(false);
+  const [attribution,    setAttribution]    = useState<Attribution>('last_touch');
 
   const [seqLoading, setSeqLoading] = useState(false);
   const [nbLoading,  setNbLoading]  = useState(false);
@@ -864,6 +907,7 @@ export default function PathsClient() {
     if (typeof s.anchorEvent === 'string') setAnchorEvent(s.anchorEvent);
     if (typeof s.startFilter === 'string') setStartFilter(s.startFilter);
     if (Array.isArray(s.hidden)) setHidden(s.hidden.filter((x): x is string => typeof x === 'string'));
+    if (s.attribution === 'last_touch' || s.attribution === 'first_touch') setAttribution(s.attribution);
     setHydrated(true);
   }, []);
 
@@ -871,8 +915,8 @@ export default function PathsClient() {
   // we don't overwrite the user's saved state with our initial defaults.
   useEffect(() => {
     if (!hydrated) return;
-    saveSettings({ tab, period, anchorEvent, startFilter, hidden });
-  }, [hydrated, tab, period, anchorEvent, startFilter, hidden]);
+    saveSettings({ tab, period, anchorEvent, startFilter, hidden, attribution });
+  }, [hydrated, tab, period, anchorEvent, startFilter, hidden, attribution]);
 
   // Fetch top events whenever period changes
   useEffect(() => {
@@ -929,12 +973,12 @@ export default function PathsClient() {
     if (tab === 'explorer') fetchNeighborhood(anchorEvent, period, hidden);
   }, [tab, anchorEvent, period, hidden, fetchNeighborhood]);
 
-  const fetchPurchases = useCallback((p: Period) => {
+  const fetchPurchases = useCallback((p: Period, attr: Attribution) => {
     const { from, to } = getRange(p);
     setPurchLoading(true);
     const qs = `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`;
     Promise.all([
-      fetch(`/api/analytics/purchases/entry-pages?${qs}`).then(r => r.json()),
+      fetch(`/api/analytics/purchases/entry-pages?${qs}&attribution=${attr}`).then(r => r.json()),
       fetch(`/api/analytics/purchases/pre-events?${qs}`).then(r => r.json()),
       fetch(`/api/analytics/purchases/paths?${qs}`).then(r => r.json()),
     ]).then(([ep, pe, pp]) => {
@@ -946,8 +990,8 @@ export default function PathsClient() {
   }, []);
 
   useEffect(() => {
-    if (tab === 'purchases') fetchPurchases(period);
-  }, [tab, period, fetchPurchases]);
+    if (tab === 'purchases') fetchPurchases(period, attribution);
+  }, [tab, period, attribution, fetchPurchases]);
 
   // Switch tab handler
   const handleTabChange = (t: Tab) => {
@@ -959,7 +1003,7 @@ export default function PathsClient() {
       fetchNeighborhood(anchorEvent, period, hidden);
     }
     if (t === 'purchases') {
-      fetchPurchases(period);
+      fetchPurchases(period, attribution);
     }
   };
 
@@ -1043,6 +1087,8 @@ export default function PathsClient() {
             preEvents={preEvents}
             paths={purchasePaths}
             loading={purchLoading}
+            attribution={attribution}
+            onAttributionChange={a => { setAttribution(a); fetchPurchases(period, a); }}
           />
         )}
 
