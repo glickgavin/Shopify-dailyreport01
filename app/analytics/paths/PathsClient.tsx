@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type Period = 'yesterday' | '1D' | '3D' | '7D' | '30D';
-type Tab = 'sequences' | 'explorer' | 'purchases';
+type Tab = 'pages' | 'sequences' | 'explorer' | 'purchases';
 
 const PERIOD_LABEL: Record<Period, string> = {
   yesterday: 'Yesterday', '1D': '1D', '3D': '3D', '7D': '7D', '30D': '30D',
@@ -30,6 +30,13 @@ interface NeighborhoodRow {
 interface TopEvent {
   label: string;
   cnt: number;
+}
+
+interface PageRow {
+  page_path:       string;
+  unique_sessions: number;
+  total_views:     number;
+  pct_of_sessions: number;
 }
 
 interface EntryPageRow {
@@ -166,6 +173,104 @@ function StepBadge({ label }: { label: string | null }) {
         )}
       </span>
     </span>
+  );
+}
+
+// ── Pages view ────────────────────────────────────────────────────────────────
+
+function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
+  if (loading) return <Spinner />;
+
+  const maxSessions = pages[0]?.unique_sessions ?? 1;
+  const totalSessions = pages.reduce((s, r) => s + r.unique_sessions, 0);
+
+  if (pages.length === 0) {
+    return (
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '3rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.8rem', fontFamily: 'var(--font-mono)' }}>
+        No page data for this period
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+      <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'baseline', gap: '0.75rem' }}>
+        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>Pages</span>
+        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+          unique sessions &amp; total views per page path
+        </span>
+        <span style={{ marginLeft: 'auto', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+          {totalSessions.toLocaleString()} total sessions
+        </span>
+      </div>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+              {['#', 'Page', 'Unique Sessions', 'Total Views', 'Views / Session', '% of Sessions'].map((h, i) => (
+                <th key={h} style={{
+                  padding: '0.55rem 1rem', textAlign: i >= 2 ? 'right' : 'left',
+                  fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+                  fontWeight: 500, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.07em',
+                }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {pages.map((row, i) => {
+              const barW = Math.max(4, (row.unique_sessions / maxSessions) * 140);
+              const vps  = row.unique_sessions > 0 ? (row.total_views / row.unique_sessions).toFixed(1) : '—';
+              return (
+                <tr key={row.page_path} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface2)' }}>
+                  <td style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 36 }}>{i + 1}</td>
+                  <td style={{ padding: '0.5rem 1rem' }}>
+                    <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--text)', fontWeight: 500 }}>
+                      {row.page_path}
+                    </span>
+                  </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                      <div style={{ width: barW, height: 5, background: '#3b82f6', borderRadius: 3, opacity: 0.7, flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: 700, minWidth: 52, textAlign: 'right' }}>
+                        {row.unique_sessions.toLocaleString()}
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+                    {row.total_views.toLocaleString()}
+                  </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.78rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>
+                    {vps}
+                  </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                      <div style={{ width: 60, height: 4, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ width: `${Math.min(row.pct_of_sessions, 100)}%`, height: '100%', background: '#1a1a2e', borderRadius: 3 }} />
+                      </div>
+                      <span style={{ fontSize: '0.78rem', fontFamily: 'var(--font-mono)', minWidth: 40, textAlign: 'right' }}>
+                        {row.pct_of_sessions}%
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
+              <td colSpan={2} style={{ padding: '0.55rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontWeight: 600 }}>Total</td>
+              <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                {totalSessions.toLocaleString()}
+              </td>
+              <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', fontWeight: 600 }}>
+                {pages.reduce((s, r) => s + r.total_views, 0).toLocaleString()}
+              </td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -970,6 +1075,9 @@ export default function PathsClient() {
   // before we've had a chance to read what's stored.
   const [hydrated,  setHydrated]  = useState(false);
 
+  const [pages,        setPages]        = useState<PageRow[]>([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
+
   const [sequences,   setSequences]   = useState<SequenceRow[]>([]);
   const [neighborhood, setNeighborhood] = useState<NeighborhoodRow[]>([]);
   const [topEvents,   setTopEvents]   = useState<TopEvent[]>([]);
@@ -991,7 +1099,7 @@ export default function PathsClient() {
   // Hydrate from localStorage ONCE on mount.
   useEffect(() => {
     const s = loadSettings();
-    if (s.tab === 'sequences' || s.tab === 'explorer' || s.tab === 'purchases') setTab(s.tab);
+    if (s.tab === 'pages' || s.tab === 'sequences' || s.tab === 'explorer' || s.tab === 'purchases') setTab(s.tab);
     if (s.period && (['yesterday','1D','3D','7D','30D'] as const).includes(s.period)) setPeriod(s.period);
     if (typeof s.anchorEvent === 'string') setAnchorEvent(s.anchorEvent);
     if (typeof s.startFilter === 'string') setStartFilter(s.startFilter);
@@ -1016,6 +1124,20 @@ export default function PathsClient() {
       .then(d => { setTopEvents(Array.isArray(d) ? d : []); setEvLoading(false); })
       .catch(() => setEvLoading(false));
   }, [period]);
+
+  // Fetch page sessions when on pages tab or period changes
+  const fetchPages = useCallback((p: Period) => {
+    const { from, to } = getRange(p);
+    setPagesLoading(true);
+    fetch(`/api/analytics/pages?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+      .then(r => r.json())
+      .then(d => { setPages(Array.isArray(d) ? d : []); setPagesLoading(false); })
+      .catch(() => setPagesLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (tab === 'pages') fetchPages(period);
+  }, [tab, period, fetchPages]);
 
   // Fetch sequences when on sequences tab, or period/filter changes
   const fetchSequences = useCallback((p: Period, start: string) => {
@@ -1087,6 +1209,7 @@ export default function PathsClient() {
   // Switch tab handler
   const handleTabChange = (t: Tab) => {
     setTab(t);
+    if (t === 'pages') fetchPages(period);
     if (t === 'sequences' && sequences.length === 0 && !seqLoading) {
       fetchSequences(period, startFilter);
     }
@@ -1133,6 +1256,7 @@ export default function PathsClient() {
           borderRadius: 10, padding: 4, width: 'fit-content',
         }}>
           {([
+            { key: 'pages',     label: 'Pages' },
             { key: 'sequences', label: 'Path Sequences' },
             { key: 'explorer',  label: 'Event Explorer' },
             { key: 'purchases', label: 'Purchases' },
@@ -1151,7 +1275,9 @@ export default function PathsClient() {
         </div>
 
         {/* Tab content */}
-        {tab === 'sequences' ? (
+        {tab === 'pages' ? (
+          <PagesView pages={pages} loading={pagesLoading} />
+        ) : tab === 'sequences' ? (
           <SequencesView
             sequences={sequences}
             loading={seqLoading}
