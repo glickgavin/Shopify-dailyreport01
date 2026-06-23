@@ -1,0 +1,3 @@
+-- Recreate analytics_page_sessions with converting_sessions and converting_views.
+-- Dropped and recreated because the return type changed.
+-- See 0027 for original version.

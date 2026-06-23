@@ -31,3 +31,6 @@ language sql stable security definer as $$
   order  by unique_sessions desc
   limit  50;
 $$;
+
+-- v2: add converting_sessions and converting_views columns (email-stitched)
+-- Applied via migration 0028 (drop + recreate due to return type change)

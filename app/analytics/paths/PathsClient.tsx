@@ -33,10 +33,12 @@ interface TopEvent {
 }
 
 interface PageRow {
-  page_path:       string;
-  unique_sessions: number;
-  total_views:     number;
-  pct_of_sessions: number;
+  page_path:           string;
+  unique_sessions:     number;
+  total_views:         number;
+  pct_of_sessions:     number;
+  converting_sessions: number;
+  converting_views:    number;
 }
 
 interface EntryPageRow {
@@ -207,10 +209,10 @@ function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-              {['#', 'Page', 'Unique Sessions', 'Total Views', 'Views / Session', '% of Sessions'].map((h, i) => (
+              {['#', 'Page', 'Unique Sessions', 'Total Views', 'Views / Session', '% of Sessions', 'Conv. Sessions', 'Conv. Views'].map((h, i) => (
                 <th key={h} style={{
                   padding: '0.55rem 1rem', textAlign: i >= 2 ? 'right' : 'left',
-                  fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+                  fontSize: '0.62rem', fontFamily: 'var(--font-mono)', color: i >= 6 ? '#16a34a' : 'var(--muted)',
                   fontWeight: 500, whiteSpace: 'nowrap', textTransform: 'uppercase', letterSpacing: '0.07em',
                 }}>{h}</th>
               ))}
@@ -218,8 +220,9 @@ function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
           </thead>
           <tbody>
             {pages.map((row, i) => {
-              const barW = Math.max(4, (row.unique_sessions / maxSessions) * 140);
-              const vps  = row.unique_sessions > 0 ? (row.total_views / row.unique_sessions).toFixed(1) : '—';
+              const barW     = Math.max(4, (row.unique_sessions / maxSessions) * 120);
+              const convBarW = row.converting_sessions > 0 ? Math.max(4, (row.converting_sessions / maxSessions) * 120) : 0;
+              const vps      = row.unique_sessions > 0 ? (row.total_views / row.unique_sessions).toFixed(1) : '—';
               return (
                 <tr key={row.page_path} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface2)' }}>
                   <td style={{ padding: '0.5rem 1rem', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)', width: 36 }}>{i + 1}</td>
@@ -231,7 +234,7 @@ function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
                   <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
                       <div style={{ width: barW, height: 5, background: '#3b82f6', borderRadius: 3, opacity: 0.7, flexShrink: 0 }} />
-                      <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: 700, minWidth: 52, textAlign: 'right' }}>
+                      <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: 700, minWidth: 48, textAlign: 'right' }}>
                         {row.unique_sessions.toLocaleString()}
                       </span>
                     </div>
@@ -252,6 +255,17 @@ function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
                       </span>
                     </div>
                   </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'flex-end' }}>
+                      {convBarW > 0 && <div style={{ width: convBarW, height: 5, background: '#16a34a', borderRadius: 3, opacity: 0.7, flexShrink: 0 }} />}
+                      <span style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: row.converting_sessions > 0 ? 700 : 400, color: row.converting_sessions > 0 ? '#16a34a' : 'var(--muted)', minWidth: 40, textAlign: 'right' }}>
+                        {row.converting_sessions.toLocaleString()}
+                      </span>
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.5rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: row.converting_views > 0 ? '#16a34a' : 'var(--muted)' }}>
+                    {row.converting_views.toLocaleString()}
+                  </td>
                 </tr>
               );
             })}
@@ -266,6 +280,12 @@ function PagesView({ pages, loading }: { pages: PageRow[]; loading: boolean }) {
                 {pages.reduce((s, r) => s + r.total_views, 0).toLocaleString()}
               </td>
               <td colSpan={2} />
+              <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', fontWeight: 700, color: '#16a34a' }}>
+                {pages.reduce((s, r) => s + r.converting_sessions, 0).toLocaleString()}
+              </td>
+              <td style={{ padding: '0.55rem 1rem', textAlign: 'right', fontSize: '0.82rem', fontFamily: 'var(--font-mono)', color: '#16a34a', fontWeight: 600 }}>
+                {pages.reduce((s, r) => s + r.converting_views, 0).toLocaleString()}
+              </td>
             </tr>
           </tfoot>
         </table>
