@@ -96,9 +96,16 @@ export async function GET(req: NextRequest) {
     orderToJobs.get(job.shopify_order_id)!.push(job);
   }
 
-  const results = { checked: 0, newly_ready: 0, errors: 0 };
+  const results = { checked: 0, newly_ready: 0, errors: 0, skipped: 0 };
+  const startedAt = Date.now();
+  // Leave a 15-second margin before the 120s maxDuration to avoid timeout-killed fetches.
+  const DEADLINE_MS = 105_000;
 
   for (const [orderId, orderJobs] of Array.from(orderToJobs.entries())) {
+    if (Date.now() - startedAt > DEADLINE_MS) {
+      results.skipped += orderToJobs.size - results.checked;
+      break;
+    }
     results.checked++;
     try {
       const status = await fetchMugReadyStatus(orderId);
@@ -149,7 +156,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ status: 'ok', days_scanned: days, ...results });
+  return NextResponse.json({ status: 'ok', days_scanned: days, elapsed_ms: Date.now() - startedAt, ...results });
 }
 
 export async function POST(req: NextRequest) {

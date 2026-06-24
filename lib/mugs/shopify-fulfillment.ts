@@ -51,7 +51,7 @@ interface OrderFulfillmentData {
   fulfillments: Array<{
     id: string;
     status: string;
-    lineItems: {
+    fulfillmentLineItems: {
       nodes: Array<{
         lineItem: { id: string };
       }>;
@@ -93,7 +93,7 @@ async function getOrderFulfillmentData(
          fulfillments {
            id
            status
-           lineItems(first: 50) {
+           fulfillmentLineItems(first: 50) {
              nodes {
                lineItem { id }
              }
@@ -120,7 +120,7 @@ async function getOrderFulfillmentData(
   // No open FO — check if already fulfilled via an existing fulfillment
   for (const f of order.fulfillments ?? []) {
     if (f.status === 'CANCELLED') continue;
-    for (const li of f.lineItems?.nodes ?? []) {
+    for (const li of f.fulfillmentLineItems?.nodes ?? []) {
       if (li.lineItem.id === lineItemId) {
         const numericId = f.id.split('/').pop() ?? f.id;
         return { type: 'existing', fulfillmentId: numericId };
