@@ -173,7 +173,7 @@ export async function GET(req: NextRequest) {
     .in('state', ['shipped', 'delivered'])
     .is('shopify_fulfillment_id', null)
     .not('gelato_order_id', 'is', null)
-    .limit(10);
+    .limit(50);
 
   for (const job of unfulfilledJobs ?? []) {
     try {
