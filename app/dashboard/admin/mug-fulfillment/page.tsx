@@ -2,12 +2,13 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { createServerClient } from '@supabase/ssr';
 import Link from 'next/link';
+import { Suspense } from 'react';
 import { supabaseAdmin } from '@/lib/supabase';
 import MugJobDrawer from './MugJobDrawer';
+import MugSearchBox from './MugSearchBox';
 import {
   fulfillOrder, submitGelato, cancelJob, resetToReceived, setTileOverrideUrl, scanMugReady,
 } from './actions';
-import BackfillForm from './BackfillForm';
 import MugReadyScanForm from './MugReadyScanForm';
 
 export const revalidate = 0;
@@ -16,6 +17,12 @@ const ALL_STATES = [
   'received', 'generating', 'file_ready', 'draft_created',
   'submitted', 'passed', 'printed', 'shipped', 'delivered', 'failed',
 ] as const;
+
+const GROUPS: Record<string, readonly string[]> = {
+  active: ['received', 'generating', 'file_ready', 'draft_created', 'submitted', 'passed', 'printed'],
+  failed: ['failed'],
+  done:   ['shipped', 'delivered'],
+};
 
 const STATE_COLORS: Record<string, { bg: string; color: string }> = {
   received:      { bg: '#dbeafe', color: '#1e40af' },
@@ -38,7 +45,13 @@ const APPROVAL_LABELS: Record<string, string> = {
 };
 
 type Props = {
-  searchParams: Promise<{ state?: string; drawer?: string }>;
+  searchParams: Promise<{
+    state?: string;
+    group?: string;
+    drawer?: string;
+    mug_ready?: string;
+    q?: string;
+  }>;
 };
 
 export default async function MugFulfillmentPage({ searchParams }: Props) {
@@ -60,13 +73,13 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   if (!user) redirect('/dashboard/admin/login');
 
   const sp = await searchParams;
-  const activeState   = sp.state ?? null;
-  const mugReadyOnly  = (sp as Record<string, string | undefined>).mug_ready === '1';
-  const drawerId      = sp.drawer ?? null;
-  const backfillMsg   = (sp as Record<string, string | undefined>).backfill_msg ?? null;
-  const backfillOk    = (sp as Record<string, string | undefined>).backfill_ok === '1';
+  const activeState  = sp.state   ?? null;
+  const activeGroup  = sp.group   ?? null;
+  const mugReadyOnly = sp.mug_ready === '1';
+  const searchQ      = sp.q       ?? '';
+  const drawerId     = sp.drawer  ?? null;
 
-  // Fetch state counts
+  // Fetch all jobs
   const { data: allJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
     .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at')
@@ -78,10 +91,26 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   for (const s of ALL_STATES) stateCounts[s] = 0;
   for (const j of jobs) stateCounts[j.state] = (stateCounts[j.state] ?? 0) + 1;
 
+  const groupCounts = {
+    active: GROUPS.active.reduce((sum, s) => sum + (stateCounts[s] ?? 0), 0),
+    failed: stateCounts['failed'] ?? 0,
+    done:   GROUPS.done.reduce((sum, s) => sum + (stateCounts[s] ?? 0), 0),
+  };
+
   const mugReadyCount = jobs.filter(j => j.mug_ready).length;
-  const filteredJobs  = (() => {
-    let list = mugReadyOnly ? jobs.filter(j => j.mug_ready) : jobs;
+
+  const filteredJobs = (() => {
+    let list = jobs;
+    if (mugReadyOnly) list = list.filter(j => j.mug_ready);
+    if (activeGroup && GROUPS[activeGroup]) list = list.filter(j => GROUPS[activeGroup].includes(j.state));
     if (activeState) list = list.filter(j => j.state === activeState);
+    if (searchQ) {
+      const q = searchQ.toLowerCase();
+      list = list.filter(j =>
+        (j.shopify_order_name ?? '').toLowerCase().includes(q) ||
+        (j.customer_name ?? '').toLowerCase().includes(q)
+      );
+    }
     return list;
   })();
 
@@ -93,7 +122,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
     .limit(50);
 
   // Fetch drawer job events if drawer open
-  let drawerJob = drawerId ? jobs.find(j => j.id === drawerId) ?? null : null;
+  const drawerJob = drawerId ? jobs.find(j => j.id === drawerId) ?? null : null;
   let drawerEvents: typeof recentEvents = [];
   if (drawerId) {
     const { data } = await supabaseAdmin
@@ -108,33 +137,55 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
     month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 
-  function stateUrl(s: string | null) {
-    const params = new URLSearchParams();
-    if (s) params.set('state', s);
-    if (mugReadyOnly) params.set('mug_ready', '1');
-    const qs = params.toString();
+  // Build a URL preserving current filters, with overrides
+  function buildUrl(overrides: Record<string, string | null> = {}) {
+    const vals: Record<string, string | null> = {
+      state:     activeState,
+      group:     activeGroup,
+      mug_ready: mugReadyOnly ? '1' : null,
+      q:         searchQ || null,
+      drawer:    drawerId,
+      ...overrides,
+    };
+    const p = new URLSearchParams();
+    for (const [k, v] of Object.entries(vals)) if (v) p.set(k, v);
+    const qs = p.toString();
     return `/dashboard/admin/mug-fulfillment${qs ? '?' + qs : ''}`;
+  }
+
+  function groupUrl(g: string | null) {
+    return buildUrl({ group: g, state: null, drawer: null });
+  }
+
+  function stateUrl(s: string | null) {
+    return buildUrl({ state: s, drawer: null });
   }
 
   function mugReadyUrl(on: boolean) {
-    const params = new URLSearchParams();
-    if (on) params.set('mug_ready', '1');
-    if (activeState) params.set('state', activeState);
-    const qs = params.toString();
-    return `/dashboard/admin/mug-fulfillment${qs ? '?' + qs : ''}`;
+    return buildUrl({ mug_ready: on ? '1' : null, drawer: null });
   }
 
   function drawerUrl(jobId: string) {
-    const params = new URLSearchParams();
-    if (activeState) params.set('state', activeState);
-    if (mugReadyOnly) params.set('mug_ready', '1');
-    params.set('drawer', jobId);
-    return `/dashboard/admin/mug-fulfillment?${params.toString()}`;
+    return buildUrl({ drawer: jobId });
   }
 
   function closeDrawerUrl() {
-    return stateUrl(activeState);
+    return buildUrl({ drawer: null });
   }
+
+  // Active group's state pills (secondary filter)
+  const groupStates = activeGroup ? (GROUPS[activeGroup] ?? []) : null;
+
+  // Filter label for the jobs table header
+  const filterLabel = searchQ
+    ? `matching "${searchQ}"`
+    : activeState
+    ? `(${activeState})`
+    : activeGroup
+    ? `(${activeGroup})`
+    : mugReadyOnly
+    ? '(mug:ready)'
+    : 'total';
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh', fontFamily: 'var(--font-sans)' }}>
@@ -153,7 +204,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
             {refreshedAt}
           </span>
           <Link
-            href={stateUrl(activeState)}
+            href={buildUrl({ drawer: null })}
             style={{
               background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.8)',
               border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
@@ -179,76 +230,98 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem' }}>
 
-        {/* Backfill single order */}
-        <BackfillForm />
         {/* Scan mug:ready status across recent orders */}
         <MugReadyScanForm action={scanMugReady} />
-        {backfillMsg && (
-          <div style={{
-            marginBottom: '1rem', padding: '0.6rem 1rem',
-            borderRadius: 8, fontSize: '0.82rem', fontFamily: 'var(--font-mono)',
-            background: backfillOk ? '#dcfce7' : '#fee2e2',
-            color:      backfillOk ? '#166534' : '#991b1b',
-            border: `1px solid ${backfillOk ? '#bbf7d0' : '#fecaca'}`,
-          }}>
-            {backfillMsg}
-          </div>
-        )}
 
-        {/* State summary strip */}
+        {/* Filter strip */}
         <div style={{
-          display: 'flex', flexWrap: 'wrap', gap: '0.5rem',
-          marginBottom: '1.5rem',
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 12, padding: '0.875rem 1rem',
+          marginBottom: '1.5rem',
         }}>
-          <Link
-            href={mugReadyUrl(!mugReadyOnly)}
-            style={{
-              padding: '0.35rem 0.75rem', borderRadius: 20, fontSize: '0.78rem',
-              fontFamily: 'var(--font-mono)', textDecoration: 'none',
-              background: mugReadyOnly ? '#166534' : '#dcfce7',
-              color: mugReadyOnly ? '#fff' : '#166534',
-              border: '1px solid #bbf7d0',
-              fontWeight: mugReadyOnly ? 600 : 400,
-            }}
-          >
-            mug:ready ({mugReadyCount})
-          </Link>
-          <Link
-            href="/dashboard/admin/mug-fulfillment"
-            style={{
-              padding: '0.35rem 0.75rem', borderRadius: 20, fontSize: '0.78rem',
-              fontFamily: 'var(--font-mono)', textDecoration: 'none',
-              background: !activeState && !mugReadyOnly ? '#1a1a2e' : 'var(--surface2)',
-              color: !activeState && !mugReadyOnly ? '#fff' : 'var(--muted)',
-              border: '1px solid var(--border)',
-              fontWeight: !activeState && !mugReadyOnly ? 600 : 400,
-            }}
-          >
-            all ({jobs.length})
-          </Link>
-          {ALL_STATES.map(s => {
-            const c = STATE_COLORS[s] ?? { bg: '#f3f4f6', color: '#374151' };
-            const isActive = activeState === s;
-            return (
-              <Link
-                key={s}
-                href={stateUrl(s)}
-                style={{
-                  padding: '0.35rem 0.75rem', borderRadius: 20, fontSize: '0.78rem',
-                  fontFamily: 'var(--font-mono)', textDecoration: 'none',
-                  background: isActive ? c.color : c.bg,
-                  color: isActive ? '#fff' : c.color,
-                  border: `1px solid ${c.color}40`,
-                  fontWeight: isActive ? 600 : 400,
-                  opacity: stateCounts[s] === 0 ? 0.45 : 1,
-                }}
-              >
-                {s} ({stateCounts[s]})
-              </Link>
-            );
-          })}
+          {/* Top row: group tabs + search */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+
+            {/* Group tabs */}
+            {([
+              { key: null,     label: 'All',    count: jobs.length },
+              { key: 'active', label: 'Active', count: groupCounts.active },
+              { key: 'failed', label: 'Failed', count: groupCounts.failed },
+              { key: 'done',   label: 'Done',   count: groupCounts.done },
+            ] as const).map(({ key, label, count }) => {
+              const isActive = activeGroup === key && !mugReadyOnly;
+              return (
+                <Link
+                  key={label}
+                  href={groupUrl(key)}
+                  style={{
+                    padding: '0.35rem 0.875rem', borderRadius: 8, fontSize: '0.82rem',
+                    fontFamily: 'var(--font-mono)', textDecoration: 'none',
+                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    color: isActive ? '#fff' : 'var(--muted)',
+                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                >
+                  {label} <span style={{ opacity: 0.65 }}>({count})</span>
+                </Link>
+              );
+            })}
+
+            {/* mug:ready toggle */}
+            <Link
+              href={mugReadyUrl(!mugReadyOnly)}
+              style={{
+                padding: '0.35rem 0.875rem', borderRadius: 8, fontSize: '0.82rem',
+                fontFamily: 'var(--font-mono)', textDecoration: 'none',
+                background: mugReadyOnly ? '#166534' : '#dcfce7',
+                color: mugReadyOnly ? '#fff' : '#166534',
+                border: '1px solid #bbf7d0',
+                fontWeight: mugReadyOnly ? 600 : 400,
+              }}
+            >
+              mug:ready <span style={{ opacity: 0.8 }}>({mugReadyCount})</span>
+            </Link>
+
+            {/* Spacer */}
+            <div style={{ flex: 1 }} />
+
+            {/* Search */}
+            <Suspense fallback={null}>
+              <MugSearchBox defaultValue={searchQ} />
+            </Suspense>
+          </div>
+
+          {/* Secondary state pills — only when a group is selected */}
+          {groupStates && groupStates.length > 0 && (
+            <div style={{
+              display: 'flex', gap: '0.375rem', flexWrap: 'wrap',
+              marginTop: '0.625rem', paddingTop: '0.625rem',
+              borderTop: '1px solid var(--border)',
+            }}>
+              {groupStates.map(s => {
+                const c = STATE_COLORS[s] ?? { bg: '#f3f4f6', color: '#374151' };
+                const isActive = activeState === s;
+                return (
+                  <Link
+                    key={s}
+                    href={stateUrl(isActive ? null : s)}
+                    style={{
+                      padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.76rem',
+                      fontFamily: 'var(--font-mono)', textDecoration: 'none',
+                      background: isActive ? c.color : c.bg,
+                      color: isActive ? '#fff' : c.color,
+                      border: `1px solid ${c.color}40`,
+                      fontWeight: isActive ? 600 : 400,
+                      opacity: stateCounts[s] === 0 ? 0.4 : 1,
+                    }}
+                  >
+                    {s} ({stateCounts[s]})
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Jobs table */}
@@ -261,7 +334,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
             fontFamily: 'var(--font-mono)', fontSize: '0.68rem', textTransform: 'uppercase',
             letterSpacing: '0.1em', color: 'var(--muted)',
           }}>
-            Jobs — {filteredJobs.length} {activeState ? `(${activeState})` : 'total'}
+            Jobs — {filteredJobs.length} {filterLabel}
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
@@ -280,7 +353,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                 {filteredJobs.length === 0 ? (
                   <tr>
                     <td colSpan={12} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
-                      No jobs in this state.
+                      No jobs found.
                     </td>
                   </tr>
                 ) : filteredJobs.map((job, i) => {
