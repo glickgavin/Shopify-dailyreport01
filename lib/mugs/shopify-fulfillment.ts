@@ -144,10 +144,31 @@ export interface MugJobForFulfillment {
   quantity?:             number | null;
 }
 
-export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<void> {
-  // Idempotency — if we already created (or found) a fulfillment for this job, skip.
-  if (job.shopify_fulfillment_id) {
-    return;
+export type PushTrackingResult =
+  | { status: 'already_fulfilled' }
+  | { status: 'no_tracking' }
+  | { status: 'line_item_not_found' }
+  | { status: 'existing'; fulfillmentId: string }
+  | { status: 'created';  fulfillmentId: string }
+  | { status: 'error';    message: string };
+
+export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<PushTrackingResult> {
+  // Idempotency — if we already created (or found) a real fulfillment, skip.
+  // The legacy 'not_found' sentinel is treated as retryable, not final.
+  if (job.shopify_fulfillment_id && job.shopify_fulfillment_id !== 'not_found') {
+    return { status: 'already_fulfilled' };
+  }
+
+  // Require a real tracking number before fulfilling — a carrier-only fulfillment
+  // would notify the customer with no way to track. Wait for Gelato to supply it.
+  if (!job.tracking_number) {
+    await logEvent(job.id, 'shopify_fulfillment_waiting_tracking', {
+      payload: {
+        shopify_order_id:     job.shopify_order_id,
+        shopify_line_item_id: job.shopify_line_item_id,
+      },
+    });
+    return { status: 'no_tracking' };
   }
 
   try {
@@ -162,8 +183,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       await (supabaseAdmin as any)
         .from('mug_fulfillment_jobs')
         .update({ shopify_fulfillment_id: result.fulfillmentId, updated_at: new Date().toISOString() })
-        .eq('id', job.id)
-        .is('shopify_fulfillment_id', null);
+        .eq('id', job.id);
 
       await logEvent(job.id, 'shopify_fulfillment_already_done', {
         payload: {
@@ -172,26 +192,23 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
           shopify_line_item_id:   job.shopify_line_item_id,
         },
       });
-      return;
+      return { status: 'existing', fulfillmentId: result.fulfillmentId };
     }
 
     if (result.type === 'not_found') {
-      // No open FO and no existing fulfillment — order may be on a third-party
-      // fulfillment service or the line item ID is wrong. Log and stop.
-      await (supabaseAdmin as any)
-        .from('mug_fulfillment_jobs')
-        .update({ shopify_fulfillment_id: 'not_found', updated_at: new Date().toISOString() })
-        .eq('id', job.id)
-        .is('shopify_fulfillment_id', null);
-
+      // No open FO line item and no existing fulfillment yet. This is often a
+      // timing issue (the fulfillment order isn't routed the instant Gelato
+      // ships), so we do NOT write a permanent sentinel — leave the job
+      // unfulfilled so the next reconcile run retries it.
       await logEvent(job.id, 'shopify_fulfillment_skipped', {
         payload: {
           reason:               'fulfillment_order_line_item_not_found',
+          retryable:            true,
           shopify_order_id:     job.shopify_order_id,
           shopify_line_item_id: job.shopify_line_item_id,
         },
       });
-      return;
+      return { status: 'line_item_not_found' };
     }
 
     // result.type === 'open' — create the fulfillment
@@ -242,8 +259,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
     await (supabaseAdmin as any)
       .from('mug_fulfillment_jobs')
       .update({ shopify_fulfillment_id: numericId, updated_at: new Date().toISOString() })
-      .eq('id', job.id)
-      .is('shopify_fulfillment_id', null);
+      .eq('id', job.id);
 
     await logEvent(job.id, 'shopify_fulfillment_created', {
       payload: {
@@ -253,6 +269,7 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
         tracking_company:       job.tracking_company,
       },
     });
+    return { status: 'created', fulfillmentId: numericId };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await logEvent(job.id, 'shopify_fulfillment_failed', {
@@ -263,5 +280,6 @@ export async function pushTrackingToShopify(job: MugJobForFulfillment): Promise<
       },
     });
     console.error(`[shopify-fulfillment] job ${job.id} push failed: ${msg}`);
+    return { status: 'error', message: msg };
   }
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { getOrderStatus } from '@/lib/mugs/gelato';
+import { getOrderStatus, extractGelatoTracking, gelatoTrackingDebugSnapshot } from '@/lib/mugs/gelato';
 import { pushTrackingToShopify } from '@/lib/mugs/shopify-fulfillment';
 import type { Database, Json } from '@/lib/types/database';
 
@@ -116,13 +116,22 @@ export async function GET(req: NextRequest) {
         updated_at: new Date().toISOString(),
       };
 
-      // Capture tracking info when shipped.
-      // REST API returns top-level "shipment"; webhooks nest under "fulfillment.shipments".
+      // Capture tracking info when shipped/delivered. Gelato exposes tracking in
+      // several shapes; extractGelatoTracking checks all of them.
+      let tracking = extractGelatoTracking(gelatoOrder);
       if (newState === 'shipped' || newState === 'delivered') {
-        const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
-        if (shipment?.trackingCode)       updatePayload.tracking_number  = shipment.trackingCode;
-        if (shipment?.trackingUrl)        updatePayload.tracking_url     = shipment.trackingUrl;
-        if (shipment?.shipmentMethodName) updatePayload.tracking_company = shipment.shipmentMethodName;
+        if (tracking.trackingCode)    updatePayload.tracking_number  = tracking.trackingCode;
+        if (tracking.trackingUrl)     updatePayload.tracking_url     = tracking.trackingUrl;
+        if (tracking.trackingCompany) updatePayload.tracking_company = tracking.trackingCompany;
+
+        // If we advanced to shipped but no tracking code yet, log the raw shape
+        // so we can confirm the field structure — tracking often lands shortly
+        // after the status flip and step 3 will re-poll for it.
+        if (!tracking.trackingCode) {
+          await logEvent(job.id, 'gelato_tracking_missing', {
+            payload: gelatoTrackingDebugSnapshot(gelatoOrder),
+          });
+        }
       }
 
       const { error: updateErr } = await supabaseAdmin
@@ -139,16 +148,17 @@ export async function GET(req: NextRequest) {
           payload:    { gelato_status: gelatoOrder.status, state: newState },
         });
 
-        if (newState === 'shipped') {
-          const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
+        // Only push to Shopify once we actually have a tracking number.
+        // If it's not there yet, step 3 re-polls shipped jobs until it appears.
+        if (newState === 'shipped' && tracking.trackingCode) {
           await pushTrackingToShopify({
             id:                    job.id,
             shopify_order_id:      job.shopify_order_id,
             shopify_line_item_id:  job.shopify_line_item_id,
             shopify_fulfillment_id: null,
-            tracking_number:       shipment?.trackingCode       ?? updatePayload.tracking_number  ?? null,
-            tracking_url:          shipment?.trackingUrl        ?? updatePayload.tracking_url     ?? null,
-            tracking_company:      shipment?.shipmentMethodName ?? updatePayload.tracking_company ?? null,
+            tracking_number:       tracking.trackingCode,
+            tracking_url:          tracking.trackingUrl,
+            tracking_company:      tracking.trackingCompany,
             quantity:              job.quantity ?? 1,
           });
         }
@@ -165,33 +175,44 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── 3. Retry Shopify push for shipped/delivered jobs missing a fulfillment ID ─
-  // Covers jobs that were advanced before the Shopify push was working correctly.
+  // ── 3. Re-poll shipped/delivered jobs and push tracking to Shopify ──────────
+  // Handles two gaps: (a) tracking codes that arrive AFTER Gelato flips to
+  // shipped, and (b) jobs previously stranded with the legacy 'not_found'
+  // sentinel. We include null OR 'not_found' so those recover automatically.
   const { data: unfulfilledJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
     .select('id, gelato_order_id, shopify_order_id, shopify_line_item_id, quantity, tracking_number, tracking_url, tracking_company')
     .in('state', ['shipped', 'delivered'])
-    .is('shopify_fulfillment_id', null)
+    .or('shopify_fulfillment_id.is.null,shopify_fulfillment_id.eq.not_found')
     .not('gelato_order_id', 'is', null)
     .limit(50);
 
   for (const job of unfulfilledJobs ?? []) {
     try {
-      // Re-fetch from Gelato to get tracking info (was missing when these jobs were first advanced)
+      // Re-fetch from Gelato to pick up tracking that may have landed late.
       const gelatoOrder = await getOrderStatus(job.gelato_order_id!);
-      const shipment = gelatoOrder.shipment ?? gelatoOrder.fulfillment?.shipments?.[0];
+      const tracking = extractGelatoTracking(gelatoOrder);
 
-      // Persist tracking if we got it and it's not already stored
-      if (shipment?.trackingCode && !job.tracking_number) {
-        await supabaseAdmin
-          .from('mug_fulfillment_jobs')
-          .update({
-            tracking_number:  shipment.trackingCode,
-            tracking_url:     shipment.trackingUrl     ?? null,
-            tracking_company: shipment.shipmentMethodName ?? null,
-            updated_at:       new Date().toISOString(),
-          })
-          .eq('id', job.id);
+      // Persist any newly-found tracking (code and/or carrier).
+      const trackingUpdate: MugJobUpdate = {};
+      if (tracking.trackingCode    && !job.tracking_number)  trackingUpdate.tracking_number  = tracking.trackingCode;
+      if (tracking.trackingUrl     && !job.tracking_url)     trackingUpdate.tracking_url     = tracking.trackingUrl;
+      if (tracking.trackingCompany && !job.tracking_company) trackingUpdate.tracking_company = tracking.trackingCompany;
+      if (Object.keys(trackingUpdate).length > 0) {
+        trackingUpdate.updated_at = new Date().toISOString();
+        await supabaseAdmin.from('mug_fulfillment_jobs').update(trackingUpdate).eq('id', job.id);
+      }
+
+      const trackingNumber = tracking.trackingCode ?? job.tracking_number ?? null;
+
+      // Without a tracking number there is nothing worth pushing yet. Log the
+      // raw shape so we can confirm where Gelato hides the code, then move on —
+      // the next run re-checks.
+      if (!trackingNumber) {
+        await logEvent(job.id, 'gelato_tracking_missing', {
+          payload: gelatoTrackingDebugSnapshot(gelatoOrder),
+        });
+        continue;
       }
 
       await pushTrackingToShopify({
@@ -199,9 +220,9 @@ export async function GET(req: NextRequest) {
         shopify_order_id:      job.shopify_order_id,
         shopify_line_item_id:  job.shopify_line_item_id,
         shopify_fulfillment_id: null,
-        tracking_number:       shipment?.trackingCode       ?? job.tracking_number  ?? null,
-        tracking_url:          shipment?.trackingUrl        ?? job.tracking_url     ?? null,
-        tracking_company:      shipment?.shipmentMethodName ?? job.tracking_company ?? null,
+        tracking_number:       trackingNumber,
+        tracking_url:          tracking.trackingUrl     ?? job.tracking_url     ?? null,
+        tracking_company:      tracking.trackingCompany ?? job.tracking_company ?? null,
         quantity:              job.quantity ?? 1,
       });
 
