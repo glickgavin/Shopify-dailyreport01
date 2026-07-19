@@ -66,6 +66,23 @@ export interface GelatoDraftOrder {
   fulfillment?: { shipmentMethodName?: string; price?: number };
 }
 
+// A single tracking entry. Gelato exposes tracking codes in several shapes
+// depending on endpoint/version, so this is intentionally permissive.
+interface GelatoShipmentLike {
+  trackingCode?: string;
+  trackingUrl?: string;
+  trackingCodes?: Array<{ code?: string; url?: string } | string>;
+  shipmentMethodName?: string;
+  shipmentMethodUid?: string;
+}
+
+interface GelatoFulfillmentLike {
+  trackingCode?: string;
+  trackingUrl?: string;
+  shipmentMethodName?: string;
+  fulfillmentStatus?: string;
+}
+
 export interface GelatoOrder {
   id: string;
   orderReferenceId: string;
@@ -74,18 +91,98 @@ export interface GelatoOrder {
   status?: string;
   fulfillmentStatus?: string;
   // REST GET returns top-level "shipment" (singular); webhooks nest under "fulfillment.shipments".
-  shipment?: {
-    trackingCode?: string;
-    trackingUrl?: string;
-    shipmentMethodName?: string;
-  };
+  shipment?: GelatoShipmentLike;
+  // Some REST responses carry an array of shipments at the top level.
+  shipments?: GelatoShipmentLike[];
   fulfillment?: {
     shipmentMethodName?: string;
-    shipments?: Array<{
-      trackingCode?: string;
-      trackingUrl?: string;
-      shipmentMethodName?: string;
-    }>;
+    shipments?: GelatoShipmentLike[];
+  };
+  // Per-item fulfillments — another place Gelato surfaces tracking codes.
+  items?: Array<{
+    itemReferenceId?: string;
+    fulfillments?: GelatoFulfillmentLike[];
+    fulfillment?: GelatoFulfillmentLike;
+  }>;
+}
+
+export interface GelatoTracking {
+  trackingCode: string | null;
+  trackingUrl: string | null;
+  trackingCompany: string | null;
+}
+
+// Pulls tracking out of a Gelato order regardless of which shape the API used.
+// Checks (in priority order): top-level shipment(s), webhook-style
+// fulfillment.shipments, and per-item fulfillments. Returns the first code found.
+// trackingCompany falls back to any shipment method name even when no code exists.
+export function extractGelatoTracking(order: GelatoOrder): GelatoTracking {
+  const shipmentCandidates: GelatoShipmentLike[] = [
+    ...(order.shipment ? [order.shipment] : []),
+    ...(order.shipments ?? []),
+    ...(order.fulfillment?.shipments ?? []),
+  ];
+
+  let trackingCode:    string | null = null;
+  let trackingUrl:     string | null = null;
+  let trackingCompany: string | null = null;
+
+  const takeMethod = (m?: string) => { if (m && !trackingCompany) trackingCompany = m; };
+
+  for (const s of shipmentCandidates) {
+    takeMethod(s.shipmentMethodName);
+    if (!trackingCode && s.trackingCode) {
+      trackingCode = s.trackingCode;
+      trackingUrl  = s.trackingUrl ?? trackingUrl;
+    }
+    if (!trackingCode && Array.isArray(s.trackingCodes) && s.trackingCodes.length > 0) {
+      const first = s.trackingCodes[0];
+      if (typeof first === 'string') {
+        trackingCode = first;
+      } else if (first) {
+        trackingCode = first.code ?? null;
+        trackingUrl  = first.url ?? trackingUrl;
+      }
+    }
+    if (trackingCode) break;
+  }
+
+  // Per-item fulfillments (some Gelato responses only carry tracking here).
+  if (!trackingCode) {
+    for (const item of order.items ?? []) {
+      const fulfillments = [
+        ...(item.fulfillments ?? []),
+        ...(item.fulfillment ? [item.fulfillment] : []),
+      ];
+      for (const f of fulfillments) {
+        takeMethod(f.shipmentMethodName);
+        if (f.trackingCode) {
+          trackingCode = f.trackingCode;
+          trackingUrl  = f.trackingUrl ?? trackingUrl;
+          break;
+        }
+      }
+      if (trackingCode) break;
+    }
+  }
+
+  return { trackingCode, trackingUrl, trackingCompany };
+}
+
+// Returns a compact snapshot of the raw tracking-bearing parts of a Gelato
+// order, for logging/debugging so we can confirm the exact field structure
+// against real shipped orders without dumping the entire payload.
+export function gelatoTrackingDebugSnapshot(order: GelatoOrder): Record<string, unknown> {
+  return {
+    fulfillmentStatus: order.fulfillmentStatus ?? order.status ?? null,
+    shipment:          order.shipment ?? null,
+    shipments:         order.shipments ?? null,
+    fulfillment:       order.fulfillment ?? null,
+    items:             (order.items ?? []).map(i => ({
+      itemReferenceId: i.itemReferenceId,
+      fulfillments:    i.fulfillments ?? null,
+      fulfillment:     i.fulfillment ?? null,
+    })),
   };
 }
 
