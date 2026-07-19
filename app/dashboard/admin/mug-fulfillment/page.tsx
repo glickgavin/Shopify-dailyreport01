@@ -82,7 +82,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   // Fetch all jobs
   const { data: allJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
-    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at')
+    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, shopify_fulfillment_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at')
     .order('created_at', { ascending: false });
 
   const jobs = allJobs ?? [];
@@ -340,7 +340,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
               <thead>
                 <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Order', 'Mug Ready', 'Customer', 'State', 'Approval', 'Tile', 'PDF', 'Gelato', 'Att.', 'Last Error', 'Created', 'Actions'].map(h => (
+                  {['Order', 'Mug Ready', 'Customer', 'State', 'Tracking #', 'Shopify', 'Approval', 'Tile', 'PDF', 'Gelato', 'Att.', 'Last Error', 'Created', 'Actions'].map(h => (
                     <th key={h} style={{
                       padding: '0.55rem 0.875rem', textAlign: 'left', whiteSpace: 'nowrap',
                       fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase',
@@ -352,7 +352,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
               <tbody>
                 {filteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={12} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                    <td colSpan={14} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.875rem' }}>
                       No jobs found.
                     </td>
                   </tr>
@@ -422,6 +422,71 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                         }}>
                           {job.state}
                         </span>
+                      </td>
+
+                      {/* Tracking # */}
+                      <td style={{ padding: '0.55rem 0.875rem', whiteSpace: 'nowrap' }}>
+                        {job.tracking_number ? (
+                          job.tracking_url ? (
+                            <a
+                              href={job.tracking_url}
+                              target="_blank" rel="noreferrer"
+                              title={`${job.tracking_number}${job.tracking_company ? ` — ${job.tracking_company}` : ''}`}
+                              style={{ color: 'var(--cash-blue)', fontFamily: 'var(--font-mono)', fontSize: '0.74rem', fontWeight: 600 }}
+                            >
+                              {job.tracking_number} ↗
+                            </a>
+                          ) : (
+                            <span
+                              title={job.tracking_company ?? ''}
+                              style={{ fontFamily: 'var(--font-mono)', fontSize: '0.74rem', color: 'var(--text)' }}
+                            >
+                              {job.tracking_number}
+                            </span>
+                          )
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>—</span>
+                        )}
+                      </td>
+
+                      {/* Shopify updated */}
+                      <td style={{ padding: '0.55rem 0.875rem', textAlign: 'center' }}>
+                        {(() => {
+                          const fid = (job as any).shopify_fulfillment_id as string | null;
+                          const done = !!fid && fid !== 'not_found';
+                          if (done) {
+                            return (
+                              <span
+                                title={`Fulfilled in Shopify (id ${fid})`}
+                                style={{
+                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                  width: 20, height: 20, borderRadius: 5,
+                                  background: '#dcfce7', color: '#166534',
+                                  fontSize: '0.8rem', fontWeight: 700, cursor: 'help',
+                                }}
+                              >
+                                ✓
+                              </span>
+                            );
+                          }
+                          // Shipped/delivered but not yet pushed → highlight as pending.
+                          const pending = ['shipped', 'delivered'].includes(job.state);
+                          return (
+                            <span
+                              title={pending ? 'Shipped but not yet pushed to Shopify' : 'Not fulfilled in Shopify'}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                width: 20, height: 20, borderRadius: 5,
+                                background: pending ? '#fef9c3' : 'transparent',
+                                color: pending ? '#854d0e' : 'var(--muted)',
+                                border: pending ? '1px solid #fde047' : '1px solid var(--border)',
+                                fontSize: '0.8rem', fontWeight: 700, cursor: 'help',
+                              }}
+                            >
+                              {pending ? '!' : '—'}
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Approval */}
