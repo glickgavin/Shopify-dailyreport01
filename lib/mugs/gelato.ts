@@ -68,10 +68,19 @@ export interface GelatoDraftOrder {
 
 // A single tracking entry. Gelato exposes tracking codes in several shapes
 // depending on endpoint/version, so this is intentionally permissive.
+// A package inside a shipment. This is where Gelato's REST order endpoint
+// actually puts the tracking code/URL (shipment.packages[]), not on the
+// shipment itself — confirmed against real shipped orders.
+interface GelatoPackageLike {
+  trackingCode?: string;
+  trackingUrl?: string;
+}
+
 interface GelatoShipmentLike {
   trackingCode?: string;
   trackingUrl?: string;
   trackingCodes?: Array<{ code?: string; url?: string } | string>;
+  packages?: GelatoPackageLike[];
   shipmentMethodName?: string;
   shipmentMethodUid?: string;
 }
@@ -142,6 +151,17 @@ export function extractGelatoTracking(order: GelatoOrder): GelatoTracking {
       } else if (first) {
         trackingCode = first.code ?? null;
         trackingUrl  = first.url ?? trackingUrl;
+      }
+    }
+    // Gelato's REST order endpoint carries the actual tracking code/URL on the
+    // shipment's packages[], not on the shipment itself. Check each package.
+    if (!trackingCode && Array.isArray(s.packages)) {
+      for (const p of s.packages) {
+        if (p.trackingCode) {
+          trackingCode = p.trackingCode;
+          trackingUrl  = p.trackingUrl ?? trackingUrl;
+          break;
+        }
       }
     }
     if (trackingCode) break;
