@@ -179,13 +179,18 @@ export async function GET(req: NextRequest) {
   // Handles two gaps: (a) tracking codes that arrive AFTER Gelato flips to
   // shipped, and (b) jobs previously stranded with the legacy 'not_found'
   // sentinel. We include null OR 'not_found' so those recover automatically.
+  // Order by stalest-first (updated_at asc) so every job is reached in rotation.
+  // Without an explicit order, Postgres returns an arbitrary slice under the
+  // limit and the same rows get processed each run while the tail is starved
+  // (e.g. jobs that have sat in 'not_found' for days never get re-polled).
   const { data: unfulfilledJobs } = await supabaseAdmin
     .from('mug_fulfillment_jobs')
     .select('id, gelato_order_id, shopify_order_id, shopify_line_item_id, quantity, tracking_number, tracking_url, tracking_company')
     .in('state', ['shipped', 'delivered'])
     .or('shopify_fulfillment_id.is.null,shopify_fulfillment_id.eq.not_found')
     .not('gelato_order_id', 'is', null)
-    .limit(50);
+    .order('updated_at', { ascending: true })
+    .limit(100);
 
   for (const job of unfulfilledJobs ?? []) {
     try {
