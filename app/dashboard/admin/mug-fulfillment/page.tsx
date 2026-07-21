@@ -44,6 +44,24 @@ const APPROVAL_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
+// Approval filter options (null = all). 'none' matches jobs with no manual_approval.
+const APPROVAL_FILTERS: ReadonlyArray<{ key: string | null; label: string }> = [
+  { key: null,        label: 'All' },
+  { key: 'none',      label: 'None' },
+  { key: 'pdf_only',  label: 'PDF only' },
+  { key: 'submit',    label: 'Submit' },
+  { key: 'go_live',   label: 'Go-live' },
+  { key: 'cancelled', label: 'Cancelled' },
+];
+
+// Date filter presets (null = all time). Value = number of days back from now.
+const DATE_FILTERS: ReadonlyArray<{ key: string | null; label: string }> = [
+  { key: null, label: 'All time' },
+  { key: '7',  label: 'Last 7d' },
+  { key: '30', label: 'Last 30d' },
+  { key: '90', label: 'Last 90d' },
+];
+
 type Props = {
   searchParams: Promise<{
     state?: string;
@@ -51,6 +69,8 @@ type Props = {
     drawer?: string;
     mug_ready?: string;
     q?: string;
+    approval?: string;
+    days?: string;
   }>;
 };
 
@@ -73,19 +93,35 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   if (!user) redirect('/dashboard/admin/login');
 
   const sp = await searchParams;
-  const activeState  = sp.state   ?? null;
-  const activeGroup  = sp.group   ?? null;
-  const mugReadyOnly = sp.mug_ready === '1';
-  const searchQ      = sp.q       ?? '';
-  const drawerId     = sp.drawer  ?? null;
+  const activeState    = sp.state    ?? null;
+  const activeGroup    = sp.group    ?? null;
+  const mugReadyOnly   = sp.mug_ready === '1';
+  const searchQ        = sp.q        ?? '';
+  const drawerId       = sp.drawer   ?? null;
+  const activeApproval = sp.approval ?? null;
+  const activeDays     = sp.days     ?? null;
 
-  // Fetch all jobs
-  const { data: allJobs } = await supabaseAdmin
-    .from('mug_fulfillment_jobs')
-    .select('id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, shopify_fulfillment_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at')
-    .order('created_at', { ascending: false });
-
-  const jobs = allJobs ?? [];
+  // Fetch all jobs — paginate past PostgREST's 1000-row default so counts,
+  // totals, and the date filter reflect the full table, not just the newest 1000.
+  const JOB_COLUMNS = 'id, state, manual_approval, shopify_order_name, shopify_order_id, shopify_line_item_id, tile_id, tile_override_url, print_file_url, gelato_draft_id, gelato_order_id, shopify_fulfillment_id, customer_name, shipping_address, tracking_number, tracking_url, tracking_company, attempts, last_error, next_attempt_at, created_at, updated_at, gelato_product_uid, quantity, mug_ready, mug_ready_at, mug_ready_checked_at';
+  const jobs: NonNullable<Awaited<ReturnType<typeof fetchJobsPage>>> = [];
+  async function fetchJobsPage(from: number, to: number) {
+    const { data } = await supabaseAdmin
+      .from('mug_fulfillment_jobs')
+      .select(JOB_COLUMNS)
+      .order('created_at', { ascending: false })
+      .range(from, to);
+    return data;
+  }
+  {
+    const PAGE = 1000;
+    for (let from = 0; from < 20000; from += PAGE) {
+      const page = await fetchJobsPage(from, from + PAGE - 1);
+      if (!page || page.length === 0) break;
+      jobs.push(...page);
+      if (page.length < PAGE) break;
+    }
+  }
 
   const stateCounts: Record<string, number> = {};
   for (const s of ALL_STATES) stateCounts[s] = 0;
@@ -99,11 +135,26 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
   const mugReadyCount = jobs.filter(j => j.mug_ready).length;
 
+  // Approval counts (null manual_approval → 'none' bucket).
+  const approvalCounts: Record<string, number> = {};
+  for (const j of jobs) {
+    const key = j.manual_approval ?? 'none';
+    approvalCounts[key] = (approvalCounts[key] ?? 0) + 1;
+  }
+
+  // Date cutoff for the "last N days" preset (by created_at).
+  const daysNum    = activeDays ? parseInt(activeDays, 10) : null;
+  const dateCutoff = daysNum && !Number.isNaN(daysNum)
+    ? new Date(Date.now() - daysNum * 86_400_000)
+    : null;
+
   const filteredJobs = (() => {
     let list = jobs;
     if (mugReadyOnly) list = list.filter(j => j.mug_ready);
     if (activeGroup && GROUPS[activeGroup]) list = list.filter(j => GROUPS[activeGroup].includes(j.state));
     if (activeState) list = list.filter(j => j.state === activeState);
+    if (activeApproval) list = list.filter(j => (j.manual_approval ?? 'none') === activeApproval);
+    if (dateCutoff) list = list.filter(j => j.created_at != null && new Date(j.created_at) >= dateCutoff);
     if (searchQ) {
       const q = searchQ.toLowerCase();
       list = list.filter(j =>
@@ -144,6 +195,8 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
       group:     activeGroup,
       mug_ready: mugReadyOnly ? '1' : null,
       q:         searchQ || null,
+      approval:  activeApproval,
+      days:      activeDays,
       drawer:    drawerId,
       ...overrides,
     };
@@ -165,6 +218,14 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
     return buildUrl({ mug_ready: on ? '1' : null, drawer: null });
   }
 
+  function approvalUrl(a: string | null) {
+    return buildUrl({ approval: a, drawer: null });
+  }
+
+  function daysUrl(d: string | null) {
+    return buildUrl({ days: d, drawer: null });
+  }
+
   function drawerUrl(jobId: string) {
     return buildUrl({ drawer: jobId });
   }
@@ -177,7 +238,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
   const groupStates = activeGroup ? (GROUPS[activeGroup] ?? []) : null;
 
   // Filter label for the jobs table header
-  const filterLabel = searchQ
+  const baseLabel = searchQ
     ? `matching "${searchQ}"`
     : activeState
     ? `(${activeState})`
@@ -186,6 +247,13 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
     : mugReadyOnly
     ? '(mug:ready)'
     : 'total';
+  const extraLabels = [
+    activeApproval ? `approval: ${APPROVAL_LABELS[activeApproval] ?? activeApproval}` : null,
+    activeDays     ? `last ${activeDays}d` : null,
+  ].filter(Boolean);
+  const filterLabel = extraLabels.length > 0
+    ? `${baseLabel} · ${extraLabels.join(' · ')}`
+    : baseLabel;
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh', fontFamily: 'var(--font-sans)' }}>
@@ -290,6 +358,65 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
             <Suspense fallback={null}>
               <MugSearchBox defaultValue={searchQ} />
             </Suspense>
+          </div>
+
+          {/* Approval + date filters */}
+          <div style={{
+            display: 'flex', gap: '0.375rem', flexWrap: 'wrap', alignItems: 'center',
+            marginTop: '0.625rem', paddingTop: '0.625rem',
+            borderTop: '1px solid var(--border)',
+          }}>
+            <span style={{
+              fontSize: '0.66rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: '0.15rem',
+            }}>Approval</span>
+            {APPROVAL_FILTERS.map(({ key, label }) => {
+              const isActive = activeApproval === key;
+              const count = key === null ? jobs.length : (approvalCounts[key] ?? 0);
+              return (
+                <Link
+                  key={label}
+                  href={approvalUrl(key)}
+                  style={{
+                    padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.76rem',
+                    fontFamily: 'var(--font-mono)', textDecoration: 'none',
+                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    color: isActive ? '#fff' : 'var(--muted)',
+                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    fontWeight: isActive ? 600 : 400,
+                    opacity: key !== null && count === 0 ? 0.4 : 1,
+                  }}
+                >
+                  {label} <span style={{ opacity: 0.65 }}>({count})</span>
+                </Link>
+              );
+            })}
+
+            <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 0.375rem' }} />
+
+            <span style={{
+              fontSize: '0.66rem', fontFamily: 'var(--font-mono)', color: 'var(--muted)',
+              textTransform: 'uppercase', letterSpacing: '0.06em', marginRight: '0.15rem',
+            }}>Date</span>
+            {DATE_FILTERS.map(({ key, label }) => {
+              const isActive = activeDays === key;
+              return (
+                <Link
+                  key={label}
+                  href={daysUrl(key)}
+                  style={{
+                    padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.76rem',
+                    fontFamily: 'var(--font-mono)', textDecoration: 'none',
+                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    color: isActive ? '#fff' : 'var(--muted)',
+                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    fontWeight: isActive ? 600 : 400,
+                  }}
+                >
+                  {label}
+                </Link>
+              );
+            })}
           </div>
 
           {/* Secondary state pills — only when a group is selected */}
