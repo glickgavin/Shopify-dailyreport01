@@ -93,12 +93,25 @@ function absMonthToStr(absM: number): string {
 
 export async function computeMembershipMetrics(date: string): Promise<MembershipMetricsResult> {
   // Fetch ALL billing events — full history needed for cohort analysis.
-  const { data: events, error: evErr } = await supabaseAdmin
-    .from('membership_billing_events')
-    .select('customer_id, charged_at, net_amount, is_intro')
-    .order('charged_at', { ascending: true });
-  if (evErr) throw new Error(`membership_billing_events fetch: ${evErr.message}`);
-  if (!events || events.length === 0) throw new Error('No billing events found');
+  // Paginate past PostgREST's 1000-row default: without this only the oldest
+  // 1000 events are returned, silently truncating the most recent months and
+  // undercounting current-month cohorts (e.g. July 23 vs the real 103).
+  const events: Array<{ customer_id: string; charged_at: string; net_amount: number; is_intro: boolean }> = [];
+  {
+    const PAGE = 1000;
+    for (let from = 0; from < 1_000_000; from += PAGE) {
+      const { data: page, error: evErr } = await supabaseAdmin
+        .from('membership_billing_events')
+        .select('customer_id, charged_at, net_amount, is_intro')
+        .order('charged_at', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (evErr) throw new Error(`membership_billing_events fetch: ${evErr.message}`);
+      if (!page || page.length === 0) break;
+      events.push(...page);
+      if (page.length < PAGE) break;
+    }
+  }
+  if (events.length === 0) throw new Error('No billing events found');
 
   // Fetch today's snapshot rows for active_members count.
   const { data: snapRows, error: snapErr } = await supabaseAdmin
