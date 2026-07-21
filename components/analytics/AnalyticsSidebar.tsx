@@ -29,8 +29,9 @@ const NAV = [
   {
     group: 'Admin',
     items: [
-      { href: '/dashboard/admin',                 label: 'Admin Dashboard', exact: true },
-      { href: '/dashboard/admin/mug-fulfillment', label: 'Mug Fulfillment' },
+      { href: '/dashboard/admin',                  label: 'Admin Dashboard', exact: true },
+      { href: '/dashboard/admin/mug-fulfillment',  label: 'Mug Fulfillment' },
+      { href: '/dashboard/admin/paypal-subscriptions', label: 'PayPal Subscriptions' },
       { href: '/systems',                          label: 'Systems' },
     ],
   },
