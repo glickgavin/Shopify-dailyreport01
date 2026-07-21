@@ -129,13 +129,25 @@ function inferOne(
 export async function runMembershipStatusSnapshot(
   date: string,
 ): Promise<MembershipSnapshotResult> {
-  const { data: events, error: fetchErr } = await supabaseAdmin
-    .from('membership_billing_events')
-    .select('customer_id, charged_at, is_intro, net_amount')
-    .lte('charged_at', `${date}T23:59:59Z`)
-    .order('charged_at', { ascending: true });
-
-  if (fetchErr) throw new Error(`membership_billing_events fetch: ${fetchErr.message}`);
+  // Paginate past PostgREST's 1000-row default — otherwise only the oldest
+  // 1000 events (up to `date`) are returned, truncating recent months and
+  // corrupting the active / new / churned counts derived below.
+  const events: Array<{ customer_id: string; charged_at: string; is_intro: boolean; net_amount: number }> = [];
+  {
+    const PAGE = 1000;
+    for (let from = 0; from < 1_000_000; from += PAGE) {
+      const { data: page, error: fetchErr } = await supabaseAdmin
+        .from('membership_billing_events')
+        .select('customer_id, charged_at, is_intro, net_amount')
+        .lte('charged_at', `${date}T23:59:59Z`)
+        .order('charged_at', { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (fetchErr) throw new Error(`membership_billing_events fetch: ${fetchErr.message}`);
+      if (!page || page.length === 0) break;
+      events.push(...page);
+      if (page.length < PAGE) break;
+    }
+  }
 
   const result: MembershipSnapshotResult = {
     snapshot_date: date,
