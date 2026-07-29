@@ -5,6 +5,16 @@ export type ItemType = 'Membership' | 'Physical';
 export type PayGroup = 'Cash' | 'Non-Cash';
 export type MembershipType = 'new' | 'recurring';
 
+// Assumed lifetime value contributed by each NEW membership signup, in dollars.
+// Reports surface an LTV line (new members × this value) and a combined
+// "GP + LTV" headline. Adjust here to re-price membership LTV everywhere.
+export const MEMBER_LTV_VALUE = 70;
+
+// LTV credited for a given count of new members.
+export function memberLtv(newMembers: number): number {
+  return newMembers * MEMBER_LTV_VALUE;
+}
+
 export interface SummaryBlock {
   revenue: number;
   netSales: number;
