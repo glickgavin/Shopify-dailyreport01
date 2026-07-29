@@ -313,10 +313,9 @@ export default async function RangePage({
   const memNew       = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;
   const memRecurring = (memTypeRows ?? []).filter((m) => m.membership_type === 'recurring').length;
 
-  // New-member LTV over the range: new members × MEMBER_LTV_VALUE, added to GP
-  // for the "GP + LTV" headline.
-  const rangeLtv       = memberLtv(memNew);
-  const rangeGpPlusLtv = total.profit + rangeLtv;
+  // New-member LTV over the range: new members × MEMBER_LTV_VALUE. Headline
+  // "GP + LTV − Ads" = gross profit + LTV − ad spend (adCost from `derived`).
+  const rangeLtv = memberLtv(memNew);
 
   // ── stripe / paypal aggregation ───────────────────────────────────────────
   const stripeSummary  = aggStripeSnapshots((stripeSnaps  ?? []) as { payload: unknown }[]);
@@ -339,6 +338,9 @@ export default async function RangePage({
     stripeSummary?.refunds_total_cents ?? null,
     productOrders,
   );
+
+  // Headline: gross profit + new-member LTV − ad spend.
+  const rangeGpLtvMinusAds = total.profit + rangeLtv - derived.adCost;
 
   // ── aggregate products ────────────────────────────────────────────────────
   const productMap = new Map<string, {
@@ -555,9 +557,9 @@ export default async function RangePage({
               value={fmt(total.profit)}
             />
             <KpiCard
-              label="GP + LTV"
-              value={fmt(rangeGpPlusLtv)}
-              sub={`incl. ${fmt(rangeLtv)} LTV · ${memNew} new × $${MEMBER_LTV_VALUE}`}
+              label="GP + LTV − Ads"
+              value={fmt(rangeGpLtvMinusAds)}
+              sub={`+ ${fmt(rangeLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) − ${fmt(derived.adCost)} ads`}
             />
             <KpiCard
               label="Margin"

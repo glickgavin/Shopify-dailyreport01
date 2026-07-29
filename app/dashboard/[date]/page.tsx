@@ -136,9 +136,9 @@ export default async function DashboardPage({ params }: { params: { date: string
   const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0) + (summary.amazon_orders ?? 0);
 
   // New-member LTV: each new membership signup credited MEMBER_LTV_VALUE.
-  // Headline "GP + LTV" adds this to gross profit.
-  const dayLtv    = memberLtv(memNew);
-  const gpPlusLtv = summary.total_profit + dayLtv;
+  // Headline "GP + LTV − Ads" = gross profit + new-member LTV − ad spend.
+  // (adCost comes from `derived`, defined below.)
+  const dayLtv = memberLtv(memNew);
 
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
@@ -154,6 +154,9 @@ export default async function DashboardPage({ params }: { params: { date: string
     stripeSummary?.refunds_total_cents        ?? null,
     productOrders,
   );
+
+  // Headline: gross profit + new-member LTV − ad spend.
+  const gpLtvMinusAds = summary.total_profit + dayLtv - derived.adCost;
 
   const prevDerived = prevSummary ? computeDerivedKPIs(
     {
@@ -316,9 +319,9 @@ export default async function DashboardPage({ params }: { params: { date: string
             value={fmt(summary.total_profit)}
           />
           <KpiCard
-            label="GP + LTV"
-            value={fmt(gpPlusLtv)}
-            sub={`incl. ${fmt(dayLtv)} LTV · ${memNew} new × $${MEMBER_LTV_VALUE}`}
+            label="GP + LTV − Ads"
+            value={fmt(gpLtvMinusAds)}
+            sub={`+ ${fmt(dayLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) − ${fmt(derived.adCost)} ads`}
           />
           <KpiCard
             label="Margin"
