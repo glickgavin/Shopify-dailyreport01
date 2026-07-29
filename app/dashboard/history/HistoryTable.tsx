@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type CSSProperties } from 'react';
 import Link from 'next/link';
 import type { HistoryRow } from './page';
 
@@ -39,6 +39,29 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
       return sort.dir === 'asc' ? cmp : -cmp;
     }),
   [filtered, sort]);
+
+  // Totals over the currently-filtered rows. Sums for money/counts; AOV and
+  // Margin are recomputed from the totals (not summed).
+  const totals = useMemo(() => {
+    const t = {
+      revenue: 0, net_sales: 0, orders: 0, profit: 0,
+      gp_ads: 0, gp_ads_ltv: 0, cash: 0, non_cash: 0, mem: 0,
+    };
+    for (const r of filtered) {
+      t.revenue    += r.total_revenue;
+      t.net_sales  += r.total_net_sales;
+      t.orders     += r.total_orders;
+      t.profit     += r.gross_profit;
+      t.gp_ads     += r.gp_ads;
+      t.gp_ads_ltv += r.gp_ads_ltv;
+      t.cash       += r.phys_cash_revenue;
+      t.non_cash   += r.phys_non_cash_revenue;
+      t.mem        += r.mem_revenue;
+    }
+    return t;
+  }, [filtered]);
+  const totalAov    = totals.orders > 0 ? totals.revenue / totals.orders : 0;
+  const totalMargin = totals.revenue > 0 ? (totals.profit / totals.revenue) * 100 : 0;
 
   function toggle(key: SortKey) {
     setSort((prev) => prev.key === key
@@ -180,8 +203,36 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
+              <td style={tf(false)}>Total · {sorted.length} days</td>
+              <td style={tf()}>{fmt(totals.revenue)}</td>
+              <td style={{ ...tf(), color: 'var(--muted)' }}>{fmt(totals.net_sales)}</td>
+              <td style={tf()}>{totals.orders.toLocaleString()}</td>
+              <td style={tf()}>{fmt(totalAov)}</td>
+              <td style={tf()}>{totalMargin.toFixed(1)}%</td>
+              <td style={tf()}>{fmt(totals.profit)}</td>
+              <td style={{ ...tf(), color: totals.gp_ads < 0 ? '#dc2626' : 'inherit' }}>{fmt(totals.gp_ads)}</td>
+              <td style={{ ...tf(), color: 'var(--accent)' }}>{fmt(totals.gp_ads_ltv)}</td>
+              <td style={{ ...tf(), color: 'var(--cash-blue-dark)' }}>{fmt(totals.cash)}</td>
+              <td style={{ ...tf(), color: 'var(--nc-green-dark)' }}>{fmt(totals.non_cash)}</td>
+              <td style={{ ...tf(), color: 'var(--muted)' }}>{fmt(totals.mem)}</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </>
   );
+}
+
+// Totals-row cell style.
+function tf(right = true): CSSProperties {
+  return {
+    padding: '0.7rem 1rem',
+    textAlign: right ? 'right' : 'left',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    whiteSpace: 'nowrap',
+  };
 }
