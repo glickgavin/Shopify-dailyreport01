@@ -106,6 +106,9 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
               <Th label="Orders"    k="total_orders" />
               <Th label="AOV"       k="total_aov" />
               <Th label="Margin"    k="total_margin" />
+              <Th label="GP"           k="gross_profit" />
+              <Th label="GP − Ads"     k="gp_ads" />
+              <Th label="GP − Ads + LTV" k="gp_ads_ltv" />
               <Th label="Cash"      k="phys_cash_revenue" />
               <Th label="Non-Cash"  k="phys_non_cash_revenue" />
               <Th label="Mem Rev"   k="mem_revenue" />
@@ -155,6 +158,15 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
                 </td>
                 <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: r.total_margin < 80 ? '#dc2626' : 'inherit' }}>
                   {r.total_margin.toFixed(1)}%
+                </td>
+                <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>
+                  {fmt(r.gross_profit)}
+                </td>
+                <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: r.gp_ads < 0 ? '#dc2626' : 'inherit' }}>
+                  {fmt(r.gp_ads)}
+                </td>
+                <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600, color: 'var(--accent)' }}>
+                  {fmt(r.gp_ads_ltv)}
                 </td>
                 <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--cash-blue-dark)' }}>
                   {fmt(r.phys_cash_revenue)}

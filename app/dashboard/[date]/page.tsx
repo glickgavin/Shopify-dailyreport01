@@ -6,7 +6,7 @@ export const revalidate = 0;
 import { addDays, subDays, parseISO, isValid, format } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAds } from '@/lib/ads';
-import { computeDerivedKPIs } from '@/lib/business-rules';
+import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct, calcDelta,
@@ -134,6 +134,11 @@ export default async function DashboardPage({ params }: { params: { date: string
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
   const productOrders = (summary.phys_cash_orders ?? 0) + (summary.phys_non_cash_orders ?? 0) + (summary.amazon_orders ?? 0);
+
+  // New-member LTV: each new membership signup credited MEMBER_LTV_VALUE.
+  // Headline "GP + LTV" adds this to gross profit.
+  const dayLtv    = memberLtv(memNew);
+  const gpPlusLtv = summary.total_profit + dayLtv;
 
   const summaryAsProcessed = {
     total:      { revenue: summary.total_revenue,     profit: summary.total_profit,     orders: summary.total_orders },
@@ -296,7 +301,7 @@ export default async function DashboardPage({ params }: { params: { date: string
         {/* Row 1 */}
         <div style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
+          gridTemplateColumns: 'repeat(5, 1fr)',
           gap: 10,
         }}>
           <KpiCard
@@ -309,6 +314,11 @@ export default async function DashboardPage({ params }: { params: { date: string
           <KpiCard
             label="Gross Profit"
             value={fmt(summary.total_profit)}
+          />
+          <KpiCard
+            label="GP + LTV"
+            value={fmt(gpPlusLtv)}
+            sub={`incl. ${fmt(dayLtv)} LTV · ${memNew} new × $${MEMBER_LTV_VALUE}`}
           />
           <KpiCard
             label="Margin"

@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { subDays, format, parseISO, isValid } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAdsRange } from '@/lib/ads';
-import { computeDerivedKPIs } from '@/lib/business-rules';
+import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import {
   fmt, fmtDec, fmtPct,
@@ -313,6 +313,11 @@ export default async function RangePage({
   const memNew       = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;
   const memRecurring = (memTypeRows ?? []).filter((m) => m.membership_type === 'recurring').length;
 
+  // New-member LTV over the range: new members × MEMBER_LTV_VALUE, added to GP
+  // for the "GP + LTV" headline.
+  const rangeLtv       = memberLtv(memNew);
+  const rangeGpPlusLtv = total.profit + rangeLtv;
+
   // ── stripe / paypal aggregation ───────────────────────────────────────────
   const stripeSummary  = aggStripeSnapshots((stripeSnaps  ?? []) as { payload: unknown }[]);
   const paypalSummary  = aggPaypalSnapshots((paypalSnaps  ?? []) as { payload: unknown }[]);
@@ -534,10 +539,10 @@ export default async function RangePage({
           {/* ── TOTAL KPIs ──────────────────────────────────────────────── */}
           <SectionLabel>Total Business</SectionLabel>
 
-          {/* Row 1 — 4 KPI cards */}
+          {/* Row 1 — 5 KPI cards */}
           <div style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(5, 1fr)',
             gap: 10,
           }}>
             <KpiCard
@@ -548,6 +553,11 @@ export default async function RangePage({
             <KpiCard
               label="Gross Profit"
               value={fmt(total.profit)}
+            />
+            <KpiCard
+              label="GP + LTV"
+              value={fmt(rangeGpPlusLtv)}
+              sub={`incl. ${fmt(rangeLtv)} LTV · ${memNew} new × $${MEMBER_LTV_VALUE}`}
             />
             <KpiCard
               label="Margin"
