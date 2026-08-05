@@ -1,4 +1,5 @@
 import Sparkline from './Sparkline';
+import InfoTip from './InfoTip';
 
 // ── formatters ────────────────────────────────────────────────────────────────
 
@@ -37,13 +38,15 @@ export function DeltaBadge({ pct }: { pct: number | null }) {
 // ── KpiCard ───────────────────────────────────────────────────────────────────
 
 export function KpiCard({
-  label, value, sub, delta, sparkData,
+  label, value, sub, delta, sparkData, info,
 }: {
   label: string;
   value: string;
   sub?: string;
   delta?: number | null;
   sparkData?: number[];
+  /** How this figure is calculated — shown in an ⓘ popover next to the label. */
+  info?: string;
 }) {
   return (
     <div style={{
@@ -55,6 +58,7 @@ export function KpiCard({
     }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>
         {label}
+        {info && <InfoTip text={info} />}
       </div>
       <div style={{ fontSize: '1.875rem', fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
         {value}
@@ -91,7 +95,7 @@ export function MiniStat({ label, value, highlight, color }: { label: string; va
 // ── SegmentCard ───────────────────────────────────────────────────────────────
 
 export function SegmentCard({
-  title, revenue, orders, qty, netSales, shipping, cogs, profit, margin, aov, theme, breakdownLabel,
+  title, revenue, orders, qty, netSales, shipping, cogs, profit, margin, aov, theme, breakdownLabel, info,
 }: {
   title: string;
   revenue: number;
@@ -105,6 +109,8 @@ export function SegmentCard({
   aov: number;
   theme: 'cash' | 'noncash' | 'membership' | 'amazon';
   breakdownLabel?: string;
+  /** How this segment is defined/calculated — shown in an ⓘ popover next to the title. */
+  info?: string;
 }) {
   // Amazon: orange — matches the Amazon brand and visually separates the
   // channel from cash/non-cash/membership which are blue/green/purple.
@@ -136,6 +142,7 @@ export function SegmentCard({
         <div style={{ width: 10, height: 10, borderRadius: '50%', background: accent }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: accentDark, fontWeight: 500 }}>
           {title}
+          {info && <InfoTip text={info} />}
         </span>
       </div>
       <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: accentDark }}>
@@ -166,7 +173,7 @@ export function SegmentCard({
 // delta.inverted=true → green on decrease, red on increase (for cost metrics)
 
 export function TintCard({
-  label, value, sub, bg, border, textColor, subColor, delta,
+  label, value, sub, bg, border, textColor, subColor, delta, info,
 }: {
   label: string;
   value: string;
@@ -176,6 +183,8 @@ export function TintCard({
   textColor: string;
   subColor: string;
   delta?: { pct: number | null; inverted?: boolean };
+  /** How this figure is calculated — shown in an ⓘ popover next to the label. */
+  info?: string;
 }) {
   let badge: React.ReactNode = null;
   if (delta && delta.pct !== null) {
@@ -205,6 +214,7 @@ export function TintCard({
     }}>
       <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: subColor, marginBottom: '0.4rem' }}>
         {label}
+        {info && <InfoTip text={info} />}
       </div>
       <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: textColor, lineHeight: 1.15 }}>
         {value}{badge}
@@ -217,13 +227,15 @@ export function TintCard({
 // ── StripeSegmentCard ─────────────────────────────────────────────────────────
 
 export function StripeSegmentCard({
-  grossCents, refundCents, charges, refunds, uniqueCustomers,
+  grossCents, refundCents, charges, refunds, uniqueCustomers, info,
 }: {
   grossCents: number;
   refundCents: number;
   charges: number;
   refunds: number;
   uniqueCustomers: number;
+  /** How this figure is calculated — shown in an ⓘ popover next to the title. */
+  info?: string;
 }) {
   const gross  = grossCents  / 100;
   const refund = refundCents / 100;
@@ -241,6 +253,7 @@ export function StripeSegmentCard({
         <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#6366f1' }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4338ca', fontWeight: 500 }}>
           Stripe
+          {info && <InfoTip text={info} />}
         </span>
       </div>
       <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: '#4338ca' }}>
@@ -263,7 +276,7 @@ export function StripeSegmentCard({
 
 export function PayPalSegmentCard({
   grossCents, refundCents, transactions, refunds, uniqueCustomers,
-  excludedTransfersCount, excludedTransfersNetCents,
+  excludedTransfersCount, excludedTransfersNetCents, info,
 }: {
   grossCents: number;
   refundCents: number;
@@ -279,6 +292,8 @@ export function PayPalSegmentCard({
   excludedTransfersCount?: number;
   /** Signed net cents of the excluded rows (negative if outflows > inflows). */
   excludedTransfersNetCents?: number;
+  /** How this figure is calculated — shown in an ⓘ popover next to the title. */
+  info?: string;
 }) {
   const gross  = grossCents  / 100;
   const refund = refundCents / 100;
@@ -297,6 +312,7 @@ export function PayPalSegmentCard({
         <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#003087' }} />
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#001f5b', fontWeight: 500 }}>
           PayPal
+          {info && <InfoTip text={info} />}
         </span>
       </div>
       <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: '#001f5b' }}>
