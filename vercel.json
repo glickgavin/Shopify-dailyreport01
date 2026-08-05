@@ -9,6 +9,10 @@
       "schedule": "12 7 * * *"
     },
     {
+      "path": "/api/cron/paypal-auto-allocate",
+      "schedule": "40 7 * * *"
+    },
+    {
       "path": "/api/cron/daily",
       "schedule": "15 7 * * *"
     },
