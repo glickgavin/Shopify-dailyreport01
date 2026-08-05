@@ -309,6 +309,7 @@ export default async function DashboardPage({ params }: { params: { date: string
         }}>
           <KpiCard
             label="Total Revenue"
+            info={"Net Sales + Shipping across all Shopify orders for the day (Pacific-time reporting day).\nNet Sales = line-item price after discounts. Includes Cash, Non-Cash, Membership and Amazon segments."}
             value={fmt(summary.total_revenue)}
             sub={`${summary.total_orders} orders · ${productOrders} product · ${summary.total_qty} units`}
             delta={calcDelta(summary.total_revenue, prevSummary?.total_revenue)}
@@ -316,20 +317,24 @@ export default async function DashboardPage({ params }: { params: { date: string
           />
           <KpiCard
             label="Gross Profit"
+            info={"Total Revenue − COGS.\nCOGS = Shopify's 'Cost per item' on each variant × quantity. Variants with no cost set (e.g. membership) count as $0 cost. Shipping charges count as revenue with no shipping cost deducted."}
             value={fmt(summary.total_profit)}
           />
           <KpiCard
             label="GP + LTV − Ads"
+            info={"Gross Profit + new-member LTV − Meta ad spend.\nLTV = new membership signups × $70 assumed lifetime value. One combined view of today's profit including the future value of new members, net of advertising."}
             value={fmt(gpLtvMinusAds)}
             sub={`+ ${fmt(dayLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) − ${fmt(derived.adCost)} ads`}
           />
           <KpiCard
             label="Margin"
+            info={"Gross Profit ÷ Total Revenue."}
             value={fmtPct(summary.total_margin)}
             delta={calcDelta(summary.total_margin, prevSummary?.total_margin)}
           />
           <KpiCard
             label="AOV"
+            info={"Average order value: Total Revenue ÷ total orders."}
             value={fmtDec(summary.total_aov)}
             delta={calcDelta(summary.total_aov, prevSummary?.total_aov)}
           />
@@ -346,6 +351,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           {/* Cash In */}
           <TintCard
             label="Cash In"
+            info={"Actual money received today:\nCash-segment revenue + Membership revenue + Stripe net (direct charges − refunds).\nExcludes Non-Cash (store-credit) and Amazon orders."}
             value={fmt(derived.cashIn)}
             sub="Shopify + Members + Stripe"
             bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
@@ -353,6 +359,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           {/* Ad Cost */}
           <TintCard
             label="Ad Cost"
+            info={"Meta (Facebook/Instagram) ad spend for the day, from the Meta Ads API, with Meta-attributed purchase count."}
             value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
             sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
             bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
@@ -360,6 +367,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           {/* CPA — Ad */}
           <TintCard
             label="CPA — Ad"
+            info={"Cost per acquisition, attributed:\nAd Cost ÷ Meta-attributed purchases."}
             value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
             sub="attributed orders"
             bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
@@ -368,6 +376,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           {/* CPA — Blended */}
           <TintCard
             label="CPA — Blended"
+            info={"Cost per acquisition, blended:\nAd Cost ÷ ALL physical product orders (Cash + Non-Cash + Amazon), regardless of ad attribution."}
             value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
             sub={`${productOrders} product orders`}
             bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
@@ -376,6 +385,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           {/* Daily Profit */}
           <TintCard
             label="GP − Ads"
+            info={"Gross Profit − Ad Cost. Today's profit after advertising, before the LTV credit."}
             value={derived.dailyProfit < 0
               ? `−${fmt(Math.abs(derived.dailyProfit))}`
               : fmt(derived.dailyProfit)}
@@ -392,6 +402,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <SegmentCard
             theme="cash"
             title="Cash"
+            info={"Physical product orders paid with a real payment gateway (the order's dominant gateway is anything other than Shopify store credit).\nRevenue = net sales + shipping. $0-revenue orders (comps/redos) are shown separately as Internal, not here."}
             revenue={summary.phys_cash_revenue}
             netSales={summary.phys_cash_net_sales}
             shipping={summary.phys_cash_shipping}
@@ -406,6 +417,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <SegmentCard
             theme="noncash"
             title="Non-Cash"
+            info={"Physical product orders paid mostly with Shopify STORE CREDIT (the order's dominant payment gateway is shopify_store_credit).\nNo new money changes hands, so this segment is excluded from Cash In."}
             revenue={summary.phys_non_cash_revenue}
             netSales={summary.phys_non_cash_net_sales}
             shipping={summary.phys_non_cash_shipping}
@@ -420,6 +432,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           <SegmentCard
             theme="membership"
             title="Membership"
+            info={"Orders whose line-item title matches Membership/VIP.\nNew = first billing, Recurring = renewals. No 'Cost per item' is set on membership, so COGS is $0 and margin shows 100%."}
             revenue={summary.mem_revenue}
             netSales={summary.mem_net_sales}
             shipping={summary.mem_shipping}
@@ -443,6 +456,7 @@ export default async function DashboardPage({ params }: { params: { date: string
               <SegmentCard
                 theme="amazon"
                 title="Amazon"
+                info={"Orders whose Shopify sourceName is 'amazon' (Codisto Marketplace Connect). Kept separate from Cash/Non-Cash and excluded from Cash In."}
                 revenue={Number(s.amazon_revenue ?? 0)}
                 netSales={Number(s.amazon_net_sales ?? 0)}
                 shipping={Number(s.amazon_shipping ?? 0)}
@@ -457,6 +471,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           })()}
           {stripeSummary && (
             <StripeSegmentCard
+              info={"Stripe direct charges for the day, from the daily Stripe snapshot.\nNet = gross successful charges − refunds. This is payment-processor money, separate from Shopify order revenue; its net feeds into Cash In."}
               grossCents={stripeSummary.direct_success_total_cents}
               refundCents={stripeSummary.refunds_total_cents}
               charges={stripeSummary.direct_success_count}
@@ -466,6 +481,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           )}
           {paypalSummary && (
             <PayPalSegmentCard
+              info={"PayPal transactions for the day, from the daily PayPal snapshot.\nNet = gross successful transactions − refunds. Internal balance movements (payouts to bank, transfers, currency conversions) are excluded and noted at the bottom of the card."}
               grossCents={paypalSummary.direct_success_total_cents}
               refundCents={paypalSummary.refunds_total_cents}
               transactions={paypalSummary.direct_success_count}
