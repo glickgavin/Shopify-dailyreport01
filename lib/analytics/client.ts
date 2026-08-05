@@ -58,6 +58,7 @@ export interface AnalyticsEvent {
   utm_term?: string | null;
   referrer?: string | null;
   email?: string | null;
+  country?: string | null;
   // e-commerce
   revenue?: number | null;
   currency?: string | null;

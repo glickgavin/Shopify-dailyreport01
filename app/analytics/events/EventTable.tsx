@@ -106,6 +106,7 @@ function EventDetailDrawer({ event, onClose }: { event: AnalyticsEvent; onClose:
         <DetailRow label="Page path" value={event.page_path} />
         <DetailRow label="Page URL"  value={event.page_url} />
         <DetailRow label="Device"    value={event.device_type} />
+        <DetailRow label="Country"   value={event.country} />
         <DetailRow label="Session"   value={<span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{event.session_id ?? '—'}</span>} />
         <DetailRow label="Visitor"   value={<span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{event.visitor_id ?? '—'}</span>} />
         <DetailRow label="Referrer"  value={event.referrer} />
@@ -185,7 +186,7 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
     if (fPath        && !contains(e.page_path, fPath))       return false;
     if (fDevice      && e.device_type?.toLowerCase() !== fDevice) return false;
     if (fSession     && !contains(e.session_id, fSession))   return false;
-    if (fLocation    && !contains((e.properties as Record<string, string> | null)?.location, fLocation)) return false;
+    if (fLocation    && !contains(e.country ?? (e.properties as Record<string, string> | null)?.location, fLocation)) return false;
     if (fButtonLabel && !contains((e.properties as Record<string, string> | null)?.button_label, fButtonLabel)) return false;
     return true;
   }), [events, fTime, fName, fCat, fPath, fDevice, fSession, fLocation, fButtonLabel]);
@@ -305,7 +306,7 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
                   {e.session_id ?? '—'}
                 </td>
                 <td style={{ ...tdStyle, color: 'var(--muted)', fontSize: '0.78rem', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {(e.properties as Record<string, string> | null)?.location ?? '—'}
+                  {e.country ?? (e.properties as Record<string, string> | null)?.location ?? '—'}
                 </td>
                 <td style={{ ...tdStyle, color: 'var(--muted)', fontSize: '0.78rem', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {(e.properties as Record<string, string> | null)?.button_label ?? '—'}

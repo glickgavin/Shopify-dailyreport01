@@ -93,6 +93,7 @@ export async function runForwardSync(kind: 'forward' | 'manual') {
         magic_id: (r.magic_id ?? null) as string | null,
         click_id: (r.click_id ?? null) as string | null,
         email: (r.email ?? null) as string | null,
+        country: (r.country ?? null) as string | null,
       }));
 
       const { error: upsertErr, count } = await supabaseAdmin

@@ -33,6 +33,7 @@ interface MirrorRow {
   magic_id: string | null;
   click_id: string | null;
   email: string | null;
+  country: string | null;
 }
 
 function toEvent(r: MirrorRow): AnalyticsEvent {
@@ -48,6 +49,7 @@ function toEvent(r: MirrorRow): AnalyticsEvent {
     page_url: r.page_url ?? undefined,
     page_path: r.page_path ?? undefined,
     referrer: r.referrer ?? null,
+    country: r.country ?? null,
     device_type: r.device_type ?? null,
     created_at: r.created_at,
   };
