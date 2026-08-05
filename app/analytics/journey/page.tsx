@@ -76,19 +76,27 @@ export default async function UserJourneyPage({ searchParams }: Props) {
   let events: AnalyticsEvent[] = [];
   let error: string | null = null;
   try {
-    let q = supabaseAdmin
-      .from('analytics_events_mirror')
-      .select('*')
-      .gte('created_at', from)
-      .lte('created_at', to)
-      .order('created_at', { ascending: false })
-      .limit(10000);
+    // PostgREST caps each request at 1000 rows, so page up to the 10k cap.
+    const PAGE = 1000;
+    const CAP = 10000;
+    for (let off = 0; off < CAP; off += PAGE) {
+      let q = supabaseAdmin
+        .from('analytics_events_mirror')
+        .select('*')
+        .gte('created_at', from)
+        .lte('created_at', to)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })
+        .range(off, off + PAGE - 1);
 
-    if (focusSession) q = q.eq('session_id', focusSession);
+      if (focusSession) q = q.eq('session_id', focusSession);
 
-    const { data, error: dbErr } = await q;
-    if (dbErr) throw dbErr;
-    events = (data as MirrorRow[]).map(toEvent);
+      const { data, error: dbErr } = await q;
+      if (dbErr) throw dbErr;
+      const batch = data as MirrorRow[];
+      events.push(...batch.map(toEvent));
+      if (batch.length < PAGE) break;
+    }
   } catch (e) {
     error = String(e);
   }
