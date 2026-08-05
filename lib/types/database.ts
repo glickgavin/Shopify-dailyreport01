@@ -147,6 +147,7 @@ export type Database = {
       analytics_events_mirror: {
         Row: {
           click_id: string | null
+          country: string | null
           created_at: string
           device_type: string | null
           email: string | null
@@ -165,6 +166,7 @@ export type Database = {
         }
         Insert: {
           click_id?: string | null
+          country?: string | null
           created_at: string
           device_type?: string | null
           email?: string | null
@@ -183,6 +185,7 @@ export type Database = {
         }
         Update: {
           click_id?: string | null
+          country?: string | null
           created_at?: string
           device_type?: string | null
           email?: string | null

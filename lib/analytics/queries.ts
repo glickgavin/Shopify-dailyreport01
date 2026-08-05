@@ -28,6 +28,7 @@ interface MirrorRow {
   magic_id: string | null;
   click_id: string | null;
   email: string | null;
+  country: string | null;
   synced_at: string;
 }
 
@@ -44,6 +45,7 @@ function normalizeMirrorRow(r: MirrorRow): AnalyticsEvent {
     page_path: r.page_path ?? undefined,
     referrer: r.referrer ?? null,
     email: r.email ?? null,
+    country: r.country ?? null,
     device_type: r.device_type ?? null,
     created_at: r.created_at,
   };
