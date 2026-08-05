@@ -30,12 +30,21 @@ export default async function EventExplorerPage({ searchParams }: Props) {
 
   try {
     // ── 1. Distinct event names (lean query — just the name column) ────────
-    const { data: typeRows } = await supabaseAdmin
-      .from('analytics_events_mirror')
-      .select('event_name')
-      .gte('created_at', from)
-      .lte('created_at', to);
-    allTypes = Array.from(new Set((typeRows ?? []).map(r => r.event_name))).sort();
+    // PostgREST caps each request at 1000 rows, so page the newest rows in the
+    // range (10k is plenty to surface every recurring event type).
+    const typeNames = new Set<string>();
+    for (let off = 0; off < 10000; off += 1000) {
+      const { data: typeRows } = await supabaseAdmin
+        .from('analytics_events_mirror')
+        .select('event_name')
+        .gte('created_at', from)
+        .lte('created_at', to)
+        .order('created_at', { ascending: false })
+        .range(off, off + 999);
+      for (const r of typeRows ?? []) typeNames.add(r.event_name);
+      if ((typeRows ?? []).length < 1000) break;
+    }
+    allTypes = Array.from(typeNames).sort();
 
     // ── 2. Events — server-side filtered when a type is active ─────────────
     // When activeType is set (via URL pill click), paginate to get ALL events

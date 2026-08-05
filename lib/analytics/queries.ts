@@ -51,41 +51,45 @@ function normalizeMirrorRow(r: MirrorRow): AnalyticsEvent {
   };
 }
 
+// PostgREST silently caps every request at 1000 rows regardless of the
+// requested range, so any fetch larger than that must page in 1000-row
+// chunks. All larger limits below are honoured by looping over pages.
+const SERVER_PAGE = 1000;
+
 export async function fetchEventsLocal(opts: FetchOptions = {}): Promise<AnalyticsEvent[]> {
-  const limit = Math.min(opts.limit ?? 1000, 5000);
+  const limit = Math.min(opts.limit ?? 1000, 100_000);
   const offset = opts.offset ?? 0;
+  const all: AnalyticsEvent[] = [];
 
-  let q = supabaseAdmin
-    .from('analytics_events_mirror')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .order('id', { ascending: false })
-    .range(offset, offset + limit - 1);
+  while (all.length < limit) {
+    const from = offset + all.length;
+    const to = Math.min(from + SERVER_PAGE, offset + limit) - 1;
 
-  if (opts.startDate) q = q.gte('created_at', toUTCStart(opts.startDate));
-  if (opts.endDate)   q = q.lte('created_at', toUTCEnd(opts.endDate));
-  if (opts.eventType) q = q.eq('event_name', opts.eventType);
-  if (opts.pagePath)  q = q.eq('page_path', opts.pagePath);
-  if (opts.deviceType) q = q.eq('device_type', opts.deviceType);
-  if (opts.sessionId) q = q.eq('session_id', opts.sessionId);
+    let q = supabaseAdmin
+      .from('analytics_events_mirror')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .range(from, to);
 
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data as MirrorRow[]).map(normalizeMirrorRow);
+    if (opts.startDate) q = q.gte('created_at', toUTCStart(opts.startDate));
+    if (opts.endDate)   q = q.lte('created_at', toUTCEnd(opts.endDate));
+    if (opts.eventType) q = q.eq('event_name', opts.eventType);
+    if (opts.pagePath)  q = q.eq('page_path', opts.pagePath);
+    if (opts.deviceType) q = q.eq('device_type', opts.deviceType);
+    if (opts.sessionId) q = q.eq('session_id', opts.sessionId);
+
+    const { data, error } = await q;
+    if (error) throw error;
+    const batch = data as MirrorRow[];
+    all.push(...batch.map(normalizeMirrorRow));
+    if (batch.length < to - from + 1) break; // source exhausted
+  }
+
+  return all;
 }
 
 export async function fetchAllEventsLocal(opts: FetchOptions = {}): Promise<AnalyticsEvent[]> {
-  const PAGE = 5000;
   const CAP = 100_000;
-  const all: AnalyticsEvent[] = [];
-  let offset = 0;
-
-  while (all.length < CAP) {
-    const batch = await fetchEventsLocal({ ...opts, limit: PAGE, offset });
-    all.push(...batch);
-    if (batch.length < PAGE) break;
-    offset += PAGE;
-  }
-
-  return all.slice(0, CAP);
+  return fetchEventsLocal({ ...opts, limit: CAP, offset: 0 });
 }
