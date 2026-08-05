@@ -4,7 +4,7 @@ import { saveFunnel, deleteFunnel } from './actions';
 import type { Predicate, PredicateKind, PredicateOp } from '@/lib/analytics/predicates';
 import type { FunnelStep, AvailableDefinition } from './page';
 
-const KINDS: PredicateKind[] = ['event_type', 'page_path', 'device_type', 'property'];
+const KINDS: PredicateKind[] = ['event_type', 'page_path', 'device_type', 'country', 'property'];
 const OPS: PredicateOp[] = ['is', 'is_not', 'contains', 'not_contains', 'exists', 'not_exists'];
 
 interface Props {

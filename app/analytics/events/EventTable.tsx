@@ -241,7 +241,7 @@ export default function EventTable({ events, allTypes, activeType, searchParams 
               <th style={thStyle}>Page Path</th>
               <th style={{ ...thStyle, width: 100 }}>Device</th>
               <th style={{ ...thStyle, width: 140 }}>Session</th>
-              <th style={{ ...thStyle, width: 130 }}>Location</th>
+              <th style={{ ...thStyle, width: 130 }}>Country</th>
               <th style={{ ...thStyle, width: 150 }}>Button Label</th>
             </tr>
             <tr style={{ borderBottom: '2px solid var(--border)' }}>

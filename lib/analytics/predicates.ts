@@ -1,6 +1,6 @@
 import type { AnalyticsEvent } from './client';
 
-export type PredicateKind = 'event_type' | 'page_path' | 'property' | 'device_type';
+export type PredicateKind = 'event_type' | 'page_path' | 'property' | 'device_type' | 'country';
 export type PredicateOp = 'is' | 'is_not' | 'contains' | 'not_contains' | 'exists' | 'not_exists';
 
 export interface Predicate {
@@ -20,6 +20,8 @@ export function matchesPredicate(event: AnalyticsEvent, predicate: Predicate): b
     target = event.page_path;
   } else if (kind === 'device_type') {
     target = event.device_type;
+  } else if (kind === 'country') {
+    target = event.country;
   } else if (kind === 'property' && key) {
     const props = event.properties as Record<string, unknown> | undefined;
     target = props?.[key] != null ? String(props[key]) : undefined;
