@@ -549,24 +549,29 @@ export default async function RangePage({
           }}>
             <KpiCard
               label="Total Revenue"
+              info={"Net Sales + Shipping across all Shopify orders in the range, summed from the stored daily totals (Pacific-time days).\nIncludes Cash, Non-Cash, Membership and Amazon segments."}
               value={fmt(total.revenue)}
               sub={`${total.orders} orders · ${productOrders} product · ${total.qty} units`}
             />
             <KpiCard
               label="Gross Profit"
+              info={"Revenue − COGS, summed over the range.\nCOGS = Shopify's 'Cost per item' × quantity; variants with no cost set (e.g. membership) count as $0. Shipping counts as revenue with no shipping cost deducted."}
               value={fmt(total.profit)}
             />
             <KpiCard
               label="GP + LTV − Ads"
+              info={"Gross Profit + new-member LTV − Meta ad spend, over the range.\nLTV = new membership signups × $70 assumed lifetime value."}
               value={fmt(rangeGpLtvMinusAds)}
               sub={`+ ${fmt(rangeLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) − ${fmt(derived.adCost)} ads`}
             />
             <KpiCard
               label="Margin"
+              info={"Gross Profit ÷ Total Revenue over the range."}
               value={fmtPct(total.margin)}
             />
             <KpiCard
               label="AOV"
+              info={"Average order value: Total Revenue ÷ total orders over the range."}
               value={fmtDec(total.aov)}
             />
           </div>
@@ -581,30 +586,35 @@ export default async function RangePage({
           }}>
             <TintCard
               label="Cash In"
+              info={"Actual money received over the range:\nCash-segment revenue + Membership revenue + Stripe net (direct charges − refunds).\nExcludes Non-Cash (store-credit) and Amazon orders."}
               value={fmt(derived.cashIn)}
               sub="Shopify + Members + Stripe"
               bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
             />
             <TintCard
               label="Ad Cost"
+              info={"Meta (Facebook/Instagram) ad spend over the range, from the Meta Ads API, with Meta-attributed purchase count."}
               value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
               sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
               bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             />
             <TintCard
               label="CPA — Ad"
+              info={"Cost per acquisition, attributed:\nAd Cost ÷ Meta-attributed purchases."}
               value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
               sub="attributed orders"
               bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             />
             <TintCard
               label="CPA — Blended"
+              info={"Cost per acquisition, blended:\nAd Cost ÷ ALL physical product orders (Cash + Non-Cash + Amazon), regardless of ad attribution."}
               value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
               sub={`${productOrders} product orders`}
               bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
             />
             <TintCard
               label="GP − Ads"
+              info={"Gross Profit − Ad Cost over the range, before the LTV credit."}
               value={derived.dailyProfit < 0
                 ? `−${fmt(Math.abs(derived.dailyProfit))}`
                 : fmt(derived.dailyProfit)}
@@ -620,6 +630,7 @@ export default async function RangePage({
           <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
             <SegmentCard
               title="Cash"
+              info={"Physical product orders paid with a real payment gateway (dominant gateway is anything other than Shopify store credit).\nRevenue = net sales + shipping. $0-revenue orders (comps/redos) are shown separately as Internal, not here."}
               theme="cash"
               revenue={physCash.revenue}
               orders={physCash.orders}
@@ -634,6 +645,7 @@ export default async function RangePage({
             />
             <SegmentCard
               title="Non-Cash"
+              info={"Physical product orders paid mostly with Shopify STORE CREDIT (dominant gateway shopify_store_credit).\nNo new money changes hands, so this segment is excluded from Cash In."}
               theme="noncash"
               revenue={physNonCash.revenue}
               orders={physNonCash.orders}
@@ -648,6 +660,7 @@ export default async function RangePage({
             />
             <SegmentCard
               title="Membership"
+              info={"Orders whose line-item title matches Membership/VIP.\nNew = first billing, Recurring = renewals. No 'Cost per item' is set on membership, so COGS is $0 and margin shows 100%."}
               theme="membership"
               revenue={membership.revenue}
               orders={membership.orders}
@@ -663,6 +676,7 @@ export default async function RangePage({
             {amazon.orders > 0 && (
               <SegmentCard
                 title="Amazon"
+              info={"Orders whose Shopify sourceName is 'amazon' (Codisto Marketplace Connect). Kept separate from Cash/Non-Cash and excluded from Cash In."}
                 theme="amazon"
                 revenue={amazon.revenue}
                 orders={amazon.orders}
@@ -677,6 +691,7 @@ export default async function RangePage({
             )}
             {stripeSummary && (
               <StripeSegmentCard
+                info={"Stripe direct charges over the range, summed from daily Stripe snapshots.\nNet = gross successful charges − refunds. Payment-processor money, separate from Shopify order revenue; net feeds into Cash In."}
                 grossCents={stripeSummary.direct_success_total_cents}
                 refundCents={stripeSummary.refunds_total_cents}
                 charges={stripeSummary.direct_success_count}
@@ -686,6 +701,7 @@ export default async function RangePage({
             )}
             {paypalSummary && (
               <PayPalSegmentCard
+                info={"PayPal transactions over the range, summed from daily PayPal snapshots.\nNet = gross successful transactions − refunds. Internal balance movements (payouts, transfers, conversions) are excluded and noted at the bottom of the card."}
                 grossCents={paypalSummary.direct_success_total_cents}
                 refundCents={paypalSummary.refunds_total_cents}
                 transactions={paypalSummary.direct_success_count}

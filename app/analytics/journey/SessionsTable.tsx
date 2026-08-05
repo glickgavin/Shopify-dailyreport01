@@ -10,6 +10,7 @@ export interface SessionSummary {
   first_event: string;
   last_event: string;
   device: string;
+  country: string;
   first_at: string;
   last_at: string;
   duration_s: number;
@@ -54,6 +55,7 @@ export default function SessionsTable({
 }) {
   const [fStarted, setFStarted]   = useState('');
   const [fDevice, setFDevice]     = useState('');
+  const [fCountry, setFCountry]   = useState('');
   const [fFirst, setFFirst]       = useState('');
   const [fSession, setFSession]   = useState('');
   const [fEmail, setFEmail]       = useState('');
@@ -62,19 +64,24 @@ export default function SessionsTable({
     () => Array.from(new Set(sessions.map(s => s.device).filter(d => d && d !== '—'))).sort(),
     [sessions],
   );
+  const countries = useMemo(
+    () => Array.from(new Set(sessions.map(s => s.country).filter(c => c && c !== '—'))).sort(),
+    [sessions],
+  );
 
   const filtered = useMemo(() => sessions.filter(s =>
     contains(s.first_at ? new Date(s.first_at).toLocaleString() : '', fStarted) &&
     (!fDevice || s.device === fDevice) &&
+    (!fCountry || s.country === fCountry) &&
     contains(s.first_event, fFirst) &&
     contains(s.session_id, fSession) &&
     contains(s.email, fEmail)
-  ), [sessions, fStarted, fDevice, fFirst, fSession, fEmail]);
+  ), [sessions, fStarted, fDevice, fCountry, fFirst, fSession, fEmail]);
 
-  const anyFilter = !!(fStarted || fDevice || fFirst || fSession || fEmail);
+  const anyFilter = !!(fStarted || fDevice || fCountry || fFirst || fSession || fEmail);
 
   function clearFilters() {
-    setFStarted(''); setFDevice(''); setFFirst(''); setFSession(''); setFEmail('');
+    setFStarted(''); setFDevice(''); setFCountry(''); setFFirst(''); setFSession(''); setFEmail('');
   }
 
   function SortTh({ label, col }: { label: string; col?: string }) {
@@ -112,6 +119,7 @@ export default function SessionsTable({
               <SortTh label="Events"      col="events" />
               <SortTh label="Duration"    col="duration" />
               <SortTh label="Device" />
+              <SortTh label="Country" />
               <SortTh label="First Event" />
               <SortTh label="Session ID"  col="session" />
               <SortTh label="Email"       col="email" />
@@ -127,6 +135,12 @@ export default function SessionsTable({
                 <select value={fDevice} onChange={e => setFDevice(e.target.value)} style={{ ...filterInputStyle, cursor: 'pointer' }}>
                   <option value="">All</option>
                   {devices.map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </th>
+              <th style={{ padding: '0.4rem 0.6rem' }}>
+                <select value={fCountry} onChange={e => setFCountry(e.target.value)} style={{ ...filterInputStyle, cursor: 'pointer' }}>
+                  <option value="">All</option>
+                  {countries.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </th>
               <th style={{ padding: '0.4rem 0.6rem' }}>
@@ -152,6 +166,7 @@ export default function SessionsTable({
                 <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{s.events}</td>
                 <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{fmtDuration(s.duration_s)}</td>
                 <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{s.device}</td>
+                <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{s.country}</td>
                 <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{s.first_event}</td>
                 <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--muted)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.session_id}>
                   {s.session_id.length > 12 ? s.session_id.slice(0, 12) + '…' : s.session_id}
@@ -162,7 +177,7 @@ export default function SessionsTable({
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No sessions match the current filters</td></tr>
+              <tr><td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No sessions match the current filters</td></tr>
             )}
           </tbody>
         </table>

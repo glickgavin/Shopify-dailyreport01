@@ -138,6 +138,7 @@ export default async function UserJourneyPage({ searchParams }: Props) {
         first_event: sorted[0]?.event_type ?? '—',
         last_event: sorted[sorted.length - 1]?.event_type ?? '—',
         device: sorted[0]?.device_type ?? '—',
+        country: evts.find(e => e.country)?.country ?? '—',
         first_at: firstAt,
         last_at: lastAt,
         duration_s: durationS,
