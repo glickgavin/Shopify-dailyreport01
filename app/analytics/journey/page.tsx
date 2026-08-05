@@ -4,6 +4,7 @@ import { resolveDateRange } from '@/lib/analytics/dateRange';
 import { supabaseAdmin } from '@/lib/supabase';
 import { dateToUTCRange } from '@/lib/analytics/dateRange';
 import AnalyticsFilterBar from '@/components/analytics/AnalyticsFilterBar';
+import SessionsTable, { type SessionSummary } from './SessionsTable';
 import type { Preset } from '@/lib/analytics/dateRange';
 import type { AnalyticsEvent } from '@/lib/analytics/client';
 
@@ -14,19 +15,6 @@ interface Props {
     session_id?: string;
     sort?: string;
   }>;
-}
-
-interface SessionSummary {
-  session_id: string;
-  visitor_id?: string;
-  email?: string;
-  events: number;
-  first_event: string;
-  last_event: string;
-  device: string;
-  first_at: string;
-  last_at: string;
-  duration_s: number;
 }
 
 interface MirrorRow {
@@ -174,22 +162,9 @@ export default async function UserJourneyPage({ searchParams }: Props) {
     return `/analytics/journey?${p.toString()}`;
   }
 
-  const thBase: React.CSSProperties = {
-    padding: '0.5rem 0.75rem', textAlign: 'left', color: 'var(--muted)',
-    fontWeight: 600, fontSize: '0.72rem', textTransform: 'uppercase',
-    letterSpacing: '0.05em', position: 'sticky', top: 0, background: 'var(--surface)',
-    whiteSpace: 'nowrap',
-  };
-
-  const colDefs: { label: string; sortCol?: string }[] = [
-    { label: 'Started',     sortCol: 'started' },
-    { label: 'Events',      sortCol: 'events' },
-    { label: 'Duration',    sortCol: 'duration' },
-    { label: 'Device' },
-    { label: 'First Event' },
-    { label: 'Session ID',  sortCol: 'session' },
-    { label: 'Email',       sortCol: 'email' },
-  ];
+  const sortHrefs: Record<string, string> = Object.fromEntries(
+    ['started', 'events', 'duration', 'session', 'email'].map(c => [c, sortHref(c)]),
+  );
 
   return (
     <div style={{ padding: '2rem', maxWidth: 1400 }}>
@@ -226,63 +201,15 @@ export default async function UserJourneyPage({ searchParams }: Props) {
       )}
 
       <div style={{ display: 'grid', gridTemplateColumns: focusSession ? '3fr 2fr' : '1fr', gap: 16, marginTop: '1.5rem' }}>
-        {/* Session list */}
+        {/* Session list — client component with per-column filters */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', fontSize: '0.85rem', fontWeight: 600 }}>
-            Sessions
-            <span style={{ fontSize: '0.75rem', color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>{sessions.length.toLocaleString()} total</span>
-          </div>
-          <div style={{ maxHeight: 560, overflowY: 'auto', overflowX: 'auto' }}>
-            <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse', minWidth: 700 }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                  {colDefs.map(({ label: h, sortCol }) => (
-                    <th key={h} style={thBase}>
-                      {sortCol ? (
-                        <a
-                          href={sortHref(sortCol)}
-                          style={{ color: sortKey === sortCol ? 'var(--text)' : 'var(--muted)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
-                        >
-                          {h}
-                          {sortKey === sortCol && <span style={{ fontSize: '0.65rem' }}>▼</span>}
-                        </a>
-                      ) : h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sessions.slice(0, 200).map(s => (
-                  <tr
-                    key={s.session_id}
-                    style={{ borderBottom: '1px solid var(--border)', background: focusSession === s.session_id ? 'rgba(26,26,46,0.05)' : 'transparent', cursor: 'pointer' }}
-                  >
-                    <td style={{ padding: '0.5rem 0.75rem' }}>
-                      <a
-                        href={`/analytics/journey?preset=${sp.preset ?? '7d'}&session_id=${s.session_id}&sort=${sortKey}`}
-                        style={{ color: 'var(--text)', textDecoration: 'none', fontFamily: 'var(--font-mono)', fontSize: '0.73rem' }}
-                      >
-                        {s.first_at ? new Date(s.first_at).toLocaleString() : '—'}
-                      </a>
-                    </td>
-                    <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{s.events}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)' }}>{fmtDuration(s.duration_s)}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', color: 'var(--muted)', textTransform: 'capitalize' }}>{s.device}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.72rem' }}>{s.first_event}</td>
-                    <td style={{ padding: '0.5rem 0.75rem', fontFamily: 'var(--font-mono)', fontSize: '0.68rem', color: 'var(--muted)', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.session_id}>
-                      {s.session_id.length > 12 ? s.session_id.slice(0, 12) + '…' : s.session_id}
-                    </td>
-                    <td style={{ padding: '0.5rem 0.75rem', fontSize: '0.75rem', color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={s.email}>
-                      {s.email ?? <span style={{ opacity: 0.4 }}>—</span>}
-                    </td>
-                  </tr>
-                ))}
-                {sessions.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No sessions</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <SessionsTable
+            sessions={sessions}
+            sortKey={sortKey}
+            focusSession={focusSession}
+            preset={sp.preset ?? '7d'}
+            sortHrefs={sortHrefs}
+          />
         </div>
 
         {/* Session detail / timeline */}
