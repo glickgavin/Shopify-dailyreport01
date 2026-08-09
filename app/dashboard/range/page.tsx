@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAdsRange } from '@/lib/ads';
 import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
+import DiscountsSection from './DiscountsSection';
 import {
   fmt, fmtDec, fmtPct,
   KpiCard, TintCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel,
@@ -200,9 +201,9 @@ function aggPaypalSnapshots(snaps: { payload: unknown }[]): PayPalSummary | null
 export default async function RangePage({
   searchParams,
 }: {
-  searchParams: { preset?: string; from?: string; to?: string };
+  searchParams: { preset?: string; from?: string; to?: string; d_product?: string; d_variant?: string };
 }) {
-  const { preset, from, to } = searchParams;
+  const { preset, from, to, d_product, d_variant } = searchParams;
   const { startDate, endDate, label, days } = computeRange(preset, from, to);
 
   const [
@@ -970,6 +971,16 @@ export default async function RangePage({
 
           {/* ── PRODUCTS TABLE ──────────────────────────────────────────── */}
           <div className="desktop-only">
+          <DiscountsSection
+            startDate={startDate}
+            endDate={endDate}
+            preset={preset}
+            from={from}
+            to={to}
+            dProduct={d_product}
+            dVariant={d_variant}
+          />
+
           <SectionLabel>Products</SectionLabel>
           <div style={{
             background: 'var(--surface)',

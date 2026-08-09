@@ -21,6 +21,11 @@ export interface OrderRow {
    * the classifier in business-rules.ts.
    */
   channel: 'amazon' | null;
+  /**
+   * Discount codes applied to the order (order-level in Shopify, duplicated
+   * onto each line row). Empty array = no discount code used.
+   */
+  discount_codes: string[];
 }
 
 export interface PaymentRow {
@@ -53,6 +58,7 @@ const ORDERS_QUERY = `
         name
         createdAt
         sourceName
+        discountCodes
         customer { id numberOfOrders }
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
@@ -87,6 +93,7 @@ interface GQLOrder {
   name: string;
   createdAt: string;
   sourceName: string | null;
+  discountCodes: string[];
   customer: { id: string; numberOfOrders: string | number } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
@@ -245,6 +252,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         quantity_ordered: li.quantity,
         customer_type: orderCustomerType.get(order.name) ?? 'new',
         channel,
+        discount_codes: order.discountCodes ?? [],
       });
 
       // Membership billing event — title must match /VIP Membership/i, net > 0,
