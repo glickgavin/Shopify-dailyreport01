@@ -17,6 +17,7 @@ interface DRow {
   discount_code: string;
   orders: number;
   units: number;
+  units_primary: number;
   net_sales: number;
   order_value: number;
 }
@@ -34,7 +35,7 @@ const th = (right = true): React.CSSProperties => ({
 function DailyTable({ title, badge, rows }: { title: string; badge?: string; rows: DRow[] }) {
   const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
   const tOrders = sorted.reduce((s, r) => s + r.orders, 0);
-  const tUnits  = sorted.reduce((s, r) => s + r.units, 0);
+  const tUnits  = sorted.reduce((s, r) => s + r.units_primary, 0);
   const tNet    = sorted.reduce((s, r) => s + r.net_sales, 0);
   const tValue  = sorted.reduce((s, r) => s + r.order_value, 0);
 
@@ -68,8 +69,8 @@ function DailyTable({ title, badge, rows }: { title: string; badge?: string; row
                 <tr key={r.date} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={td(false)}>{r.date}</td>
                   <td style={td()}>{r.orders}</td>
-                  <td style={td()}>{r.units}</td>
-                  <td style={td()}>{r.orders > 0 ? (r.units / r.orders).toFixed(1) : '—'}</td>
+                  <td style={td()}>{r.units_primary}</td>
+                  <td style={td()}>{r.orders > 0 ? (r.units_primary / r.orders).toFixed(1) : '—'}</td>
                   <td style={td(true, { fontWeight: 600 })}>{fmt(r.net_sales)}</td>
                   <td style={td()}>{r.orders > 0 ? fmtDec(r.order_value / r.orders) : '—'}</td>
                 </tr>
@@ -106,7 +107,7 @@ export default async function DiscountsSection({
 
   const [{ data: filteredRows }, { data: allLevelRows }, { data: optionRows }, { data: priorRows }] = await Promise.all([
     // Rows at the selected filter level, for the tables
-    supabaseAdmin.from('daily_discounts').select('date,discount_code,orders,units,net_sales,order_value')
+    supabaseAdmin.from('daily_discounts').select('date,discount_code,orders,units,units_primary,net_sales,order_value')
       .gte('date', startDate).lte('date', endDate)
       .eq('product_title', product).eq('variant_title', variant),
     // ALL-level rows, to enumerate codes + compute share of blended orders
@@ -249,7 +250,7 @@ export default async function DiscountsSection({
       <DailyTable title="NO DISCOUNT" rows={byCode('')} />
 
       <div style={{ fontSize: '0.68rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginBottom: '2rem' }}>
-        Orders may carry multiple codes, so code tables can overlap · Orders = orders containing ≥1 matching line · Net $ = net sales of matching lines · AOV = full order value ÷ orders · PT days, no partial days
+        Tables can overlap when orders carry multiple discounts · Discounts include codes plus automatic/manual order discounts (shipping-only discounts ignored) · Units counts Magic Portrait items only · Orders = orders containing ≥1 matching line · Net $ = net sales of matching lines · AOV = full order value ÷ orders · PT days, no partial days
       </div>
     </>
   );

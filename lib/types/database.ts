@@ -443,6 +443,7 @@ export type Database = {
           orders: number
           product_title: string
           units: number
+          units_primary: number
           variant_title: string
         }
         Insert: {
@@ -454,6 +455,7 @@ export type Database = {
           orders?: number
           product_title: string
           units?: number
+          units_primary?: number
           variant_title: string
         }
         Update: {
@@ -465,6 +467,7 @@ export type Database = {
           orders?: number
           product_title?: string
           units?: number
+          units_primary?: number
           variant_title?: string
         }
         Relationships: []

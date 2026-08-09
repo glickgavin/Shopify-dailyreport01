@@ -134,7 +134,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     : null;
 
   // ── Discounts rollup (product_title=ALL, variant=ALL level) ────────────────
-  type DiscountRow = { discount_code: string; orders: number; units: number; net_sales: number; order_value: number };
+  type DiscountRow = { discount_code: string; orders: number; units: number; units_primary: number; net_sales: number; order_value: number };
   const dRows = (discountRows ?? []) as DiscountRow[];
   const dBlended = dRows.find(r => r.discount_code === 'ALL') ?? null;
   const dNone    = dRows.find(r => r.discount_code === '') ?? null;
@@ -792,14 +792,14 @@ export default async function DashboardPage({ params }: { params: { date: string
                     ...(dNone ? [{ label: 'No discount', row: dNone, bold: false }] : []),
                   ].map(({ label, row, bold }, i, arr) => {
                     const share = dBlended.orders > 0 ? (row.orders / dBlended.orders) * 100 : 0;
-                    const uo    = row.orders > 0 ? row.units / row.orders : 0;
+                    const uo    = row.orders > 0 ? row.units_primary / row.orders : 0;
                     const aov   = row.orders > 0 ? row.order_value / row.orders : 0;
                     return (
                       <tr key={label} style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', background: bold ? 'var(--surface2)' : 'transparent' }}>
                         <td style={{ padding: '0.65rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: bold ? 700 : 500 }}>{label}</td>
                         <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--muted)' }}>{bold ? '100%' : `${share.toFixed(0)}%`}</td>
                         <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: bold ? 700 : 400 }}>{row.orders}</td>
-                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{row.units}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{row.units_primary}</td>
                         <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{uo.toFixed(1)}</td>
                         <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: 600 }}>{fmt(row.net_sales)}</td>
                         <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{fmtDec(aov)}</td>
@@ -809,7 +809,7 @@ export default async function DashboardPage({ params }: { params: { date: string
                 </tbody>
               </table>
               <div style={{ padding: '0.6rem 1rem', borderTop: '1px solid var(--border)', fontSize: '0.68rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                Orders may carry multiple codes, so code rows can overlap · Net $ = net sales of matching lines · AOV = full order value ÷ orders
+                Rows can overlap when orders carry multiple discounts · Units counts Magic Portrait items only · Net $ = net sales of matching lines · AOV = full order value ÷ orders
               </div>
             </div>
           </>
