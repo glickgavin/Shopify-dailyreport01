@@ -22,8 +22,11 @@ export interface OrderRow {
    */
   channel: 'amazon' | null;
   /**
-   * Discount codes applied to the order (order-level in Shopify, duplicated
-   * onto each line row). Empty array = no discount code used.
+   * Discount attribution for the order (order-level, duplicated onto each
+   * line row). Derived from discountApplications, ignoring shipping-only
+   * discounts (targetType SHIPPING_LINE): discount codes when present, else
+   * automatic/manual/script discount titles (e.g. "VIP-OFF").
+   * Empty array = no product-level discount on the order.
    */
   discount_codes: string[];
 }
@@ -59,6 +62,16 @@ const ORDERS_QUERY = `
         createdAt
         sourceName
         discountCodes
+        discountApplications(first: 10) {
+          nodes {
+            __typename
+            targetType
+            ... on DiscountCodeApplication { code }
+            ... on AutomaticDiscountApplication { title }
+            ... on ManualDiscountApplication { title }
+            ... on ScriptDiscountApplication { title }
+          }
+        }
         customer { id numberOfOrders }
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
@@ -94,6 +107,14 @@ interface GQLOrder {
   createdAt: string;
   sourceName: string | null;
   discountCodes: string[];
+  discountApplications: {
+    nodes: {
+      __typename: string;
+      targetType: string | null;
+      code?: string;
+      title?: string;
+    }[];
+  };
   customer: { id: string; numberOfOrders: string | number } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
@@ -232,6 +253,15 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
     // sourceName 'web' / 'shopify_draft_order' / etc. → channel stays null.
     const channel: OrderRow['channel'] = order.sourceName === 'amazon' ? 'amazon' : null;
 
+    // Discount attribution: ignore shipping-only discounts; prefer codes,
+    // else automatic/manual/script discount titles.
+    const apps = (order.discountApplications?.nodes ?? []).filter(a => a.targetType !== 'SHIPPING_LINE');
+    const codeApps  = apps.filter(a => a.__typename === 'DiscountCodeApplication' && a.code);
+    const titleApps = apps.filter(a => a.__typename !== 'DiscountCodeApplication' && a.title);
+    const attribution = codeApps.length > 0
+      ? Array.from(new Set(codeApps.map(a => a.code!)))
+      : Array.from(new Set(titleApps.map(a => a.title!)));
+
     for (let i = 0; i < lineItems.length; i++) {
       const li = lineItems[i];
       const lineRevenue = lineRevenues[i];
@@ -252,7 +282,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         quantity_ordered: li.quantity,
         customer_type: orderCustomerType.get(order.name) ?? 'new',
         channel,
-        discount_codes: order.discountCodes ?? [],
+        discount_codes: attribution,
       });
 
       // Membership billing event — title must match /VIP Membership/i, net > 0,
