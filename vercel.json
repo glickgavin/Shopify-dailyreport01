@@ -17,6 +17,10 @@
       "schedule": "15 7 * * *"
     },
     {
+      "path": "/api/cron/daily-backfill",
+      "schedule": "*/10 * * * *"
+    },
+    {
       "path": "/api/cron/membership-daily",
       "schedule": "20 7 * * *"
     },
