@@ -433,6 +433,42 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_discounts: {
+        Row: {
+          created_at: string
+          date: string
+          discount_code: string
+          net_sales: number
+          order_value: number
+          orders: number
+          product_title: string
+          units: number
+          variant_title: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          discount_code: string
+          net_sales?: number
+          order_value?: number
+          orders?: number
+          product_title: string
+          units?: number
+          variant_title: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          discount_code?: string
+          net_sales?: number
+          order_value?: number
+          orders?: number
+          product_title?: string
+          units?: number
+          variant_title?: string
+        }
+        Relationships: []
+      }
       daily_customer_segments: {
         Row: {
           aov: number

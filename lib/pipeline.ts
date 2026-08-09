@@ -4,6 +4,7 @@ import { toZonedTime, format } from 'date-fns-tz';
 import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
 import { saveDay, upsertMembershipBillingEvents } from '@/lib/persistence';
+import { computeDailyDiscountRows, saveDailyDiscounts } from '@/lib/discounts';
 import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
 import { postDailySummary } from '@/lib/slack';
@@ -40,6 +41,11 @@ export async function runPipeline(
   console.log(`[pipeline] Processed: revenue=${processed.total.revenue}, orders=${processed.total.orders}`);
 
   await saveDay(processed, orderRows, paymentRows);
+
+  // Discount-code rollup — same rows, same rules, so it ties out with the rest.
+  const discountRows = computeDailyDiscountRows(orderRows, date);
+  await saveDailyDiscounts(date, discountRows);
+  console.log(`[pipeline] Saved ${discountRows.length} daily_discounts rows`);
 
   const memCount = await upsertMembershipBillingEvents(membershipBillingRows);
   if (membershipBillingRows.length > 0) {
