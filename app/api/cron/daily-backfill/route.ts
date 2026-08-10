@@ -17,7 +17,10 @@ export const maxDuration = 300;
 //
 // Note: re-running a past day recomputes it from current Shopify state, so
 // historical totals can shift slightly (e.g. refunds since the original run).
-const BACKFILL_DAYS = 7;
+// Widened 7 → 40 to backfill July 2026 discount tables (one day per 10-min
+// run ≈ 5½ h for a month); harmless afterwards — it no-ops once nothing is
+// missing in the window.
+const BACKFILL_DAYS = 40;
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
