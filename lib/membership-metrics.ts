@@ -73,6 +73,7 @@ export interface MembershipMetricsResult {
     realized_revenue_per_starter: Record<string, number>;
     monthly_churn:                Array<{ month: string; churn_rate: number; base: number }>;
     ltv_assumptions:              { intro_price: number; recurring_price: number; tail_retention: number; tail_months: number };
+    retention_after_first:        { rate: number | null; eligible: number };
   };
 }
 
@@ -246,6 +247,26 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
   const oneAndDoneCount = eligForRenewal.filter(p => p.absMonthsCharged.size === 1).length;
   const oneAndDoneRate  = eligForRenewal.length > 0 ? oneAndDoneCount / eligForRenewal.length : 0;
 
+  // ── 7b. Retention after the one-and-done cliff (real subscribers) ─────────
+  // Among (customer, month-k) pairs where the member had already renewed at
+  // least once (k ≥ 1) and month k+1 is complete: share also billed in k+1.
+  // This is the blended monthly retention of members who survived the
+  // $9.99 → $39.99 step-up, so the month-0 drop-off cannot drag it down.
+  let rafEligible = 0;
+  let rafRetained = 0;
+  for (const p of allCustomers) {
+    for (const absM of Array.from(p.absMonthsCharged)) {
+      const k = absM - p.firstAbsMonth;
+      if (k >= 1 && absM + 1 <= lastComplete) {
+        rafEligible++;
+        if (p.absMonthsCharged.has(absM + 1)) rafRetained++;
+      }
+    }
+  }
+  const retentionAfterFirst = rafEligible > 0
+    ? Math.round((rafRetained / rafEligible) * 10000) / 10000
+    : null;
+
   // ── 8. Billing-cycle distribution (unique months billed) ──────────────────
   const billingCycleDist = {
     billed_1:    allCustomers.filter(p => p.absMonthsCharged.size === 1).length,
@@ -307,6 +328,7 @@ export async function computeMembershipMetrics(date: string): Promise<Membership
         tail_retention:  Math.round(tailRetention * 10000) / 10000,
         tail_months:     tailMonths,
       },
+      retention_after_first: { rate: retentionAfterFirst, eligible: rafEligible },
     },
   };
 }
