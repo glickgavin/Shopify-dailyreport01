@@ -116,6 +116,13 @@ export default function PriceListClient() {
     router.replace(`/dashboard/admin/price-list?product=${numericId(gid)}`);
   };
 
+  const [idInput, setIdInput] = useState('');
+  const submitId = (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = numericId(idInput.trim());
+    if (id) selectProduct(id);
+  };
+
   if (loading && !data) {
     return <div style={{ padding: 32, fontFamily: 'system-ui, sans-serif' }}>Loading live prices from Shopify…</div>;
   }
@@ -177,6 +184,34 @@ export default function PriceListClient() {
         </button>
         {error && <span style={{ color: '#dc2626', fontSize: 13 }}>refresh failed: {error}</span>}
       </div>
+
+      <form onSubmit={submitId} style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10 }}>
+        <label htmlFor="product-id-input" style={{ fontSize: 13, color: '#6b7280' }}>
+          Product ID:
+        </label>
+        <input
+          id="product-id-input"
+          value={idInput}
+          onChange={e => setIdInput(e.target.value)}
+          placeholder={numericId(product.id)}
+          inputMode="numeric"
+          style={{
+            padding: '5px 8px', fontSize: 13, border: '1px solid #d1d5db',
+            borderRadius: 6, width: 160, fontVariantNumeric: 'tabular-nums',
+          }}
+        />
+        <button
+          type="submit"
+          disabled={loading || !idInput.trim()}
+          style={{
+            padding: '5px 14px', fontSize: 13, border: '1px solid #d1d5db',
+            borderRadius: 6, background: '#fff',
+            cursor: loading || !idInput.trim() ? 'default' : 'pointer',
+          }}
+        >
+          View prices
+        </button>
+      </form>
 
       {/* SECTION 1 — Base Prices */}
       <h2 style={h2Style}>Base Prices</h2>
