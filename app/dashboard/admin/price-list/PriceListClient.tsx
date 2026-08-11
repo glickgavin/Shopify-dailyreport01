@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 type MarketKey = 'US' | 'CA' | 'EU' | 'UK';
 
@@ -18,10 +19,11 @@ interface Discount {
   minQuantity: number | null;
 }
 interface PriceListData {
-  product: { title: string; variants: Variant[] };
+  product: { id: string; title: string; variants: Variant[] };
   discounts: Discount[];
   fetchedAt: string;
 }
+interface ProductOption { id: string; title: string }
 
 const MARKETS: { key: MarketKey; label: string; symbol: string }[] = [
   { key: 'US', label: 'USA',    symbol: '$'  },
@@ -36,6 +38,8 @@ const fmt = (symbol: string, amount: number | null) =>
 // 0.15 → "15%", 0.125 → "12.5%"
 const pctLabel = (p: number | null) =>
   p === null ? '?' : `${parseFloat((p * 100).toFixed(2))}%`;
+
+const numericId = (gid: string) => gid.split('/').pop() ?? gid;
 
 const cellStyle: React.CSSProperties = {
   padding: '8px 14px',
@@ -73,7 +77,12 @@ function InactiveRow({ name, extraCols }: { name: string; extraCols: number }) {
 }
 
 export default function PriceListClient() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const productParam = searchParams.get('product') ?? '';
+
   const [data, setData] = useState<PriceListData | null>(null);
+  const [products, setProducts] = useState<ProductOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,7 +90,8 @@ export default function PriceListClient() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/price-list', { cache: 'no-store' });
+      const q = productParam ? `?product=${encodeURIComponent(productParam)}` : '';
+      const res = await fetch(`/api/price-list${q}`, { cache: 'no-store' });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
       setData(json);
@@ -90,9 +100,21 @@ export default function PriceListClient() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [productParam]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Product picker options load once; failure just leaves the dropdown empty.
+  useEffect(() => {
+    fetch('/api/price-list?list=true', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(j => setProducts(j.products ?? []))
+      .catch(() => {});
+  }, []);
+
+  const selectProduct = (gid: string) => {
+    router.replace(`/dashboard/admin/price-list?product=${numericId(gid)}`);
+  };
 
   if (loading && !data) {
     return <div style={{ padding: 32, fontFamily: 'system-ui, sans-serif' }}>Loading live prices from Shopify…</div>;
@@ -118,12 +140,26 @@ export default function PriceListClient() {
   });
 
   const bundles = discounts.filter(d => d.key.startsWith('bundle'));
-  const tile8 = product.variants.find(v => v.title.startsWith('8'));
+  // Bundle baskets are priced on the smallest (first) variant.
+  const bundleVariant = product.variants[0] ?? null;
 
   return (
     <div style={{ padding: '24px 32px 64px', fontFamily: 'system-ui, sans-serif', color: '#111827', maxWidth: 1100 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>Price List — {product.title}</h1>
+        {products.length > 0 && (
+          <select
+            value={product.id}
+            onChange={e => selectProduct(e.target.value)}
+            disabled={loading}
+            style={{ padding: '5px 8px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, maxWidth: 280 }}
+          >
+            {!products.some(p => p.id === product.id) && (
+              <option value={product.id}>{product.title}</option>
+            )}
+            {products.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+          </select>
+        )}
         <span style={{ fontSize: 13, color: '#6b7280' }}>
           Last refreshed: {new Date(fetchedAt).toLocaleString()}
         </span>
@@ -196,10 +232,10 @@ export default function PriceListClient() {
         </div>
       ))}
 
-      {/* SECTION 3 — Bundle Basket Totals (8x8) */}
-      <h2 style={h2Style}>Bundle Basket Totals (8x8)</h2>
-      {!tile8 ? (
-        <p style={{ color: '#dc2626' }}>8x8 variant not found on product.</p>
+      {/* SECTION 3 — Bundle Basket Totals (smallest variant) */}
+      <h2 style={h2Style}>Bundle Basket Totals{bundleVariant ? ` (${bundleVariant.title})` : ''}</h2>
+      {!bundleVariant ? (
+        <p style={{ color: '#dc2626' }}>Product has no variants.</p>
       ) : (
         <table style={tableStyle}>
           <thead>
@@ -220,7 +256,7 @@ export default function PriceListClient() {
                       {d.name} ({pctLabel(d.percentage)}) — min {d.minQuantity} tiles
                     </td>
                     {MARKETS.map(m => {
-                      const base = tile8.prices[m.key];
+                      const base = bundleVariant.prices[m.key];
                       return (
                         <td key={m.key} style={cellStyle}>
                           {fmt(m.symbol, base === null ? null : base * d.minQuantity! * (1 - d.percentage!))}
@@ -233,7 +269,7 @@ export default function PriceListClient() {
                       marginal cost per extra tile
                     </td>
                     {MARKETS.map(m => {
-                      const base = tile8.prices[m.key];
+                      const base = bundleVariant.prices[m.key];
                       return (
                         <td key={m.key} style={{ ...cellStyle, fontStyle: 'italic' }}>
                           {fmt(m.symbol, base === null ? null : base * (1 - d.percentage!))}

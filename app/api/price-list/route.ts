@@ -1,11 +1,12 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { shopifyGraphQL } from '@/lib/shopify';
 import { getAdminSessionUser } from '@/lib/admin-session';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const PRODUCT_ID = 'gid://shopify/Product/8471707222212';
+// Default product when none is selected: "Magic Portraits".
+const DEFAULT_PRODUCT_ID = 'gid://shopify/Product/8471707222212';
 
 // Markets: US→USA, CA→Canada, DE→EU, GB→UK (aliased in the GraphQL query below).
 // Discounts to surface. `match` is compared (case-insensitively) against the
@@ -38,13 +39,17 @@ interface DiscountShape {
   minimumRequirement?: { __typename: string; greaterThanOrEqualToQuantity?: string } | null;
 }
 interface PriceListQuery {
-  product: { title: string; variants: { nodes: VariantNode[] } } | null;
+  product: { id: string; title: string; variants: { nodes: VariantNode[] } } | null;
   discountNodes: { nodes: { id: string; discount: DiscountShape }[] };
+}
+interface ProductListQuery {
+  products: { nodes: { id: string; title: string; status: string }[] };
 }
 
 const QUERY = /* GraphQL */ `
   query PriceList($id: ID!) {
     product(id: $id) {
+      id
       title
       variants(first: 50) {
         nodes {
@@ -81,6 +86,14 @@ const QUERY = /* GraphQL */ `
   }
 `;
 
+const PRODUCTS_QUERY = /* GraphQL */ `
+  query PriceListProducts {
+    products(first: 250, sortKey: TITLE, query: "status:active") {
+      nodes { id title status }
+    }
+  }
+`;
+
 const norm = (s: string) => s.trim().toUpperCase();
 
 function matchesDiscount(d: DiscountShape, match: string): boolean {
@@ -89,17 +102,44 @@ function matchesDiscount(d: DiscountShape, match: string): boolean {
   return (d.codes?.nodes ?? []).some(c => norm(c.code) === target);
 }
 
-export async function GET() {
+// Accept either a bare numeric ID or a full product gid.
+function resolveProductId(raw: string | null): string | null {
+  if (!raw) return DEFAULT_PRODUCT_ID;
+  const trimmed = raw.trim();
+  if (/^\d+$/.test(trimmed)) return `gid://shopify/Product/${trimmed}`;
+  if (/^gid:\/\/shopify\/Product\/\d+$/.test(trimmed)) return trimmed;
+  return null;
+}
+
+export async function GET(req: NextRequest) {
   const user = await getAdminSessionUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // ?list=true → lightweight product picker payload.
+  if (req.nextUrl.searchParams.get('list') === 'true') {
+    try {
+      const data = await shopifyGraphQL<ProductListQuery>(PRODUCTS_QUERY);
+      return NextResponse.json({
+        products: data.products.nodes.map(p => ({ id: p.id, title: p.title })),
+      });
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 502 });
+    }
+  }
+
+  const productId = resolveProductId(req.nextUrl.searchParams.get('product'));
+  if (!productId) {
+    return NextResponse.json({ error: 'Invalid product parameter' }, { status: 400 });
+  }
+
   try {
-    const data = await shopifyGraphQL<PriceListQuery>(QUERY, { id: PRODUCT_ID });
+    const data = await shopifyGraphQL<PriceListQuery>(QUERY, { id: productId });
     if (!data.product) {
-      return NextResponse.json({ error: `Product ${PRODUCT_ID} not found` }, { status: 502 });
+      return NextResponse.json({ error: `Product ${productId} not found` }, { status: 404 });
     }
 
-    // Sort variants by leading tile size (8x8, 12x12, 16x16).
+    // Sort variants by leading numeric size when present (8x8, 12x12, 16x16);
+    // non-numeric titles keep Shopify's order (sort is stable).
     const variants = [...data.product.variants.nodes]
       .sort((a, b) => (parseInt(a.title, 10) || 0) - (parseInt(b.title, 10) || 0))
       .map(v => ({
@@ -140,7 +180,7 @@ export async function GET() {
     });
 
     return NextResponse.json({
-      product: { title: data.product.title, variants },
+      product: { id: data.product.id, title: data.product.title, variants },
       discounts,
       fetchedAt: new Date().toISOString(),
     });
