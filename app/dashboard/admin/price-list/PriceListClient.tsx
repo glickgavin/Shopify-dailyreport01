@@ -152,12 +152,14 @@ export default function PriceListClient() {
             value={product.id}
             onChange={e => selectProduct(e.target.value)}
             disabled={loading}
-            style={{ padding: '5px 8px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, maxWidth: 280 }}
+            style={{ padding: '5px 8px', fontSize: 13, border: '1px solid #d1d5db', borderRadius: 6, maxWidth: 360 }}
           >
             {!products.some(p => p.id === product.id) && (
-              <option value={product.id}>{product.title}</option>
+              <option value={product.id}>{product.title} — {numericId(product.id)}</option>
             )}
-            {products.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+            {products.map(p => (
+              <option key={p.id} value={p.id}>{p.title} — {numericId(p.id)}</option>
+            ))}
           </select>
         )}
         <span style={{ fontSize: 13, color: '#6b7280' }}>
