@@ -37,6 +37,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     { data: prevStripeSnap },
     { data: paypalSnap },
     { data: discountRows },
+    { data: countryRows },
     ads,
     prevAds,
   ] = await Promise.all([
@@ -50,6 +51,7 @@ export default async function DashboardPage({ params }: { params: { date: string
     supabaseAdmin.from('stripe_daily_snapshot').select('payload').eq('date', prevDate).single(),
     supabaseAdmin.from('paypal_daily_snapshot').select('payload').eq('date', date).single(),
     supabaseAdmin.from('daily_discounts').select('*').eq('date', date).eq('product_title', 'ALL').eq('variant_title', 'ALL'),
+    (supabaseAdmin as any).from('daily_countries').select('*').eq('date', date),
     fetchAds(date),
     fetchAds(prevDate),
   ]);
@@ -141,6 +143,19 @@ export default async function DashboardPage({ params }: { params: { date: string
   const dCodes   = dRows
     .filter(r => r.discount_code !== 'ALL' && r.discount_code !== '')
     .sort((a, b) => b.orders - a.orders);
+
+  // ── Country-of-purchase rollup ─────────────────────────────────────────────
+  type CountryRow = { country: string; orders: number; units: number; units_primary: number; net_sales: number; order_value: number };
+  const cRows    = (countryRows ?? []) as CountryRow[];
+  const cBlended = cRows.find(r => r.country === 'ALL') ?? null;
+  const cUnknown = cRows.find(r => r.country === '') ?? null;
+  const cList    = cRows
+    .filter(r => r.country !== 'ALL' && r.country !== '')
+    .sort((a, b) => b.orders - a.orders || b.net_sales - a.net_sales);
+  const regionNames = new Intl.DisplayNames(['en'], { type: 'region' });
+  const countryLabel = (code: string) => {
+    try { return `${regionNames.of(code) ?? code} (${code})`; } catch { return code; }
+  };
 
   // Derived KPIs — computed from Shopify summary + Stripe + Ads
   // summary is a flat DB row; build the minimal ProcessedDay-compatible shape for the helper
@@ -810,6 +825,49 @@ export default async function DashboardPage({ params }: { params: { date: string
               </table>
               <div style={{ padding: '0.6rem 1rem', borderTop: '1px solid var(--border)', fontSize: '0.68rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
                 Rows can overlap when orders carry multiple discounts · Units counts Magic Portrait items only · Net $ = net sales of matching lines · AOV = full order value ÷ orders
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── COUNTRY OF PURCHASE ─────────────────────────────────────────── */}
+        {cRows.length > 0 && cBlended && (
+          <>
+            <SectionLabel>Country of Purchase</SectionLabel>
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: '2rem', overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                    {['Country', '% of Orders', 'Orders', 'Units', 'U/O', 'Net $', 'AOV'].map((h, i) => (
+                      <th key={h} style={{ padding: '0.7rem 1rem', textAlign: i === 0 ? 'left' : 'right', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {[
+                    { label: 'ALL COUNTRIES', row: cBlended, bold: true },
+                    ...cList.map(r => ({ label: countryLabel(r.country), row: r, bold: false })),
+                    ...(cUnknown ? [{ label: 'No address', row: cUnknown, bold: false }] : []),
+                  ].map(({ label, row, bold }, i, arr) => {
+                    const share = cBlended.orders > 0 ? (row.orders / cBlended.orders) * 100 : 0;
+                    const uo    = row.orders > 0 ? row.units_primary / row.orders : 0;
+                    const aov   = row.orders > 0 ? row.order_value / row.orders : 0;
+                    return (
+                      <tr key={label} style={{ borderBottom: i < arr.length - 1 ? '1px solid var(--border)' : 'none', background: bold ? 'var(--surface2)' : 'transparent' }}>
+                        <td style={{ padding: '0.65rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: bold ? 700 : 500 }}>{label}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', color: 'var(--muted)' }}>{bold ? '100%' : `${share.toFixed(0)}%`}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: bold ? 700 : 400 }}>{row.orders}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{row.units_primary}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{uo.toFixed(1)}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', fontWeight: 600 }}>{fmt(row.net_sales)}</td>
+                        <td style={{ padding: '0.65rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>{fmtDec(aov)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ padding: '0.6rem 1rem', borderTop: '1px solid var(--border)', fontSize: '0.68rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+                Country = shipping address (billing as fallback) · Units counts Magic Portrait items only · Net $ = net sales of the country&apos;s lines · AOV = full order value ÷ orders
               </div>
             </div>
           </>

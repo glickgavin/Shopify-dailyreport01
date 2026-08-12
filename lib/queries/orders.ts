@@ -29,6 +29,12 @@ export interface OrderRow {
    * Empty array = no product-level discount on the order.
    */
   discount_codes: string[];
+  /**
+   * ISO 3166-1 alpha-2 country of purchase (order-level, duplicated onto
+   * each line row): shipping address country, falling back to billing
+   * address. null = no address on the order (e.g. digital-only).
+   */
+  country: string | null;
 }
 
 export interface PaymentRow {
@@ -73,6 +79,8 @@ const ORDERS_QUERY = `
           }
         }
         customer { id numberOfOrders }
+        shippingAddress { countryCodeV2 }
+        billingAddress { countryCodeV2 }
         paymentGatewayNames
         totalPriceSet { shopMoney { amount } }
         totalRefundedSet { shopMoney { amount } }
@@ -116,6 +124,8 @@ interface GQLOrder {
     }[];
   };
   customer: { id: string; numberOfOrders: string | number } | null;
+  shippingAddress: { countryCodeV2: string | null } | null;
+  billingAddress: { countryCodeV2: string | null } | null;
   paymentGatewayNames: string[];
   totalPriceSet: { shopMoney: { amount: string } };
   totalRefundedSet: { shopMoney: { amount: string } };
@@ -262,6 +272,11 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
       ? Array.from(new Set(codeApps.map(a => a.code!)))
       : Array.from(new Set(titleApps.map(a => a.title!)));
 
+    // Country of purchase: shipping address first, billing as fallback.
+    const country = order.shippingAddress?.countryCodeV2
+      ?? order.billingAddress?.countryCodeV2
+      ?? null;
+
     for (let i = 0; i < lineItems.length; i++) {
       const li = lineItems[i];
       const lineRevenue = lineRevenues[i];
@@ -283,6 +298,7 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
         customer_type: orderCustomerType.get(order.name) ?? 'new',
         channel,
         discount_codes: attribution,
+        country,
       });
 
       // Membership billing event — title must match /VIP Membership/i, net > 0,
