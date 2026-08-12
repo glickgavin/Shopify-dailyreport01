@@ -5,6 +5,7 @@ import { fetchAdsRange } from '@/lib/ads';
 import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-rules';
 import RevenueChart from '../_components/RevenueChart';
 import DiscountsSection from './DiscountsSection';
+import CountriesSection from './CountriesSection';
 import {
   fmt, fmtDec, fmtPct,
   KpiCard, TintCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel,
@@ -980,6 +981,8 @@ export default async function RangePage({
             dProduct={d_product}
             dVariant={d_variant}
           />
+
+          <CountriesSection startDate={startDate} endDate={endDate} />
 
           <SectionLabel>Products</SectionLabel>
           <div style={{
