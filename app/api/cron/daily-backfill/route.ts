@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
 export const maxDuration = 300;
 
 // Self-driving pipeline catch-up. Every run looks at the last BACKFILL_DAYS
-// full PT days and, if any of them has no daily_discounts rows (the newest
+// full PT days and, if any of them has no daily_countries rows (the newest
 // pipeline output — a reliable "was this day processed by current code?"
 // marker), re-runs the full daily pipeline for the MOST RECENT missing day.
 // One day per invocation keeps each run well inside the time limit; once no
@@ -38,13 +38,13 @@ async function run(): Promise<NextResponse> {
     candidates.push(format(toZonedTime(subDays(new Date(), i), tz), 'yyyy-MM-dd', { timeZone: tz }));
   }
 
-  const { data: doneRows, error } = await supabaseAdmin
-    .from('daily_discounts')
+  const { data: doneRows, error } = await (supabaseAdmin as any)
+    .from('daily_countries')
     .select('date')
     .in('date', candidates);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const done = new Set((doneRows ?? []).map(r => r.date));
+  const done = new Set(((doneRows ?? []) as { date: string }[]).map(r => r.date));
   const missing = candidates.filter(d => !done.has(d));
   if (missing.length === 0) {
     return NextResponse.json({ status: 'ok', done: true, message: 'no missing days' });

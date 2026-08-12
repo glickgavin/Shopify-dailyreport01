@@ -5,6 +5,7 @@ import { fetchOrdersForDate } from '@/lib/queries/orders';
 import { processDay, computeDerivedKPIs } from '@/lib/business-rules';
 import { saveDay, upsertMembershipBillingEvents } from '@/lib/persistence';
 import { computeDailyDiscountRows, saveDailyDiscounts } from '@/lib/discounts';
+import { computeDailyCountryRows, saveDailyCountries } from '@/lib/countries';
 import { runMembershipStatusSnapshot } from '@/lib/membership-status';
 import { computeAndSaveMembershipMetrics } from '@/lib/membership-metrics';
 import { postDailySummary } from '@/lib/slack';
@@ -46,6 +47,16 @@ export async function runPipeline(
   const discountRows = computeDailyDiscountRows(orderRows, date);
   await saveDailyDiscounts(date, discountRows);
   console.log(`[pipeline] Saved ${discountRows.length} daily_discounts rows`);
+
+  // Country-of-purchase rollup — same rows/rules. Non-fatal so a missing
+  // table (migration not yet applied) can never break the nightly run.
+  try {
+    const countryRows = computeDailyCountryRows(orderRows, date);
+    await saveDailyCountries(date, countryRows);
+    console.log(`[pipeline] Saved ${countryRows.length} daily_countries rows`);
+  } catch (err) {
+    console.warn(`[pipeline] daily_countries save failed (non-fatal): ${err instanceof Error ? err.message : err}`);
+  }
 
   const memCount = await upsertMembershipBillingEvents(membershipBillingRows);
   if (membershipBillingRows.length > 0) {

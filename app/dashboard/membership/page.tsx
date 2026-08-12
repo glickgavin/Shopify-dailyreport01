@@ -13,6 +13,7 @@ type CohortData = {
   realized_revenue_per_starter?: Record<string, number>;
   monthly_churn?:                Array<{ month: string; churn_rate: number; base: number }>;
   ltv_assumptions?:              { intro_price: number; recurring_price: number; tail_retention: number; tail_months: number };
+  retention_after_first?:        { rate: number | null; eligible: number };
 };
 
 function fmtMonth(isoMonth: string): string {
@@ -49,6 +50,22 @@ export default async function MembershipPage() {
   const realizedRevPerStarter = cd.realized_revenue_per_starter ?? {};
   const monthlyChurn          = cd.monthly_churn                ?? [];
   const ltvAssumptions        = cd.ltv_assumptions              ?? { intro_price: 9.99, recurring_price: 39.99, tail_retention: 0, tail_months: 0 };
+  // Retention among "real subscribers" — members who already got past the
+  // one-and-done cliff (renewed at least once). Exact figure is computed by the
+  // nightly metrics job; until it lands, fall back to the survival curve:
+  // blended monthly retention from month 2 onward (weighted by survivors).
+  let retentionAfterFirst = cd.retention_after_first?.rate ?? null;
+  if (retentionAfterFirst === null && survivalCurve.length > 2) {
+    let wSum = 0, w = 0;
+    for (const s of survivalCurve) {
+      if (s.month_index < 2 || s.conditional_retention === null) continue;
+      const prev = survivalCurve.find(x => x.month_index === s.month_index - 1);
+      const weight = (prev?.survival_pct ?? 0) * s.eligible_customers; // ≈ members billed in prior month
+      wSum += s.conditional_retention * weight;
+      w    += weight;
+    }
+    if (w > 0) retentionAfterFirst = wSum / w;
+  }
 
   // ── Derive monthly MRR from cohort triangle ─────────────────────────────────
   const mrrByMonth: Record<string, number> = {};
@@ -141,7 +158,7 @@ export default async function MembershipPage() {
 
         {/* ── KPI row ────────────────────────────────────────────────────────── */}
         <style>{`
-          .mem-kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 24px; }
+          .mem-kpis { display: grid; grid-template-columns: repeat(7, 1fr); gap: 12px; margin-bottom: 24px; }
           @media (max-width: 1080px) { .mem-kpis { grid-template-columns: repeat(3, 1fr); } }
           @media (max-width: 600px)  { .mem-kpis { grid-template-columns: repeat(2, 1fr); } }
         `}</style>
@@ -177,6 +194,14 @@ export default async function MembershipPage() {
               value: `${Math.round(latest.one_and_done_rate * 100)}%`,
               sub: 'never renew once',
               alert: true,
+            },
+            {
+              label: 'Subscriber Retention',
+              value: retentionAfterFirst !== null
+                ? `${Math.round(retentionAfterFirst * 100)}%`
+                : '—',
+              sub: 'monthly · after 1st renewal',
+              alert: false,
             },
             {
               label: 'Projected LTV',
