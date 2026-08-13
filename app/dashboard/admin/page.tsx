@@ -44,8 +44,9 @@ export default async function AdminPage() {
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
       <div style={{
-        background: '#1a1a2e',
-        color: '#fff',
+        background: 'var(--surface)',
+        color: 'var(--text)',
+        borderBottom: '1px solid var(--border)',
         padding: '1rem 2rem',
         display: 'flex',
         alignItems: 'center',
@@ -58,13 +59,13 @@ export default async function AdminPage() {
           Admin <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Panel</em>
         </h1>
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.5)', fontFamily: 'var(--font-mono)' }}>{user.email}</span>
+          <span style={{ fontSize: '0.8rem', color: 'var(--neutral-500)', fontFamily: 'var(--font-mono)' }}>{user.email}</span>
           <Link
             href="/dashboard"
             style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-700)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',

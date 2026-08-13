@@ -11,7 +11,7 @@ const fmtRev = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
 const tooltipStyle = {
-  contentStyle: { background: '#1a1a2e', borderRadius: 10, border: 'none', color: '#fff', fontSize: '0.8rem' },
+  contentStyle: { background: '#282c28', borderRadius: 10, border: 'none', color: '#fff', fontSize: '0.8rem' },
   labelStyle:   { color: 'rgba(255,255,255,0.6)', marginBottom: 4 },
 };
 const axisStyle = { fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#888' };

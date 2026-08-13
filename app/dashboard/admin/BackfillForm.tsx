@@ -94,7 +94,7 @@ export default function BackfillForm() {
   };
 
   const btnStyle = (disabled: boolean, variant: 'primary' | 'danger' = 'primary'): React.CSSProperties => ({
-    background: variant === 'danger' ? '#991b1b' : '#1a1a2e',
+    background: variant === 'danger' ? '#991b1b' : 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 8,

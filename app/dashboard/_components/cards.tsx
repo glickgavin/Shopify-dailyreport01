@@ -23,14 +23,17 @@ export function DeltaBadge({ pct }: { pct: number | null }) {
   const up = pct >= 0;
   return (
     <span style={{
-      fontSize: '0.72rem',
-      fontFamily: 'var(--font-mono)',
+      fontSize: '0.7rem',
       fontWeight: 600,
-      color: up ? '#1D9E75' : '#e53e3e',
-      marginLeft: '0.4rem',
+      background: up ? 'var(--accent2-200)' : 'var(--accent-200)',
+      color: up ? 'var(--accent2-900)' : 'var(--accent-900)',
+      borderRadius: 999,
+      padding: '2px 8px',
+      marginLeft: '0.45rem',
       verticalAlign: 'middle',
+      whiteSpace: 'nowrap',
     }}>
-      {up ? '▲' : '▼'}{Math.abs(pct).toFixed(1)}%
+      {up ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%
     </span>
   );
 }
@@ -51,23 +54,22 @@ export function KpiCard({
   return (
     <div style={{
       background: 'var(--surface)',
-      borderRadius: 14,
-      border: '1px solid var(--border)',
-      padding: '1.25rem 1.5rem',
+      borderRadius: 24,
+      padding: '22px 24px',
       overflow: 'hidden',
     }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--neutral-600)', marginBottom: '0.5rem' }}>
         {label}
         {info && <InfoTip text={info} />}
       </div>
-      <div style={{ fontSize: '1.875rem', fontWeight: 600, lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+      <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', fontVariantNumeric: 'tabular-nums' }}>
         {value}
         {delta !== undefined && <DeltaBadge pct={delta ?? null} />}
       </div>
       {sub && <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '0.25rem' }}>{sub}</div>}
       {sparkData && sparkData.length > 1 && (
-        <div style={{ marginTop: '0.75rem', marginLeft: '-1.5rem', marginRight: '-1.5rem', marginBottom: '-1.25rem' }}>
-          <Sparkline data={sparkData} color="#185FA5" />
+        <div style={{ marginTop: '0.75rem', marginLeft: '-1.5rem', marginRight: '-1.5rem', marginBottom: '-1.375rem' }}>
+          <Sparkline data={sparkData} color="#17a97b" />
         </div>
       )}
     </div>
@@ -112,40 +114,35 @@ export function SegmentCard({
   /** How this segment is defined/calculated — shown in an ⓘ popover next to the title. */
   info?: string;
 }) {
-  // Amazon: orange — matches the Amazon brand and visually separates the
-  // channel from cash/non-cash/membership which are blue/green/purple.
+  // Dot colors follow the redesign's chart palette: cash = emerald (primary
+  // data), non-cash = blue, membership = violet, amazon = amber.
   const accent =
-    theme === 'cash'       ? 'var(--cash-blue)'
-    : theme === 'noncash'  ? 'var(--nc-green)'
-    : theme === 'amazon'   ? '#FF9900'
-    : '#7c3aed';
+    theme === 'cash'       ? 'var(--chart-green)'
+    : theme === 'noncash'  ? 'var(--chart-blue)'
+    : theme === 'amazon'   ? 'var(--chart-amber)'
+    : 'var(--chart-violet)';
   const accentLight =
-    theme === 'cash'       ? 'var(--cash-blue-light)'
-    : theme === 'noncash'  ? 'var(--nc-green-light)'
-    : theme === 'amazon'   ? '#FFF3E0'
-    : '#ede9fe';
-  const accentDark =
-    theme === 'cash'       ? 'var(--cash-blue-dark)'
-    : theme === 'noncash'  ? 'var(--nc-green-dark)'
-    : theme === 'amazon'   ? '#B26B00'
-    : '#5b21b6';
+    theme === 'cash'       ? 'var(--accent2-100)'
+    : theme === 'noncash'  ? '#e9f2fc'
+    : theme === 'amazon'   ? '#fdf2dc'
+    : '#f0eafc';
+  const accentDark = 'var(--text)';
 
   return (
     <div style={{
       background: 'var(--surface)',
-      borderRadius: 14,
-      border: `1.5px solid ${accent}`,
-      padding: '1.5rem',
+      borderRadius: 24,
+      padding: '20px 24px',
       flex: 1,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '10px' }}>
         <div style={{ width: 10, height: 10, borderRadius: '50%', background: accent }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: accentDark, fontWeight: 500 }}>
+        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--neutral-700)', fontWeight: 600 }}>
           {title}
           {info && <InfoTip text={info} />}
         </span>
       </div>
-      <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: accentDark }}>
+      <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: '0.25rem', color: accentDark, fontVariantNumeric: 'tabular-nums' }}>
         {fmt(revenue)}
       </div>
       <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: breakdownLabel ? '0.15rem' : '1.25rem' }}>
@@ -195,7 +192,7 @@ export function TintCard({
         fontSize: '0.7rem',
         fontFamily: 'var(--font-mono)',
         fontWeight: 600,
-        color: good ? '#1D9E75' : '#e53e3e',
+        color: good ? 'var(--accent2-700)' : 'var(--accent-700)',
         marginLeft: '0.35rem',
         verticalAlign: 'middle',
       }}>
@@ -207,16 +204,15 @@ export function TintCard({
   return (
     <div style={{
       background: bg,
-      borderRadius: 12,
-      border: `1.5px solid ${border}`,
-      padding: '14px 16px',
+      borderRadius: 24,
+      padding: '18px 20px',
       overflow: 'hidden',
     }}>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: subColor, marginBottom: '0.4rem' }}>
+      <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: subColor, marginBottom: '0.4rem' }}>
         {label}
         {info && <InfoTip text={info} />}
       </div>
-      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.02em', color: textColor, lineHeight: 1.15 }}>
+      <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.02em', color: textColor, lineHeight: 1.15, fontVariantNumeric: 'tabular-nums' }}>
         {value}{badge}
       </div>
       {sub && <div style={{ fontSize: '0.72rem', color: subColor, marginTop: '0.3rem' }}>{sub}</div>}
@@ -244,19 +240,18 @@ export function StripeSegmentCard({
   return (
     <div style={{
       background: 'var(--surface)',
-      borderRadius: 14,
-      border: '1.5px solid #6366f1',
-      padding: '1.5rem',
+      borderRadius: 24,
+      padding: '20px 24px',
       flex: 1,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#6366f1' }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#4338ca', fontWeight: 500 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '10px' }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--neutral-700)' }} />
+        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--neutral-700)', fontWeight: 600 }}>
           Stripe
           {info && <InfoTip text={info} />}
         </span>
       </div>
-      <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: '#4338ca' }}>
+      <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: '0.25rem', fontVariantNumeric: 'tabular-nums' }}>
         {fmt(net)}
       </div>
       <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
@@ -266,7 +261,7 @@ export function StripeSegmentCard({
         <MiniStat label="Gross"    value={fmtDec(gross)}  />
         <MiniStat label="Refunds"  value={fmtDec(refund)} />
         <MiniStat label="Net"      value={fmtDec(net)}    />
-        <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="#eef2ff" />
+        <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="var(--neutral-100)" />
       </div>
     </div>
   );
@@ -303,19 +298,18 @@ export function PayPalSegmentCard({
   return (
     <div style={{
       background: 'var(--surface)',
-      borderRadius: 14,
-      border: '1.5px solid #003087',
-      padding: '1.5rem',
+      borderRadius: 24,
+      padding: '20px 24px',
       flex: 1,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
-        <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#003087' }} />
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#001f5b', fontWeight: 500 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '10px' }}>
+        <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--neutral-400)' }} />
+        <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--neutral-700)', fontWeight: 600 }}>
           PayPal
           {info && <InfoTip text={info} />}
         </span>
       </div>
-      <div style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', marginBottom: '0.25rem', color: '#001f5b' }}>
+      <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-0.02em', marginBottom: '0.25rem', fontVariantNumeric: 'tabular-nums' }}>
         {fmt(net)}
       </div>
       <div style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1.25rem' }}>
@@ -325,7 +319,7 @@ export function PayPalSegmentCard({
         <MiniStat label="Gross"     value={fmtDec(gross)}  />
         <MiniStat label="Refunds"   value={fmtDec(refund)} />
         <MiniStat label="Net"       value={fmtDec(net)}    />
-        <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="#e8f0fe" />
+        <MiniStat label="Customers" value={String(uniqueCustomers)} highlight color="var(--neutral-100)" />
       </div>
       {hasExcluded && (
         <div
@@ -355,12 +349,12 @@ export function PayPalSegmentCard({
 export function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
-      fontFamily: 'var(--font-mono)',
-      fontSize: '0.68rem',
+      fontSize: 12,
       textTransform: 'uppercase',
       letterSpacing: '0.1em',
-      color: 'var(--muted)',
-      marginBottom: '0.75rem',
+      fontWeight: 600,
+      color: 'var(--neutral-600)',
+      marginBottom: '0.85rem',
     }}>
       {children}
     </div>

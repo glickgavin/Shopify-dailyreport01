@@ -27,7 +27,7 @@ export default function BackfillForm() {
         <button
           type="submit"
           style={{
-            background: '#1a1a2e', color: '#fff', border: 'none',
+            background: 'var(--accent)', color: '#fff', border: 'none',
             borderRadius: 6, padding: '0.4rem 0.875rem',
             fontSize: '0.8rem', fontFamily: 'var(--font-mono)', cursor: 'pointer',
           }}

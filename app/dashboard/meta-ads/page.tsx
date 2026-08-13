@@ -274,7 +274,7 @@ export default async function MetaAdsPage({
                 : 'No campaign data for this period.'}
             </div>
             {isToday && (
-              <Link href="/dashboard/meta-ads?range=yesterday" style={{ display: 'inline-block', marginTop: '0.75rem', padding: '0.4rem 1rem', background: '#1a1a2e', color: '#fff', borderRadius: 8, fontSize: '0.8rem', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}>
+              <Link href="/dashboard/meta-ads?range=yesterday" style={{ display: 'inline-block', marginTop: '0.75rem', padding: '0.4rem 1rem', background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)', borderRadius: 8, fontSize: '0.8rem', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}>
                 View yesterday&apos;s results
               </Link>
             )}
@@ -325,17 +325,17 @@ function TopBar({ range, tabLabels, isToday, nowTime }: {
   nowTime: string;
 }) {
   return (
-    <div style={{ background: '#1a1a2e', color: '#fff', padding: '1rem 2rem', position: 'sticky', top: 0, zIndex: 50 }}>
+    <div style={{ background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)', padding: '1rem 2rem', position: 'sticky', top: 0, zIndex: 50 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400 }}>
             Meta Ads <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Dashboard</em>
           </h1>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.2)' }} />
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.45)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+          <span style={{ fontSize: '0.75rem', color: 'var(--neutral-500)', fontFamily: 'var(--font-mono)' }}>
             Account 852673303845594 · USD · Live data
           </span>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.2)' }} />
+          <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
           {/* Tabs */}
           <div style={{ display: 'flex', gap: '0.25rem' }}>
             {tabLabels.map(({ preset, label }) => {
@@ -350,9 +350,9 @@ function TopBar({ range, tabLabels, isToday, nowTime }: {
                     fontSize: '0.78rem',
                     fontFamily: 'var(--font-mono)',
                     textDecoration: 'none',
-                    border: '1px solid rgba(255,255,255,0.15)',
-                    background: active ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)',
-                    color: active ? '#fff' : 'rgba(255,255,255,0.65)',
+                    border: '1px solid var(--border)',
+                    background: active ? 'var(--accent-100)' : 'var(--neutral-100)',
+                    color: active ? '#fff' : 'var(--neutral-600)',
                     fontWeight: active ? 600 : 400,
                     display: 'flex',
                     alignItems: 'center',
@@ -375,13 +375,13 @@ function TopBar({ range, tabLabels, isToday, nowTime }: {
           href={`/api/meta-ads?range=${range}`}
           target="_blank"
           rel="noreferrer"
-          style={{ background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8, padding: '0.4rem 0.875rem', fontSize: '0.8rem', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}
+          style={{ background: 'var(--neutral-100)', color: 'var(--neutral-700)', border: '1px solid var(--border)', borderRadius: 8, padding: '0.4rem 0.875rem', fontSize: '0.8rem', textDecoration: 'none', fontFamily: 'var(--font-mono)' }}
         >
           JSON
         </Link>
       </div>
       {isToday && (
-        <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--font-mono)' }}>
+        <div style={{ marginTop: '0.4rem', fontSize: '0.72rem', color: 'var(--neutral-500)', fontFamily: 'var(--font-mono)' }}>
           Data through {nowTime} advertiser local time · refreshes every minute
         </div>
       )}

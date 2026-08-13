@@ -14,12 +14,12 @@ import {
 interface ChartRow { name: string; revenue: number; netSales: number; }
 
 const COLORS = [
-  '#185FA5',
-  '#1D9E75',
-  '#0C447C',
-  '#085041',
-  '#c8a88a',
-  '#8a7a6a',
+  '#17a97b',
+  '#3b8fe4',
+  '#8a63e8',
+  '#f2a516',
+  '#55cba0',
+  '#969d96',
 ];
 
 const fmt = (n: number) =>
@@ -29,7 +29,7 @@ function CustomTooltip({ active, payload, label }: { active?: boolean; payload?:
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#1a1a2e',
+      background: '#282c28',
       borderRadius: 10,
       padding: '0.75rem 1rem',
       fontSize: '0.8rem',
@@ -53,13 +53,13 @@ export default function RevenueChart({ data }: { data: ChartRow[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
         <XAxis
           dataKey="name"
-          tick={{ fontSize: 11, fontFamily: 'var(--font-mono)', fill: '#6b6b6b' }}
+          tick={{ fontSize: 11, fontFamily: 'var(--font-mono)', fill: '#747c74' }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-          tick={{ fontSize: 11, fontFamily: 'var(--font-mono)', fill: '#6b6b6b' }}
+          tick={{ fontSize: 11, fontFamily: 'var(--font-mono)', fill: '#747c74' }}
           axisLine={false}
           tickLine={false}
           width={48}

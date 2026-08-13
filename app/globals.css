@@ -2,27 +2,69 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Design tokens (Claude Design handoff: bright light theme) ─────────────── */
 :root {
-  --bg:       #f5f3ef;
+  --bg:       #f6f7f5;
   --surface:  #ffffff;
-  --surface2: #edeae4;
-  --border:   rgba(0, 0, 0, 0.08);
-  --text:     #1a1a1a;
-  --muted:    #6b6b6b;
+  --surface2: #f4f5f4;
+  --border:   rgba(29, 33, 31, 0.12);
+  --text:     #1d211f;
+  --muted:    #747c74;
 
-  --cash-blue:       #185FA5;
-  --cash-blue-light: #E6F1FB;
-  --cash-blue-dark:  #0C447C;
+  /* Neutral ramp */
+  --neutral-100: #f4f5f4;
+  --neutral-200: #eaecea;
+  --neutral-300: #d8dcd8;
+  --neutral-400: #b8beb8;
+  --neutral-500: #969d96;
+  --neutral-600: #747c74;
+  --neutral-700: #585f58;
+  --neutral-800: #3f443f;
+  --neutral-900: #282c28;
 
-  --nc-green:       #1D9E75;
-  --nc-green-light: #E1F5EE;
-  --nc-green-dark:  #085041;
+  /* Negative / brand coral (refunds, COGS, ad spend, active pills) */
+  --accent:     #f4694a;
+  --accent-100: #fff0ec;
+  --accent-200: #ffddd3;
+  --accent-300: #ffbca8;
+  --accent-400: #ff9270;
+  --accent-500: #f4694a;
+  --accent-600: #d54c30;
+  --accent-700: #ab3a22;
+  --accent-800: #7d2a18;
+  --accent-900: #521c10;
 
-  --accent: #c8a88a;
+  /* Primary data emerald */
+  --accent2-100: #e6f9f0;
+  --accent2-200: #c9f2df;
+  --accent2-300: #99e3c2;
+  --accent2-400: #55cba0;
+  --accent2-500: #17a97b;
+  --accent2-600: #0f8a63;
+  --accent2-700: #0b6b4d;
+  --accent2-800: #084d38;
+  --accent2-900: #063527;
 
-  --font-body: var(--font-dm-sans), 'DM Sans', system-ui, sans-serif;
-  --font-mono: var(--font-dm-mono), 'DM Mono', monospace;
-  --font-serif: 'Instrument Serif', Georgia, serif;
+  /* Chart categorical palette */
+  --chart-green:  #17a97b;
+  --chart-blue:   #3b8fe4;
+  --chart-violet: #8a63e8;
+  --chart-amber:  #f2a516;
+
+  /* Legacy segment colors, remapped onto the new palette */
+  --cash-blue:       #3b8fe4;
+  --cash-blue-light: #e9f2fc;
+  --cash-blue-dark:  #1d5c9e;
+
+  --nc-green:       #17a97b;
+  --nc-green-light: #e6f9f0;
+  --nc-green-dark:  #084d38;
+
+  /* Typography: Caprasimo for headings/brand, Figtree for everything else */
+  --font-body:    var(--font-figtree), 'Figtree', system-ui, sans-serif;
+  --font-mono:    var(--font-figtree), 'Figtree', system-ui, sans-serif;
+  --font-serif:   var(--font-caprasimo), 'Caprasimo', Georgia, serif;
+  --font-heading: var(--font-caprasimo), 'Caprasimo', Georgia, serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,7 +74,71 @@ body {
   background: var(--bg);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
 }
 
 .font-serif  { font-family: var(--font-serif); }
 .font-mono   { font-family: var(--font-mono); }
+
+/* ── Shared redesign primitives ────────────────────────────────────────────── */
+
+/* Pill buttons (date presets, tabs, ghost actions) */
+.pill {
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pill--sm { padding: 6px 14px; font-size: 12px; }
+.pill--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+/* Table wrapper card */
+.table-card {
+  background: var(--neutral-100);
+  border-radius: 28px;
+  padding: 10px 24px 16px;
+  overflow-x: auto;
+}
+.table-card table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.table-card th {
+  padding: 0.7rem 0.9rem;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--neutral-600);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+.table-card td {
+  padding: 0.6rem 0.9rem;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table-card tr:last-child td { border-bottom: none; }
+
+/* Row tag pills */
+.tag {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.tag-accent-2 { background: var(--accent2-200); color: var(--accent2-900); }
+.tag-accent   { background: var(--accent-200);  color: var(--accent-900); }
+.tag-neutral  { background: var(--neutral-200); color: var(--neutral-800); }

@@ -132,7 +132,7 @@ export default async function MembershipPage() {
 
       {/* ── Top bar ──────────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#1a1a2e', color: '#fff',
+        background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)',
         padding: '1rem 2rem',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 50,
@@ -141,16 +141,16 @@ export default async function MembershipPage() {
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
             VIP Membership <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Subscription</em>
           </h1>
-          <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
             Recurring billing analytics · $9.99 intro → $39.99/mo
           </div>
         </div>
-        <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.5)', lineHeight: 1.7 }}>
+        <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)', lineHeight: 1.7 }}>
           <div>
             <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 0 3px rgba(29,158,117,0.25)', marginRight: 6, verticalAlign: 'middle' }} />
-            <strong style={{ color: '#fff' }}>{latest.active_members}</strong> active members
+            <strong style={{ color: 'var(--text)' }}>{latest.active_members}</strong> active members
           </div>
-          <div>Data as of <strong style={{ color: '#fff' }}>{latest.metric_date}</strong></div>
+          <div>Data as of <strong style={{ color: 'var(--text)' }}>{latest.metric_date}</strong></div>
         </div>
       </div>
 

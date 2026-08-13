@@ -160,7 +160,7 @@ export default function PaypalSubscriptionsClient() {
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
       <div style={{
-        background: '#1a1a2e', color: '#fff',
+        background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)',
         padding: '1rem 2rem',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 50,
@@ -169,7 +169,7 @@ export default function PaypalSubscriptionsClient() {
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
             PayPal <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Subscriptions</em>
           </h1>
-          <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
             Log of T0002 subscription payments · allocate store credit via r_order
           </div>
         </div>
@@ -382,7 +382,7 @@ const inputStyle: React.CSSProperties = {
 };
 const btnPrimary: React.CSSProperties = {
   padding: '0.4rem 0.9rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono)', fontWeight: 600,
-  background: '#1a1a2e', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer',
+  background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)', border: 'none', borderRadius: 6, cursor: 'pointer',
 };
 const btnSecondary: React.CSSProperties = {
   padding: '0.4rem 0.9rem', fontSize: '0.75rem', fontFamily: 'var(--font-mono)',
