@@ -165,6 +165,80 @@ export async function allocateStoreCredit(params: {
   return { ok: true, creditReference: tx.id, shopifyCustomerId: customerNode.id, email, tagged };
 }
 
+const STORE_CREDIT_ACCOUNT_DEBIT = `
+  mutation StoreCreditAccountDebit($id: ID!, $input: StoreCreditAccountDebitInput!) {
+    storeCreditAccountDebit(id: $id, debitInput: $input) {
+      storeCreditAccountTransaction {
+        id
+        balanceAfterTransaction { amount currencyCode }
+      }
+      userErrors { field message code }
+    }
+  }
+`;
+
+interface StoreCreditAccountDebitResp {
+  storeCreditAccountDebit: {
+    storeCreditAccountTransaction: { id: string; balanceAfterTransaction: { amount: string; currencyCode: string } } | null;
+    userErrors: Array<{ field: string[] | null; message: string; code: string | null }>;
+  };
+}
+
+/**
+ * Debit (claw back) store credit for the given email + amount — the refund
+ * counterpart of allocateStoreCredit. Same lookup flow, no tagging.
+ * Never throws; the caller records the outcome.
+ */
+export async function debitStoreCredit(params: {
+  email: string;
+  amountCents: number;
+  currency?: string;
+}): Promise<StoreCreditAllocationResult> {
+  const { email, amountCents } = params;
+  const currency = params.currency ?? 'USD';
+
+  let customerResp: CustomerByEmailResp;
+  try {
+    customerResp = await shopifyGraphQL<CustomerByEmailResp>(CUSTOMER_BY_EMAIL, {
+      q: `email:"${email.replace(/"/g, '\\"')}"`,
+    });
+  } catch (err) {
+    return { ok: false, reason: 'mutation_failed', detail: `customer lookup: ${(err as Error).message}`, email };
+  }
+
+  const customerNode = customerResp.customers.edges[0]?.node;
+  if (!customerNode) {
+    return { ok: false, reason: 'customer_not_found', detail: 'no Shopify customer with this email', email };
+  }
+
+  const accounts = customerNode.storeCreditAccounts.edges.map(e => e.node);
+  const account = accounts.find(a => a.balance.currencyCode === currency) ?? accounts[0];
+  if (!account) {
+    return { ok: false, reason: 'no_account', detail: `customer ${customerNode.id} has no store credit account`, email };
+  }
+
+  let debitResp: StoreCreditAccountDebitResp;
+  try {
+    debitResp = await shopifyGraphQL<StoreCreditAccountDebitResp>(STORE_CREDIT_ACCOUNT_DEBIT, {
+      id: account.id,
+      input: { debitAmount: { amount: (amountCents / 100).toFixed(2), currencyCode: currency } },
+    });
+  } catch (err) {
+    return { ok: false, reason: 'mutation_failed', detail: `debit mutation: ${(err as Error).message}`, email };
+  }
+
+  const debitErrors = debitResp.storeCreditAccountDebit?.userErrors ?? [];
+  if (debitErrors.length > 0) {
+    return { ok: false, reason: 'mutation_failed', detail: debitErrors.map(e => e.message).join('; '), email };
+  }
+  const debitTx = debitResp.storeCreditAccountDebit?.storeCreditAccountTransaction;
+  if (!debitTx) {
+    return { ok: false, reason: 'mutation_failed', detail: 'debit mutation returned no transaction', email };
+  }
+
+  return { ok: true, creditReference: debitTx.id, shopifyCustomerId: customerNode.id, email, tagged: false };
+}
+
 /**
  * Resolve which email to actually use per business rule:
  * custom_field_email if valid, else payer_email.
