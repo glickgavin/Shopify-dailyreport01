@@ -23,9 +23,9 @@ export interface ChartDay {
 const fmtUsd = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n);
 
-const CPA_DAILY_COLOR = '#64748b';
-const CPA_5D_COLOR    = '#1D9E75';
-const SPEND_COLOR     = '#c8d8ef';
+const CPA_DAILY_COLOR = '#969d96';
+const CPA_5D_COLOR    = '#17a97b';
+const SPEND_COLOR     = '#c9f2df';
 
 function CustomTooltip({ active, payload, label }: {
   active?: boolean;
@@ -35,7 +35,7 @@ function CustomTooltip({ active, payload, label }: {
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#1a1a2e',
+      background: '#282c28',
       borderRadius: 10,
       padding: '0.75rem 1rem',
       fontSize: '0.8rem',
@@ -46,7 +46,7 @@ function CustomTooltip({ active, payload, label }: {
       <div style={{ fontWeight: 600, marginBottom: '0.5rem', color: 'rgba(255,255,255,0.7)', fontSize: '0.72rem' }}>{label}</div>
       {payload.map((p) => p.value != null && (
         <div key={p.name} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', marginBottom: '0.2rem' }}>
-          <span style={{ color: p.name === 'Spend' ? SPEND_COLOR : p.name === 'CPA daily' ? '#cbd5e1' : CPA_5D_COLOR }}>{p.name}</span>
+          <span style={{ color: p.name === 'Spend' ? SPEND_COLOR : p.name === 'CPA daily' ? '#d8dcd8' : CPA_5D_COLOR }}>{p.name}</span>
           <strong style={{ color: '#fff' }}>{p.name === 'Spend' ? fmtUsd(p.value) : `$${p.value.toFixed(2)}`}</strong>
         </div>
       ))}
@@ -75,7 +75,7 @@ export default function AdChart({ data }: { data: ChartDay[] }) {
               padding: '0.25rem 0.65rem',
               borderRadius: 6,
               border: '1px solid var(--border)',
-              background: win === w ? '#1a1a2e' : 'var(--surface2)',
+              background: win === w ? 'var(--accent)' : 'var(--surface2)',
               color: win === w ? '#fff' : 'var(--muted)',
               fontSize: '0.72rem',
               fontFamily: 'var(--font-mono)',
@@ -93,7 +93,7 @@ export default function AdChart({ data }: { data: ChartDay[] }) {
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
           <XAxis
             dataKey="date"
-            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#6b6b6b' }}
+            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#747c74' }}
             axisLine={false}
             tickLine={false}
             interval={tickInterval}
@@ -102,21 +102,21 @@ export default function AdChart({ data }: { data: ChartDay[] }) {
             yAxisId="cpa"
             orientation="left"
             tickFormatter={(v) => `$${Number(v).toFixed(0)}`}
-            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#6b6b6b' }}
+            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#747c74' }}
             axisLine={false}
             tickLine={false}
             width={48}
-            label={{ value: 'CPA ($)', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 9, fill: '#6b6b6b', fontFamily: 'var(--font-mono)' } }}
+            label={{ value: 'CPA ($)', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 9, fill: '#747c74', fontFamily: 'var(--font-mono)' } }}
           />
           <YAxis
             yAxisId="spend"
             orientation="right"
             tickFormatter={(v) => `$${(Number(v) / 1000).toFixed(1)}k`}
-            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#6b6b6b' }}
+            tick={{ fontSize: 10, fontFamily: 'var(--font-mono)', fill: '#747c74' }}
             axisLine={false}
             tickLine={false}
             width={52}
-            label={{ value: 'Spend', angle: 90, position: 'insideRight', offset: 10, style: { fontSize: 9, fill: '#6b6b6b', fontFamily: 'var(--font-mono)' } }}
+            label={{ value: 'Spend', angle: 90, position: 'insideRight', offset: 10, style: { fontSize: 9, fill: '#747c74', fontFamily: 'var(--font-mono)' } }}
           />
           <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} />
           <Legend

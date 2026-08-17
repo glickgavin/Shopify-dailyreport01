@@ -138,7 +138,7 @@ export default async function HistoryPage() {
 
       {/* ── Header ─────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#1a1a2e', color: '#fff',
+        background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)',
         padding: '1rem 2rem',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 50,
@@ -147,13 +147,13 @@ export default async function HistoryPage() {
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
             Sales <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>History</em>
           </h1>
-          <div style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+          <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
             Last 30 days · click any date to open daily dashboard
           </div>
         </div>
         <Link href="/dashboard" style={{
-          background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)',
-          border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+          background: 'var(--neutral-100)', color: 'var(--neutral-700)',
+          border: '1px solid var(--border)', borderRadius: 8,
           padding: '0.4rem 0.875rem', fontSize: '0.8rem',
           textDecoration: 'none', fontFamily: 'var(--font-mono)',
         }}>

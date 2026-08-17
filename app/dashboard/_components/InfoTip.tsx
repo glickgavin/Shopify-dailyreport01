@@ -79,7 +79,7 @@ export default function InfoTip({ text }: { text: string }) {
           style={{
             position: 'fixed', top: pos.top, left: pos.left, zIndex: 1000,
             width: POP_WIDTH, padding: '0.65rem 0.8rem',
-            background: '#1a1a2e', color: 'rgba(255,255,255,0.92)',
+            background: '#282c28', color: 'rgba(255,255,255,0.92)',
             borderRadius: 8, boxShadow: '0 6px 24px rgba(0,0,0,0.3)',
             fontSize: '0.74rem', lineHeight: 1.55, fontWeight: 400,
             fontFamily: 'var(--font-sans, inherit)', textTransform: 'none',

@@ -32,7 +32,7 @@ function DarkTooltip({
   if (!active || !payload?.length) return null;
   return (
     <div style={{
-      background: '#1a1a2e', borderRadius: 10, padding: '0.65rem 0.9rem',
+      background: '#282c28', borderRadius: 10, padding: '0.65rem 0.9rem',
       fontSize: '0.78rem', color: '#fff', boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
     }}>
       {label && <div style={{ fontWeight: 600, marginBottom: '0.3rem' }}>{label}</div>}

@@ -260,7 +260,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
 
       {/* Header */}
       <div style={{
-        background: '#1a1a2e', color: '#fff', padding: '1rem 2rem',
+        background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)', padding: '1rem 2rem',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 30,
       }}>
@@ -268,14 +268,14 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
           Mug <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Fulfillment</em>
         </h1>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-          <span style={{ fontSize: '0.75rem', color: 'rgba(255,255,255,0.4)', fontFamily: 'var(--font-mono)' }}>
+          <span style={{ fontSize: '0.75rem', color: 'var(--neutral-500)', fontFamily: 'var(--font-mono)' }}>
             {refreshedAt}
           </span>
           <Link
             href={buildUrl({ drawer: null })}
             style={{
-              background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.8)',
-              border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
+              background: 'var(--neutral-100)', color: 'var(--neutral-800)',
+              border: '1px solid var(--border)', borderRadius: 8,
               padding: '0.4rem 0.875rem', fontSize: '0.8rem', textDecoration: 'none',
               fontFamily: 'var(--font-mono)',
             }}
@@ -285,8 +285,8 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
           <Link
             href="/dashboard/admin"
             style={{
-              background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.5)',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
+              background: 'var(--neutral-100)', color: 'var(--neutral-500)',
+              border: '1px solid var(--neutral-100)', borderRadius: 8,
               padding: '0.4rem 0.875rem', fontSize: '0.8rem', textDecoration: 'none',
               fontFamily: 'var(--font-mono)',
             }}
@@ -325,9 +325,9 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                   style={{
                     padding: '0.35rem 0.875rem', borderRadius: 8, fontSize: '0.82rem',
                     fontFamily: 'var(--font-mono)', textDecoration: 'none',
-                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    background: isActive ? 'var(--accent)' : 'var(--surface2)',
                     color: isActive ? '#fff' : 'var(--muted)',
-                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                     fontWeight: isActive ? 600 : 400,
                   }}
                 >
@@ -380,9 +380,9 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                   style={{
                     padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.76rem',
                     fontFamily: 'var(--font-mono)', textDecoration: 'none',
-                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    background: isActive ? 'var(--accent)' : 'var(--surface2)',
                     color: isActive ? '#fff' : 'var(--muted)',
-                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                     fontWeight: isActive ? 600 : 400,
                     opacity: key !== null && count === 0 ? 0.4 : 1,
                   }}
@@ -407,9 +407,9 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
                   style={{
                     padding: '0.25rem 0.65rem', borderRadius: 20, fontSize: '0.76rem',
                     fontFamily: 'var(--font-mono)', textDecoration: 'none',
-                    background: isActive ? '#1a1a2e' : 'var(--surface2)',
+                    background: isActive ? 'var(--accent)' : 'var(--surface2)',
                     color: isActive ? '#fff' : 'var(--muted)',
-                    border: `1px solid ${isActive ? '#1a1a2e' : 'var(--border)'}`,
+                    border: `1px solid ${isActive ? 'var(--accent)' : 'var(--border)'}`,
                     fontWeight: isActive ? 600 : 400,
                   }}
                 >

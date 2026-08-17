@@ -78,7 +78,7 @@ export default function AdminLoginPage() {
             type="submit"
             disabled={loading}
             style={{
-              background: '#1a1a2e', color: '#fff', border: 'none',
+              background: 'var(--accent)', color: '#fff', border: 'none',
               borderRadius: 10, padding: '0.75rem 1rem',
               fontSize: '0.9rem', fontWeight: 500, cursor: loading ? 'not-allowed' : 'pointer',
               opacity: loading ? 0.6 : 1,

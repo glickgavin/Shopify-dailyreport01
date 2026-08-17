@@ -6,9 +6,11 @@ import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-
 import RevenueChart from '../_components/RevenueChart';
 import DiscountsSection from './DiscountsSection';
 import CountriesSection from './CountriesSection';
+import RangeTabs from './Tabs';
+import Highlights from './Highlights';
 import {
   fmt, fmtDec, fmtPct,
-  KpiCard, TintCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel,
+  KpiCard, SegmentCard, StripeSegmentCard, PayPalSegmentCard, SectionLabel,
 } from '../_components/cards';
 
 export const dynamic = 'force-dynamic';
@@ -371,710 +373,456 @@ export default async function RangePage({
     netSales: p.net_sales,
   }));
 
-  // ── preset tabs ──────────────────────────────────────────────────────────
-  const activePreset = preset ?? '7d';
-  const tabStyle = (id: string): React.CSSProperties => ({
-    padding: '0.35rem 0.75rem',
-    borderRadius: 7,
-    fontSize: '0.78rem',
-    fontFamily: 'var(--font-mono)',
-    textDecoration: 'none',
-    border: '1px solid rgba(255,255,255,0.15)',
-    background: activePreset === id ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)',
-    color: activePreset === id ? '#fff' : 'rgba(255,255,255,0.65)',
-    fontWeight: activePreset === id ? 600 : 400,
-  });
+  // ── prior window (for the Highlights trend badge) ─────────────────────────
+  const prevEnd   = format(subDays(parseISO(startDate), 1), 'yyyy-MM-dd');
+  const prevStart = format(subDays(parseISO(startDate), days), 'yyyy-MM-dd');
+  const { data: prevRows } = await supabaseAdmin
+    .from('daily_summary')
+    .select('total_revenue')
+    .gte('date', prevStart)
+    .lte('date', prevEnd);
+  const prevRevenue = (prevRows ?? []).reduce((sum, r) => sum + Number(r.total_revenue ?? 0), 0);
+  const revDeltaPct = prevRevenue > 0 ? ((total.revenue - prevRevenue) / prevRevenue) * 100 : null;
 
+  const activePreset = preset ?? '7d';
+
+  // ── shared bits ───────────────────────────────────────────────────────────
+  const cardStyle: React.CSSProperties = { background: 'var(--surface)', borderRadius: 24, padding: '20px 24px' };
+  const labelStyle: React.CSSProperties = { fontSize: 11, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--neutral-600)' };
+
+  const chip = (label: string, value: string, tone: 'green' | 'coral' | 'neutral') => {
+    const bgs   = { green: 'var(--accent2-200)', coral: 'var(--accent-100)', neutral: 'var(--neutral-200)' };
+    const subs  = { green: 'var(--accent2-800)', coral: 'var(--accent-800)', neutral: 'var(--neutral-700)' };
+    const vals  = { green: 'var(--accent2-900)', coral: 'var(--accent-900)', neutral: 'var(--neutral-900)' };
+    return (
+      <div key={label} style={{ display: 'flex', alignItems: 'baseline', gap: 8, background: bgs[tone], borderRadius: 999, padding: '9px 18px', whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12, color: subs[tone] }}>{label}</span>
+        <span style={{ fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: vals[tone] }}>{value}</span>
+      </div>
+    );
+  };
+
+  const typeTag = (t: string) =>
+    t === 'Physical' ? 'tag tag-accent-2' : t === 'Membership' ? 'tag tag-accent' : 'tag tag-neutral';
+
+  // ── tab sections ──────────────────────────────────────────────────────────
+  const highlightsSection = (
+    <Highlights
+      rangeLabel={label}
+      revenue={total.revenue}
+      revDeltaPct={revDeltaPct}
+      orders={total.orders}
+      units={total.qty}
+      aov={total.aov}
+      cashIn={derived.cashIn}
+      marginPct={total.margin}
+      grossProfit={total.profit}
+      channels={[
+        { name: 'Online store',  color: 'var(--chart-green)',  value: physCash.revenue },
+        { name: 'Store credit',  color: 'var(--chart-blue)',   value: physNonCash.revenue },
+        { name: 'Subscriptions', color: 'var(--chart-violet)', value: membership.revenue },
+        { name: 'Amazon',        color: 'var(--chart-amber)',  value: amazon.revenue },
+      ].filter(c => c.value > 0)}
+      cogs={total.cogs}
+      adSpend={derived.adCost}
+      memberLtv={rangeLtv}
+      contribution={rangeGpLtvMinusAds}
+      funnel={ads ? { clicks: ads.link_clicks ?? null, atcs: ads.atcs ?? null, purchases: ads.purchases ?? null, cpa: ads.cpa ?? null } : null}
+      mix={hasSegments ? {
+        newRev: totalNewRevenue, newOrders: totalNewOrders, newAov: totalNewAov,
+        retRev: totalRetRevenue, retOrders: totalRetOrders, retAov: totalRetAov,
+      } : null}
+      cpaAd={derived.cpaAd}
+      cpaBlended={derived.cpaBlended}
+      roasBlended={derived.adCost > 0 ? total.revenue / derived.adCost : null}
+      gpPerOrder={total.orders > 0 ? total.profit / total.orders : null}
+    />
+  );
+
+  const overviewSection = (
+    <div>
+      <div className="ov-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
+        <div style={{ background: 'var(--accent2-100)', borderRadius: 24, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ ...labelStyle, color: 'var(--accent2-700)' }}>Total revenue</div>
+          <div style={{ fontSize: 34, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent2-900)' }}>{fmt(total.revenue)}</div>
+          <div style={{ fontSize: 12, color: 'var(--accent2-700)' }}>{total.orders} orders · {total.qty} units</div>
+        </div>
+        <KpiCard label="Gross Profit" value={fmt(total.profit)} sub="revenue − COGS"
+          info={"Revenue − COGS, summed over the range.\nCOGS = Shopify's 'Cost per item' × quantity; variants with no cost set (e.g. membership) count as $0. Shipping counts as revenue with no shipping cost deducted."} />
+        <KpiCard label="GP + LTV − Ads" value={fmt(rangeGpLtvMinusAds)}
+          sub={`+${fmt(rangeLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) · −${fmt(derived.adCost)} ads`}
+          info={"Gross Profit + new-member LTV − Meta ad spend, over the range.\nLTV = new membership signups × $70 assumed lifetime value."} />
+        <KpiCard label="Margin" value={fmtPct(total.margin)} sub="GP ÷ revenue"
+          info={"Gross Profit ÷ Total Revenue over the range."} />
+        <KpiCard label="AOV" value={fmtDec(total.aov)} sub="per order"
+          info={"Average order value: Total Revenue ÷ total orders over the range."} />
+      </div>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, marginBottom: 32 }}>
+        {chip('Cash in', fmt(derived.cashIn), 'green')}
+        {chip('Ad cost', derived.adCost > 0 ? fmt(derived.adCost) : '—', 'coral')}
+        {chip('CPA — ad', derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—', 'coral')}
+        {chip('CPA — blended', derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—', 'coral')}
+        {chip('GP − ads', derived.dailyProfit < 0 ? `−${fmt(Math.abs(derived.dailyProfit))}` : fmt(derived.dailyProfit), 'neutral')}
+      </div>
+
+      <SectionLabel>Sales Segments</SectionLabel>
+      <div className="segments-row" style={{ display: 'flex', gap: 14, marginBottom: 32, flexWrap: 'wrap' }}>
+        <SegmentCard
+          title="Cash"
+          info={"Physical product orders paid with a real payment gateway (dominant gateway is anything other than Shopify store credit).\nRevenue = net sales + shipping. $0-revenue orders (comps/redos) are shown separately as Internal, not here."}
+          theme="cash"
+          revenue={physCash.revenue} orders={physCash.orders} qty={physCash.qty}
+          netSales={physCash.netSales} shipping={physCash.shipping} cogs={physCash.cogs}
+          profit={physCash.profit} margin={physCash.margin} aov={physCash.aov}
+          breakdownLabel={hasSegments ? `${cashNew.orders} new · ${cashRet.orders} returning` : undefined}
+        />
+        <SegmentCard
+          title="Non-Cash"
+          info={"Physical product orders paid mostly with Shopify STORE CREDIT (dominant gateway shopify_store_credit).\nNo new money changes hands, so this segment is excluded from Cash In."}
+          theme="noncash"
+          revenue={physNonCash.revenue} orders={physNonCash.orders} qty={physNonCash.qty}
+          netSales={physNonCash.netSales} shipping={physNonCash.shipping} cogs={physNonCash.cogs}
+          profit={physNonCash.profit} margin={physNonCash.margin} aov={physNonCash.aov}
+          breakdownLabel={hasSegments ? `${nonCashNew.orders} new · ${nonCashRet.orders} returning` : undefined}
+        />
+        <SegmentCard
+          title="Membership"
+          info={"Orders whose line-item title matches Membership/VIP.\nNew = first billing, Recurring = renewals. No 'Cost per item' is set on membership, so COGS is $0 and margin shows 100%."}
+          theme="membership"
+          revenue={membership.revenue} orders={membership.orders} qty={membership.qty}
+          netSales={membership.netSales} shipping={membership.shipping} cogs={membership.cogs}
+          profit={membership.profit} margin={membership.margin} aov={membership.aov}
+          breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
+        />
+        {amazon.orders > 0 && (
+          <SegmentCard
+            title="Amazon"
+            info={"Orders whose Shopify sourceName is 'amazon' (Codisto Marketplace Connect). Kept separate from Cash/Non-Cash and excluded from Cash In."}
+            theme="amazon"
+            revenue={amazon.revenue} orders={amazon.orders} qty={amazon.qty}
+            netSales={amazon.netSales} shipping={amazon.shipping} cogs={amazon.cogs}
+            profit={amazon.profit} margin={amazon.margin} aov={amazon.aov}
+          />
+        )}
+        {stripeSummary && (
+          <StripeSegmentCard
+            info={"Stripe direct charges over the range, summed from daily Stripe snapshots.\nNet = gross successful charges − refunds. Payment-processor money, separate from Shopify order revenue; net feeds into Cash In."}
+            grossCents={stripeSummary.direct_success_total_cents}
+            refundCents={stripeSummary.refunds_total_cents}
+            charges={stripeSummary.direct_success_count}
+            refunds={stripeSummary.refunds_count}
+            uniqueCustomers={stripeSummary.direct_success_unique_customers}
+          />
+        )}
+        {paypalSummary && (
+          <PayPalSegmentCard
+            info={"PayPal transactions over the range, summed from daily PayPal snapshots.\nNet = gross successful transactions − refunds. Internal balance movements (payouts, transfers, conversions) are excluded and noted at the bottom of the card."}
+            grossCents={paypalSummary.direct_success_total_cents}
+            refundCents={paypalSummary.refunds_total_cents}
+            transactions={paypalSummary.direct_success_count}
+            refunds={paypalSummary.refunds_count}
+            uniqueCustomers={paypalSummary.direct_success_unique_customers}
+            excludedTransfersCount={paypalSummary.excluded_internal_transfers_count}
+            excludedTransfersNetCents={paypalSummary.excluded_internal_transfers_net_cents}
+          />
+        )}
+      </div>
+
+      {chartData.length > 0 && (
+        <>
+          <SectionLabel>Revenue by Product</SectionLabel>
+          <div style={{ ...cardStyle, marginBottom: 8 }}>
+            <RevenueChart data={chartData} />
+          </div>
+        </>
+      )}
+      <p style={{ margin: '18px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
+        Cash in = cash-segment revenue + membership + Stripe net. LTV = new members × ${MEMBER_LTV_VALUE} assumed lifetime value. COGS from Shopify cost per item; shipping counts as revenue.
+      </p>
+    </div>
+  );
+
+  const paymentsSection = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+      {stripeSummary && (
+        <div>
+          <SectionLabel>Stripe</SectionLabel>
+          <div className="pay-triplet" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            <div style={{ background: 'var(--accent2-100)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--accent2-700)', marginBottom: 6 }}>Successful (direct)</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent2-900)' }}>{fmt(stripeSummary.direct_success_total_cents / 100)}</div>
+              <div style={{ fontSize: 12, color: 'var(--accent2-700)', marginTop: 4 }}>{stripeSummary.direct_success_count} charges · {stripeSummary.direct_success_unique_customers} customers</div>
+            </div>
+            <div style={{ background: 'var(--accent-100)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--accent-700)', marginBottom: 6 }}>Refunds</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent-900)' }}>{fmt(stripeSummary.refunds_total_cents / 100)}</div>
+              <div style={{ fontSize: 12, color: 'var(--accent-700)', marginTop: 4 }}>{stripeSummary.refunds_count} refunds</div>
+            </div>
+            <div style={{ background: 'var(--neutral-200)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--neutral-700)', marginBottom: 6 }}>Failed charges</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--neutral-900)' }}>{stripeSummary.failed_count}</div>
+              <div style={{ fontSize: 12, color: 'var(--neutral-700)', marginTop: 4 }}>{fmt(stripeSummary.failed_total_cents / 100)} attempted</div>
+            </div>
+          </div>
+          {stripeSummary.top_failure_reasons.length > 0 && (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+              {stripeSummary.top_failure_reasons.map(({ reason, count }) => (
+                <span key={reason} style={{ background: 'var(--neutral-100)', borderRadius: 999, padding: '6px 14px', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  <strong style={{ color: 'var(--accent-800)' }}>{count}×</strong> {reason}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {paypalSummary && (
+        <div>
+          <SectionLabel>PayPal</SectionLabel>
+          <div className="pay-triplet" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+            <div style={{ background: 'var(--accent2-100)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--accent2-700)', marginBottom: 6 }}>Successful (direct)</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent2-900)' }}>{fmt(paypalSummary.direct_success_total_cents / 100)}</div>
+              <div style={{ fontSize: 12, color: 'var(--accent2-700)', marginTop: 4 }}>{paypalSummary.direct_success_count} transactions · {paypalSummary.direct_success_unique_customers} customers</div>
+            </div>
+            <div style={{ background: 'var(--accent-100)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--accent-700)', marginBottom: 6 }}>Refunds</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent-900)' }}>{fmt(paypalSummary.refunds_total_cents / 100)}</div>
+              <div style={{ fontSize: 12, color: 'var(--accent-700)', marginTop: 4 }}>{paypalSummary.refunds_count} refunds</div>
+            </div>
+            <div style={{ background: 'var(--neutral-200)', borderRadius: 24, padding: '20px 24px' }}>
+              <div style={{ ...labelStyle, color: 'var(--neutral-700)', marginBottom: 6 }}>Denied</div>
+              <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--neutral-900)' }}>{paypalSummary.denied_count}</div>
+              <div style={{ fontSize: 12, color: 'var(--neutral-700)', marginTop: 4 }}>{fmt(paypalSummary.denied_total_cents / 100)} attempted</div>
+            </div>
+          </div>
+        </div>
+      )}
+      {ads && (
+        <div>
+          <SectionLabel>Meta advertising</SectionLabel>
+          <div className="meta-quad" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14 }}>
+            {[
+              { label: 'Ad spend',    value: fmt(ads.spend) },
+              { label: 'Purchases',   value: String(ads.purchases) },
+              { label: 'CPA',         value: fmtDec(ads.cpa) },
+              { label: 'Link clicks', value: String(ads.link_clicks ?? '—') },
+            ].map(({ label: l, value }) => (
+              <div key={l} style={cardStyle}>
+                <div style={{ ...labelStyle, marginBottom: 6 }}>{l}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{value}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginTop: 14, fontSize: 13, color: 'var(--neutral-700)', flexWrap: 'wrap' }}>
+            <span style={labelStyle}>Funnel</span>
+            <span>Click → ATC <strong style={{ color: 'var(--accent2-800)' }}>{ads.click_to_atc != null ? `${(ads.click_to_atc * 100).toFixed(1)}%` : '—'}</strong></span>
+            <span>→</span>
+            <span>ATC → Purchase <strong style={{ color: 'var(--accent2-800)' }}>{ads.atc_to_purchase != null ? `${(ads.atc_to_purchase * 100).toFixed(1)}%` : '—'}</strong></span>
+            {ads.atcs != null && <span style={{ color: 'var(--neutral-600)' }}>· {ads.atcs} ATCs</span>}
+          </div>
+        </div>
+      )}
+      <p style={{ margin: '0 4px', fontSize: 12, color: 'var(--neutral-600)' }}>
+        Shopify-originated charges excluded from Stripe{stripeSummary ? ` (${stripeSummary.shopify_filtered_count} filtered)` : ''} and PayPal. PayPal totals are not included in cash in.
+      </p>
+    </div>
+  );
+
+  const customersSection = !hasSegments ? (
+    <p style={{ color: 'var(--neutral-600)', fontSize: 13 }}>No customer segment data for this range.</p>
+  ) : (
+    <div>
+      <div className="cust-pair" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 28 }}>
+        <div style={{ background: 'var(--accent2-100)', borderRadius: 28, padding: '24px 28px' }}>
+          <div style={{ ...labelStyle, color: 'var(--accent2-700)', marginBottom: 12 }}>New customers</div>
+          <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
+            {[[String(totalNewOrders), 'orders'], [fmt(totalNewRevenue), 'revenue'], [fmtDec(totalNewAov), 'AOV'], [fmtPct(totalNewMargin), 'margin']].map(([v, l]) => (
+              <div key={l}><div style={{ fontSize: 26, fontWeight: 700, color: 'var(--accent2-900)' }}>{v}</div><div style={{ fontSize: 12, color: 'var(--accent2-700)' }}>{l}</div></div>
+            ))}
+          </div>
+        </div>
+        <div style={{ background: 'var(--surface)', borderRadius: 28, padding: '24px 28px' }}>
+          <div style={{ ...labelStyle, marginBottom: 12 }}>Returning customers</div>
+          <div style={{ display: 'flex', gap: 32, flexWrap: 'wrap', fontVariantNumeric: 'tabular-nums' }}>
+            {[[String(totalRetOrders), 'orders'], [fmt(totalRetRevenue), 'revenue'], [fmtDec(totalRetAov), 'AOV'], [fmtPct(totalRetMargin), 'margin']].map(([v, l]) => (
+              <div key={l}><div style={{ fontSize: 26, fontWeight: 700 }}>{v}</div><div style={{ fontSize: 12, color: 'var(--neutral-600)' }}>{l}</div></div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Segment</th><th>Type</th>
+              {['Orders', 'Revenue', 'Net sales', 'Margin', 'AOV'].map(h => <th key={h} style={{ textAlign: 'right' }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { segLabel: 'Cash',     ct: 'new',       s: cashNew },
+              { segLabel: 'Cash',     ct: 'returning', s: cashRet },
+              { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew },
+              { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet },
+              { segLabel: 'Internal', ct: 'new',       s: internalNew },
+              { segLabel: 'Internal', ct: 'returning', s: internalRet },
+              ...(amazonNew.orders > 0 || amazonRet.orders > 0 ? [
+                { segLabel: 'Amazon', ct: 'new',       s: amazonNew },
+                { segLabel: 'Amazon', ct: 'returning', s: amazonRet },
+              ] : []),
+            ].map(({ segLabel, ct, s }) => (
+              <tr key={`${segLabel}-${ct}`}>
+                <td style={{ fontWeight: 500 }}>{segLabel}</td>
+                <td><span className={ct === 'new' ? 'tag tag-accent-2' : 'tag tag-neutral'}>{ct}</span></td>
+                <td style={{ textAlign: 'right' }}>{s.orders}</td>
+                <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtDec(s.revenue)}</td>
+                <td style={{ textAlign: 'right' }}>{fmtDec(s.netSales)}</td>
+                <td style={{ textAlign: 'right' }}>{s.revenue > 0 ? fmtPct(s.margin) : '—'}</td>
+                <td style={{ textAlign: 'right' }}>{s.orders > 0 ? fmtDec(s.aov) : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ margin: '18px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
+        Internal = $0-revenue comps and redos, kept out of the cash segments.
+      </p>
+    </div>
+  );
+
+  const productsSection = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+      <div className="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th><th>Variant</th><th>Type</th>
+              {['Qty', 'Orders', 'Net sales', 'Shipping', 'COGS', 'Revenue'].map(h => <th key={h} style={{ textAlign: 'right' }}>{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {products.map(pr => (
+              <tr key={`${pr.title}-${pr.variant}`}>
+                <td style={{ fontWeight: 500 }}>{pr.title}</td>
+                <td style={{ color: 'var(--neutral-600)' }}>{pr.variant || '—'}</td>
+                <td><span className={typeTag(pr.item_type)}>{pr.item_type.toLowerCase()}</span></td>
+                <td style={{ textAlign: 'right' }}>{pr.qty}</td>
+                <td style={{ textAlign: 'right' }}>{pr.orders}</td>
+                <td style={{ textAlign: 'right' }}>{fmtDec(pr.net_sales)}</td>
+                <td style={{ textAlign: 'right', color: 'var(--neutral-600)' }}>{fmtDec(pr.shipping)}</td>
+                <td style={{ textAlign: 'right', color: 'var(--neutral-600)' }}>{fmtDec(pr.cogs)}</td>
+                <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtDec(pr.revenue)}</td>
+              </tr>
+            ))}
+            <tr>
+              <td style={{ fontWeight: 700 }}>Total</td><td></td><td></td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{total.qty}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{total.orders}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtDec(total.netSales)}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtDec(total.shipping)}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtDec(total.cogs)}</td>
+              <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtDec(total.revenue)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <CountriesSection startDate={startDate} endDate={endDate} />
+    </div>
+  );
+
+  const discountsSection = (
+    <DiscountsSection
+      startDate={startDate}
+      endDate={endDate}
+      preset={preset}
+      from={from}
+      to={to}
+      dProduct={d_product}
+      dVariant={d_variant}
+    />
+  );
+
+  // ── render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
 
-      {/* ── TOP BAR ───────────────────────────────────────────────────────── */}
-      <div style={{
-        background: '#1a1a2e',
-        color: '#fff',
-        padding: '1rem 2rem',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', flexWrap: 'wrap' }}>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400 }}>
-            Range <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Report</em>
-          </h1>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.2)' }} />
-          {/* Preset tabs */}
-          <div style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
-            {([
-              ['today',     'Today'],
-              ['yesterday', 'Yesterday'],
-              ['3d',        '3 Days'],
-              ['7d',        '7 Days'],
-              ['30d',       '30 Days'],
-            ] as [Preset, string][]).map(([id, lbl]) => (
-              <Link key={id} href={`/dashboard/range?preset=${id}`} style={tabStyle(id)}>{lbl}</Link>
-            ))}
-            {/* Custom range form */}
-            <form method="GET" action="/dashboard/range" style={{ display: 'flex', gap: '0.375rem', alignItems: 'center' }}>
-              <input type="hidden" name="preset" value="custom" />
-              <input
-                type="date"
-                name="from"
-                defaultValue={preset === 'custom' ? from : ''}
-                style={{
-                  padding: '0.3rem 0.5rem',
-                  borderRadius: 7,
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.08)',
-                  color: '#fff',
-                  fontSize: '0.75rem',
-                  fontFamily: 'var(--font-mono)',
-                  colorScheme: 'dark',
-                }}
-              />
-              <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem' }}>–</span>
-              <input
-                type="date"
-                name="to"
-                defaultValue={preset === 'custom' ? to : ''}
-                style={{
-                  padding: '0.3rem 0.5rem',
-                  borderRadius: 7,
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.08)',
-                  color: '#fff',
-                  fontSize: '0.75rem',
-                  fontFamily: 'var(--font-mono)',
-                  colorScheme: 'dark',
-                }}
-              />
-              <button
-                type="submit"
-                style={{
-                  padding: '0.3rem 0.6rem',
-                  borderRadius: 7,
-                  border: '1px solid rgba(255,255,255,0.2)',
-                  background: 'rgba(255,255,255,0.08)',
-                  color: 'rgba(255,255,255,0.7)',
-                  fontSize: '0.75rem',
-                  fontFamily: 'var(--font-mono)',
-                  cursor: 'pointer',
-                }}
-              >
-                Go
-              </button>
-            </form>
-          </div>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)' }} />
-          {/* Range label in top bar */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.85)', fontWeight: 500 }}>{label}</span>
-            {days > 1 && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
-                {days}d · {startDate} → {endDate}
-              </span>
-            )}
-            {days === 1 && (
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'rgba(255,255,255,0.45)' }}>
-                {startDate}
-              </span>
-            )}
-          </div>
+      {/* ── HEADER ────────────────────────────────────────────────────────── */}
+      <header style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '20px 40px', flexWrap: 'wrap' }}>
+        <div style={{ fontFamily: 'var(--font-heading)', fontSize: 22, lineHeight: 1 }}>
+          Range <span style={{ color: 'var(--accent)' }}>Report</span>
         </div>
-
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-          <a
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          {([
+            ['today',     'Today'],
+            ['yesterday', 'Yesterday'],
+            ['3d',        '3 days'],
+            ['7d',        '7 days'],
+            ['30d',       '30 days'],
+          ] as [Preset, string][]).map(([id, lbl]) => (
+            <Link key={id} href={`/dashboard/range?preset=${id}`}
+              className={`pill pill--sm${activePreset === id ? ' pill--active' : ''}`}>
+              {lbl}
+            </Link>
+          ))}
+          <form method="GET" action="/dashboard/range" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="hidden" name="preset" value="custom" />
+            <input type="date" name="from" defaultValue={preset === 'custom' ? from : ''}
+              style={{ padding: '5px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+            <span style={{ color: 'var(--neutral-500)', fontSize: 12 }}>–</span>
+            <input type="date" name="to" defaultValue={preset === 'custom' ? to : ''}
+              style={{ padding: '5px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-body)' }} />
+            <button type="submit" className="pill pill--sm">Go</button>
+          </form>
+        </div>
+        <div style={{ fontSize: 13, color: 'var(--neutral-700)' }}>
+          {days === 1 ? startDate : `${startDate} → ${endDate}`} · Pacific
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
+          <a className="pill"
             href={preset === 'custom' && from && to
               ? `/api/export/range/pdf?preset=custom&from=${from}&to=${to}`
               : `/api/export/range/pdf?preset=${preset ?? '7d'}`}
-            target="_blank"
-            rel="noreferrer"
-            style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 8,
-              padding: '0.4rem 0.875rem',
-              fontSize: '0.8rem',
-              textDecoration: 'none',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
+            target="_blank" rel="noreferrer">
             PDF
           </a>
-          <Link
-            href="/dashboard/history"
-            style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
-              borderRadius: 8,
-              padding: '0.4rem 0.875rem',
-              fontSize: '0.8rem',
-              textDecoration: 'none',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            History
-          </Link>
+          <Link className="pill" href="/dashboard/history">History</Link>
         </div>
-      </div>
+      </header>
 
       <style>{`
-        @media (max-width: 768px) {
-          .desktop-only { display: none !important; }
+        @media (max-width: 900px) {
+          .ov-kpis { grid-template-columns: repeat(2, 1fr) !important; }
+          .pay-triplet { grid-template-columns: 1fr !important; }
+          .meta-quad { grid-template-columns: 1fr 1fr !important; }
+          .cust-pair { grid-template-columns: 1fr !important; }
           .segments-row { flex-direction: column !important; }
         }
       `}</style>
 
-      {/* ── NO DATA ───────────────────────────────────────────────────────── */}
-      {rows.length === 0 && (
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem', color: 'var(--muted)', fontSize: '0.9rem' }}>
-          No data found for this range.
-        </div>
-      )}
-
-      {/* ── MAIN CONTENT ──────────────────────────────────────────────────── */}
-      {rows.length > 0 && (
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
-
-          {/* ── TOTAL KPIs ──────────────────────────────────────────────── */}
-          <SectionLabel>Total Business</SectionLabel>
-
-          {/* Row 1 — 5 KPI cards */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: 10,
-          }}>
-            <KpiCard
-              label="Total Revenue"
-              info={"Net Sales + Shipping across all Shopify orders in the range, summed from the stored daily totals (Pacific-time days).\nIncludes Cash, Non-Cash, Membership and Amazon segments."}
-              value={fmt(total.revenue)}
-              sub={`${total.orders} orders · ${productOrders} product · ${total.qty} units`}
-            />
-            <KpiCard
-              label="Gross Profit"
-              info={"Revenue − COGS, summed over the range.\nCOGS = Shopify's 'Cost per item' × quantity; variants with no cost set (e.g. membership) count as $0. Shipping counts as revenue with no shipping cost deducted."}
-              value={fmt(total.profit)}
-            />
-            <KpiCard
-              label="GP + LTV − Ads"
-              info={"Gross Profit + new-member LTV − Meta ad spend, over the range.\nLTV = new membership signups × $70 assumed lifetime value."}
-              value={fmt(rangeGpLtvMinusAds)}
-              sub={`+ ${fmt(rangeLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) − ${fmt(derived.adCost)} ads`}
-            />
-            <KpiCard
-              label="Margin"
-              info={"Gross Profit ÷ Total Revenue over the range."}
-              value={fmtPct(total.margin)}
-            />
-            <KpiCard
-              label="AOV"
-              info={"Average order value: Total Revenue ÷ total orders over the range."}
-              value={fmtDec(total.aov)}
-            />
-          </div>
-
-          {/* Row 2 — 5 TintCards */}
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(5, 1fr)',
-            gap: 10,
-            marginTop: 10,
-            marginBottom: '2rem',
-          }}>
-            <TintCard
-              label="Cash In"
-              info={"Actual money received over the range:\nCash-segment revenue + Membership revenue + Stripe net (direct charges − refunds).\nExcludes Non-Cash (store-credit) and Amazon orders."}
-              value={fmt(derived.cashIn)}
-              sub="Shopify + Members + Stripe"
-              bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
-            />
-            <TintCard
-              label="Ad Cost"
-              info={"Meta (Facebook/Instagram) ad spend over the range, from the Meta Ads API, with Meta-attributed purchase count."}
-              value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
-              sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
-              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
-            />
-            <TintCard
-              label="CPA — Ad"
-              info={"Cost per acquisition, attributed:\nAd Cost ÷ Meta-attributed purchases."}
-              value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
-              sub="attributed orders"
-              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
-            />
-            <TintCard
-              label="CPA — Blended"
-              info={"Cost per acquisition, blended:\nAd Cost ÷ ALL physical product orders (Cash + Non-Cash + Amazon), regardless of ad attribution."}
-              value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
-              sub={`${productOrders} product orders`}
-              bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
-            />
-            <TintCard
-              label="GP − Ads"
-              info={"Gross Profit − Ad Cost over the range, before the LTV credit."}
-              value={derived.dailyProfit < 0
-                ? `−${fmt(Math.abs(derived.dailyProfit))}`
-                : fmt(derived.dailyProfit)}
-              sub="GP − ad spend"
-              bg="#EEEDFE" border="#AFA9EC"
-              textColor={derived.dailyProfit < 0 ? '#A32D2D' : '#26215C'}
-              subColor="#3C3489"
-            />
-          </div>
-
-          {/* ── SALES SEGMENTS ──────────────────────────────────────────── */}
-          <SectionLabel>Sales Segments</SectionLabel>
-          <div className="segments-row" style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-            <SegmentCard
-              title="Cash"
-              info={"Physical product orders paid with a real payment gateway (dominant gateway is anything other than Shopify store credit).\nRevenue = net sales + shipping. $0-revenue orders (comps/redos) are shown separately as Internal, not here."}
-              theme="cash"
-              revenue={physCash.revenue}
-              orders={physCash.orders}
-              qty={physCash.qty}
-              netSales={physCash.netSales}
-              shipping={physCash.shipping}
-              cogs={physCash.cogs}
-              profit={physCash.profit}
-              margin={physCash.margin}
-              aov={physCash.aov}
-              breakdownLabel={hasSegments ? `${cashNew.orders} new · ${cashRet.orders} returning` : undefined}
-            />
-            <SegmentCard
-              title="Non-Cash"
-              info={"Physical product orders paid mostly with Shopify STORE CREDIT (dominant gateway shopify_store_credit).\nNo new money changes hands, so this segment is excluded from Cash In."}
-              theme="noncash"
-              revenue={physNonCash.revenue}
-              orders={physNonCash.orders}
-              qty={physNonCash.qty}
-              netSales={physNonCash.netSales}
-              shipping={physNonCash.shipping}
-              cogs={physNonCash.cogs}
-              profit={physNonCash.profit}
-              margin={physNonCash.margin}
-              aov={physNonCash.aov}
-              breakdownLabel={hasSegments ? `${nonCashNew.orders} new · ${nonCashRet.orders} returning` : undefined}
-            />
-            <SegmentCard
-              title="Membership"
-              info={"Orders whose line-item title matches Membership/VIP.\nNew = first billing, Recurring = renewals. No 'Cost per item' is set on membership, so COGS is $0 and margin shows 100%."}
-              theme="membership"
-              revenue={membership.revenue}
-              orders={membership.orders}
-              qty={membership.qty}
-              netSales={membership.netSales}
-              shipping={membership.shipping}
-              cogs={membership.cogs}
-              profit={membership.profit}
-              margin={membership.margin}
-              aov={membership.aov}
-              breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
-            />
-            {amazon.orders > 0 && (
-              <SegmentCard
-                title="Amazon"
-              info={"Orders whose Shopify sourceName is 'amazon' (Codisto Marketplace Connect). Kept separate from Cash/Non-Cash and excluded from Cash In."}
-                theme="amazon"
-                revenue={amazon.revenue}
-                orders={amazon.orders}
-                qty={amazon.qty}
-                netSales={amazon.netSales}
-                shipping={amazon.shipping}
-                cogs={amazon.cogs}
-                profit={amazon.profit}
-                margin={amazon.margin}
-                aov={amazon.aov}
-              />
-            )}
-            {stripeSummary && (
-              <StripeSegmentCard
-                info={"Stripe direct charges over the range, summed from daily Stripe snapshots.\nNet = gross successful charges − refunds. Payment-processor money, separate from Shopify order revenue; net feeds into Cash In."}
-                grossCents={stripeSummary.direct_success_total_cents}
-                refundCents={stripeSummary.refunds_total_cents}
-                charges={stripeSummary.direct_success_count}
-                refunds={stripeSummary.refunds_count}
-                uniqueCustomers={stripeSummary.direct_success_unique_customers}
-              />
-            )}
-            {paypalSummary && (
-              <PayPalSegmentCard
-                info={"PayPal transactions over the range, summed from daily PayPal snapshots.\nNet = gross successful transactions − refunds. Internal balance movements (payouts, transfers, conversions) are excluded and noted at the bottom of the card."}
-                grossCents={paypalSummary.direct_success_total_cents}
-                refundCents={paypalSummary.refunds_total_cents}
-                transactions={paypalSummary.direct_success_count}
-                refunds={paypalSummary.refunds_count}
-                uniqueCustomers={paypalSummary.direct_success_unique_customers}
-                excludedTransfersCount={paypalSummary.excluded_internal_transfers_count}
-                excludedTransfersNetCents={paypalSummary.excluded_internal_transfers_net_cents}
-              />
-            )}
-          </div>
-
-          {/* ── CUSTOMER MIX ────────────────────────────────────────────── */}
-          {hasSegments && (
-            <div className="desktop-only">
-              <SectionLabel>Customer Mix</SectionLabel>
-              <div style={{
-                background: 'var(--surface)',
-                borderRadius: 14,
-                border: '1.5px solid var(--accent)',
-                padding: '1.5rem',
-                marginBottom: '2rem',
-              }}>
-                <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-                  {[
-                    { label: 'New Orders',       value: String(totalNewOrders),   accent: '#1d4ed8' },
-                    { label: 'New Revenue',       value: fmt(totalNewRevenue),     accent: '#1d4ed8' },
-                    { label: 'New AOV',           value: fmtDec(totalNewAov),      accent: '#1d4ed8' },
-                    { label: 'New Margin',        value: fmtPct(totalNewMargin),   accent: '#1d4ed8' },
-                    { label: 'Returning Orders',  value: String(totalRetOrders),   accent: '#6b7280' },
-                    { label: 'Returning Revenue', value: fmt(totalRetRevenue),     accent: '#6b7280' },
-                    { label: 'Returning AOV',     value: fmtDec(totalRetAov),      accent: '#6b7280' },
-                    { label: 'Returning Margin',  value: fmtPct(totalRetMargin),   accent: '#6b7280' },
-                  ].map(({ label: lbl, value, accent: ac }) => (
-                    <div key={lbl} style={{ textAlign: 'center', minWidth: 90 }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: ac, marginBottom: '0.25rem' }}>{lbl}</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: ac }}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      {['Segment', 'Type', 'Orders', 'Revenue', 'Net Sales', 'Margin', 'AOV'].map((h) => (
-                        <th key={h} style={{
-                          padding: '0.5rem 0.75rem',
-                          textAlign: h === 'Segment' || h === 'Type' ? 'left' : 'right',
-                          fontFamily: 'var(--font-mono)',
-                          fontSize: '0.65rem',
-                          textTransform: 'uppercase',
-                          letterSpacing: '0.07em',
-                          color: 'var(--muted)',
-                          fontWeight: 500,
-                        }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(() => {
-                      const tableRows = [
-                        { segLabel: 'Cash',     ct: 'new',       s: cashNew,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#1d4ed8' },
-                        { segLabel: 'Cash',     ct: 'returning', s: cashRet,     payAccent: 'var(--cash-blue-dark)', ctAccent: '#6b7280' },
-                        { segLabel: 'Non-Cash', ct: 'new',       s: nonCashNew,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#1d4ed8' },
-                        { segLabel: 'Non-Cash', ct: 'returning', s: nonCashRet,  payAccent: 'var(--nc-green-dark)',  ctAccent: '#6b7280' },
-                        { segLabel: 'Internal', ct: 'new',       s: internalNew, payAccent: '#92400e',               ctAccent: '#1d4ed8' },
-                        { segLabel: 'Internal', ct: 'returning', s: internalRet, payAccent: '#92400e',               ctAccent: '#6b7280' },
-                        ...(amazonNew.orders > 0 || amazonRet.orders > 0 ? [
-                          { segLabel: 'Amazon', ct: 'new',       s: amazonNew,   payAccent: '#B26B00',               ctAccent: '#1d4ed8' },
-                          { segLabel: 'Amazon', ct: 'returning', s: amazonRet,   payAccent: '#B26B00',               ctAccent: '#6b7280' },
-                        ] : []),
-                      ];
-                      return tableRows.map(({ segLabel, ct, s, payAccent, ctAccent }, i) => (
-                        <tr key={`${segLabel}-${ct}`} style={{ borderBottom: i < tableRows.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none' }}>
-                          <td style={{ padding: '0.5rem 0.75rem', color: payAccent, fontWeight: 500 }}>{segLabel}</td>
-                          <td style={{ padding: '0.5rem 0.75rem' }}>
-                            <span style={{
-                              fontSize: '0.65rem',
-                              fontFamily: 'var(--font-mono)',
-                              padding: '0.15rem 0.4rem',
-                              borderRadius: 5,
-                              background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
-                              color: ctAccent,
-                              fontWeight: 600,
-                              textTransform: 'uppercase',
-                              letterSpacing: '0.05em',
-                            }}>{ct}</span>
-                          </td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{s.orders}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmtDec(s.revenue)}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.netSales)}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtPct(s.margin)}</td>
-                          <td style={{ padding: '0.5rem 0.75rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{fmtDec(s.aov)}</td>
-                        </tr>
-                      ));
-                    })()}
-                  </tbody>
-                </table>
+      <main style={{ maxWidth: 1160, margin: '0 auto', padding: '24px 32px 72px' }}>
+        {rows.length === 0 ? (
+          <div style={{ color: 'var(--neutral-600)', fontSize: 14 }}>No data found for this range.</div>
+        ) : (
+          <RangeTabs
+            title={
+              <div>
+                <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 400, margin: '0 0 6px' }}>{label}</h1>
+                <p style={{ margin: 0, fontSize: 14, color: 'var(--neutral-700)' }}>
+                  {days === 1 ? `One day · ${startDate}` : `${days} days · ${startDate} → ${endDate}`} · all sales channels
+                </p>
               </div>
-            </div>
-          )}
-
-          {/* ── STRIPE ──────────────────────────────────────────────────── */}
-          {stripeSummary && (
-            <div className="desktop-only">
-              <SectionLabel>Stripe Payments</SectionLabel>
-              <div style={{
-                background: 'var(--surface)',
-                borderRadius: 14,
-                border: '1.5px solid #6366f1',
-                padding: '1.5rem',
-                marginBottom: '2rem',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
-                  <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #bbf7d0' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#15803d', marginBottom: '0.5rem' }}>Successful (direct)</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#15803d', marginBottom: '0.25rem' }}>
-                      {fmt(stripeSummary.direct_success_total_cents / 100)}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#166534' }}>
-                      {stripeSummary.direct_success_count} charges · {stripeSummary.direct_success_unique_customers} customers
-                    </div>
-                  </div>
-                  <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
-                      {fmt(stripeSummary.refunds_total_cents / 100)}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
-                      {stripeSummary.refunds_count} refunds
-                    </div>
-                  </div>
-                  <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Failed charges</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
-                      {stripeSummary.failed_count}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
-                      {fmt(stripeSummary.failed_total_cents / 100)} attempted
-                    </div>
-                  </div>
-                </div>
-                {stripeSummary.top_failure_reasons.length > 0 && (
-                  <div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '0.5rem' }}>Top Decline Reasons</div>
-                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                      {stripeSummary.top_failure_reasons.map(({ reason, count }) => (
-                        <div key={reason} style={{
-                          background: 'var(--surface2)',
-                          border: '1px solid var(--border)',
-                          borderRadius: 6,
-                          padding: '0.3rem 0.65rem',
-                          fontSize: '0.75rem',
-                          display: 'flex',
-                          gap: '0.4rem',
-                          alignItems: 'center',
-                        }}>
-                          <span style={{ fontWeight: 700, color: '#dc2626', fontFamily: 'var(--font-mono)' }}>{count}×</span>
-                          <span style={{ color: 'var(--fg)' }}>{reason}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <div style={{ marginTop: '1rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                  {stripeSummary.shopify_filtered_count} Shopify-originated charges excluded
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── PAYPAL ──────────────────────────────────────────────────── */}
-          {paypalSummary && (
-            <div className="desktop-only">
-              <SectionLabel>PayPal Payments</SectionLabel>
-              <div style={{
-                background: 'var(--surface)',
-                borderRadius: 14,
-                border: '1.5px solid #003087',
-                padding: '1.5rem',
-                marginBottom: '2rem',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
-                  <div style={{ background: '#e8f0fe', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #b3c6f7' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#003087', marginBottom: '0.5rem' }}>Successful (direct)</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#003087', marginBottom: '0.25rem' }}>
-                      {fmt(paypalSummary.direct_success_total_cents / 100)}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#001f5b' }}>
-                      {paypalSummary.direct_success_count} transactions · {paypalSummary.direct_success_unique_customers} customers
-                    </div>
-                  </div>
-                  <div style={{ background: '#fffbeb', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fde68a' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#b45309', marginBottom: '0.5rem' }}>Refunds</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#b45309', marginBottom: '0.25rem' }}>
-                      {fmt(paypalSummary.refunds_total_cents / 100)}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#92400e' }}>
-                      {paypalSummary.refunds_count} refunds
-                    </div>
-                  </div>
-                  <div style={{ background: '#fef2f2', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #fecaca' }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#dc2626', marginBottom: '0.5rem' }}>Denied</div>
-                    <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#dc2626', marginBottom: '0.25rem' }}>
-                      {paypalSummary.denied_count}
-                    </div>
-                    <div style={{ fontSize: '0.78rem', color: '#991b1b' }}>
-                      {fmt(paypalSummary.denied_total_cents / 100)} attempted
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-                  {paypalSummary.shopify_filtered_count} Shopify-routed PayPal transactions excluded · PayPal totals not included in Cash In
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── META ADS ────────────────────────────────────────────────── */}
-          {ads && (
-            <div className="desktop-only">
-              <SectionLabel>Meta Advertising</SectionLabel>
-              <div style={{
-                background: 'var(--surface)',
-                borderRadius: 14,
-                border: '1.5px solid #3b82f6',
-                padding: '1.5rem',
-                marginBottom: '2rem',
-              }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
-                  {[
-                    { label: 'Ad Spend',    value: fmt(ads.spend),                   accent: '#1d4ed8' },
-                    { label: 'Purchases',   value: String(ads.purchases),             accent: '#15803d' },
-                    { label: 'CPA',         value: fmtDec(ads.cpa),                  accent: '#b45309' },
-                    { label: 'Link Clicks', value: String(ads.link_clicks ?? '—'),    accent: '#6b7280' },
-                  ].map(({ label, value, accent }) => (
-                    <div key={label} style={{ background: 'var(--surface2)', borderRadius: 10, padding: '0.875rem 1rem', border: '1px solid var(--border)' }}>
-                      <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: accent, marginBottom: '0.4rem' }}>{label}</div>
-                      <div style={{ fontSize: '1.35rem', fontWeight: 700, color: accent }}>{value}</div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>Funnel</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--muted)' }}>Click → ATC</span>
-                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#1d4ed8' }}>
-                      {ads.click_to_atc != null ? `${(ads.click_to_atc * 100).toFixed(1)}%` : '—'}
-                    </span>
-                  </div>
-                  <div style={{ color: 'var(--muted)' }}>→</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                    <span style={{ color: 'var(--muted)' }}>ATC → Purchase</span>
-                    <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', color: '#15803d' }}>
-                      {ads.atc_to_purchase != null ? `${(ads.atc_to_purchase * 100).toFixed(1)}%` : '—'}
-                    </span>
-                  </div>
-                  {ads.atcs != null && (
-                    <>
-                      <div style={{ color: 'var(--muted)' }}>·</div>
-                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>{ads.atcs} ATCs</div>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── PRODUCTS TABLE ──────────────────────────────────────────── */}
-          <div className="desktop-only">
-          <DiscountsSection
-            startDate={startDate}
-            endDate={endDate}
-            preset={preset}
-            from={from}
-            to={to}
-            dProduct={d_product}
-            dVariant={d_variant}
+            }
+            sections={[
+              { id: 'highlights', label: 'Highlights',     node: highlightsSection },
+              { id: 'overview',   label: 'Overview',       node: overviewSection },
+              { id: 'payments',   label: 'Payments & ads', node: paymentsSection },
+              { id: 'customers',  label: 'Customers',      node: customersSection },
+              { id: 'products',   label: 'Products',       node: productsSection },
+              { id: 'discounts',  label: 'Discounts',      node: discountsSection },
+            ]}
           />
-
-          <CountriesSection startDate={startDate} endDate={endDate} />
-
-          <SectionLabel>Products</SectionLabel>
-          <div style={{
-            background: 'var(--surface)',
-            borderRadius: 14,
-            border: '1px solid var(--border)',
-            overflow: 'hidden',
-            marginBottom: '2rem',
-          }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
-              <thead>
-                <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Product', 'Variant', 'Type', 'Qty', 'Orders', 'Net Sales', 'Shipping', 'COGS', 'Revenue'].map((h) => (
-                    <th key={h} style={{
-                      padding: '0.75rem 1rem',
-                      textAlign: h === 'Product' || h === 'Variant' || h === 'Type' ? 'left' : 'right',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '0.68rem',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.07em',
-                      color: 'var(--muted)',
-                      fontWeight: 500,
-                    }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {products.map((p, i) => (
-                  <tr
-                    key={`${p.title}-${p.variant}`}
-                    style={{
-                      borderBottom: i < products.length - 1 ? '1px solid var(--border)' : 'none',
-                      background: i % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)',
-                    }}
-                  >
-                    <td style={{ padding: '0.625rem 1rem', fontWeight: 500 }}>{p.title}</td>
-                    <td style={{ padding: '0.625rem 1rem', color: 'var(--muted)', fontSize: '0.82rem' }}>{p.variant || '—'}</td>
-                    <td style={{ padding: '0.625rem 1rem' }}>
-                      <span style={{
-                        fontSize: '0.65rem',
-                        fontFamily: 'var(--font-mono)',
-                        padding: '0.15rem 0.4rem',
-                        borderRadius: 5,
-                        background: p.item_type === 'Physical' ? '#dbeafe' : p.item_type === 'Membership' ? '#ede9fe' : '#dcfce7',
-                        color: p.item_type === 'Physical' ? '#1d4ed8' : p.item_type === 'Membership' ? '#5b21b6' : '#15803d',
-                        fontWeight: 600,
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em',
-                      }}>{p.item_type}</span>
-                    </td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.qty}</td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)' }}>{p.orders}</td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem' }}>{fmtDec(p.net_sales)}</td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--muted)' }}>{fmtDec(p.shipping)}</td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--muted)' }}>{fmtDec(p.cogs)}</td>
-                    <td style={{ padding: '0.625rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>{fmtDec(p.revenue)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ borderTop: '2px solid var(--border)', background: 'var(--surface2)' }}>
-                  <td colSpan={3} style={{ padding: '0.75rem 1rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)' }}>Total</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{total.qty}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontWeight: 600 }}>{total.orders}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(total.netSales)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(total.shipping)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(total.cogs)}</td>
-                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 700 }}>{fmtDec(total.revenue)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-          </div>
-
-          {/* ── CHART ───────────────────────────────────────────────────── */}
-          {chartData.length > 0 && (
-            <div className="desktop-only">
-              <SectionLabel>Revenue by Product</SectionLabel>
-              <div style={{
-                background: 'var(--surface)',
-                borderRadius: 14,
-                border: '1px solid var(--border)',
-                padding: '1.5rem',
-                marginBottom: '2rem',
-              }}>
-                <RevenueChart data={chartData} />
-              </div>
-            </div>
-          )}
-
-        </div>
-      )}
+        )}
+      </main>
     </div>
   );
 }

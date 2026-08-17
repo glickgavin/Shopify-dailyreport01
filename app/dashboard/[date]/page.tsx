@@ -208,8 +208,9 @@ export default async function DashboardPage({ params }: { params: { date: string
 
       {/* ── TOP BAR ─────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#1a1a2e',
-        color: '#fff',
+        background: 'var(--surface)',
+        color: 'var(--text)',
+        borderBottom: '1px solid var(--border)',
         padding: '1rem 2rem',
         display: 'flex',
         alignItems: 'center',
@@ -222,11 +223,11 @@ export default async function DashboardPage({ params }: { params: { date: string
           <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400 }}>
             Daily Sales <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Dashboard</em>
           </h1>
-          <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.2)' }} />
+          <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Link href={`/dashboard/${prevDate}`} style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Previous day">‹</Link>
-            <span style={{ fontSize: '0.9rem', color: 'rgba(255,255,255,0.85)', fontWeight: 500, minWidth: 210, textAlign: 'center' }}>{displayDate}</span>
-            <Link href={`/dashboard/${nextDate}`} style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Next day">›</Link>
+            <Link href={`/dashboard/${prevDate}`} style={{ color: 'var(--neutral-600)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Previous day">‹</Link>
+            <span style={{ fontSize: '0.9rem', color: 'var(--neutral-800)', fontWeight: 500, minWidth: 210, textAlign: 'center' }}>{displayDate}</span>
+            <Link href={`/dashboard/${nextDate}`} style={{ color: 'var(--neutral-600)', textDecoration: 'none', fontSize: '1.1rem', padding: '0.25rem 0.5rem', borderRadius: 6 }} title="Next day">›</Link>
           </div>
         </div>
 
@@ -234,9 +235,9 @@ export default async function DashboardPage({ params }: { params: { date: string
           <Link
             href="/dashboard/history"
             style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-700)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',
@@ -249,9 +250,9 @@ export default async function DashboardPage({ params }: { params: { date: string
           <Link
             href="/dashboard/range"
             style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-700)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',
@@ -266,9 +267,9 @@ export default async function DashboardPage({ params }: { params: { date: string
             target="_blank"
             rel="noreferrer"
             style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-700)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',
@@ -283,9 +284,9 @@ export default async function DashboardPage({ params }: { params: { date: string
             target="_blank"
             rel="noreferrer"
             style={{
-              background: 'rgba(255,255,255,0.08)',
-              color: 'rgba(255,255,255,0.7)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-700)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',
@@ -300,9 +301,9 @@ export default async function DashboardPage({ params }: { params: { date: string
             target="_blank"
             rel="noreferrer"
             style={{
-              background: 'rgba(255,255,255,0.1)',
-              color: 'rgba(255,255,255,0.8)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: 'var(--neutral-100)',
+              color: 'var(--neutral-800)',
+              border: '1px solid var(--border)',
               borderRadius: 8,
               padding: '0.4rem 0.875rem',
               fontSize: '0.8rem',
@@ -380,7 +381,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             info={"Actual money received today:\nCash-segment revenue + Membership revenue + Stripe net (direct charges − refunds).\nExcludes Non-Cash (store-credit) and Amazon orders."}
             value={fmt(derived.cashIn)}
             sub="Shopify + Members + Stripe"
-            bg="#E1F5EE" border="#5DCAA5" textColor="#04342C" subColor="#0F6E56"
+            bg="var(--accent2-100)" border="transparent" textColor="var(--accent2-900)" subColor="var(--accent2-700)"
           />
           {/* Ad Cost */}
           <TintCard
@@ -388,7 +389,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             info={"Meta (Facebook/Instagram) ad spend for the day, from the Meta Ads API, with Meta-attributed purchase count."}
             value={derived.adCost > 0 ? fmt(derived.adCost) : '—'}
             sub={ads ? `Meta · ${ads.purchases} purch.` : 'No data'}
-            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            bg="var(--accent-100)" border="transparent" textColor="var(--accent-900)" subColor="var(--accent-700)"
           />
           {/* CPA — Ad */}
           <TintCard
@@ -396,7 +397,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             info={"Cost per acquisition, attributed:\nAd Cost ÷ Meta-attributed purchases."}
             value={derived.cpaAd !== null ? fmtDec(derived.cpaAd) : '—'}
             sub="attributed orders"
-            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            bg="var(--accent-100)" border="transparent" textColor="var(--accent-900)" subColor="var(--accent-700)"
             delta={derived.cpaAd !== null ? { pct: cpaDelta, inverted: true } : undefined}
           />
           {/* CPA — Blended */}
@@ -405,7 +406,7 @@ export default async function DashboardPage({ params }: { params: { date: string
             info={"Cost per acquisition, blended:\nAd Cost ÷ ALL physical product orders (Cash + Non-Cash + Amazon), regardless of ad attribution."}
             value={derived.cpaBlended !== null ? fmtDec(derived.cpaBlended) : '—'}
             sub={`${productOrders} product orders`}
-            bg="#FAEEDA" border="#EF9F27" textColor="#412402" subColor="#854F0B"
+            bg="var(--accent-100)" border="transparent" textColor="var(--accent-900)" subColor="var(--accent-700)"
             delta={derived.cpaBlended !== null ? { pct: cpaBlendedDelta, inverted: true } : undefined}
           />
           {/* Daily Profit */}
@@ -416,9 +417,9 @@ export default async function DashboardPage({ params }: { params: { date: string
               ? `−${fmt(Math.abs(derived.dailyProfit))}`
               : fmt(derived.dailyProfit)}
             sub="GP − ad spend"
-            bg="#EEEDFE" border="#AFA9EC"
-            textColor={derived.dailyProfit < 0 ? '#A32D2D' : '#26215C'}
-            subColor="#3C3489"
+            bg="var(--neutral-200)" border="transparent"
+            textColor={derived.dailyProfit < 0 ? 'var(--accent-700)' : 'var(--neutral-900)'}
+            subColor="var(--neutral-700)"
           />
         </div>
 
@@ -590,7 +591,7 @@ export default async function DashboardPage({ params }: { params: { date: string
                             fontFamily: 'var(--font-mono)',
                             padding: '0.15rem 0.4rem',
                             borderRadius: 5,
-                            background: ct === 'new' ? '#dbeafe' : 'var(--surface2)',
+                            background: ct === 'new' ? 'var(--accent2-200)' : 'var(--neutral-200)',
                             color: ctAccent,
                             fontWeight: 600,
                             textTransform: 'uppercase',
@@ -914,8 +915,8 @@ export default async function DashboardPage({ params }: { params: { date: string
                       fontFamily: 'var(--font-mono)',
                       padding: '0.15rem 0.4rem',
                       borderRadius: 5,
-                      background: p.item_type === 'Physical' ? '#dbeafe' : p.item_type === 'Membership' ? '#ede9fe' : '#dcfce7',
-                      color: p.item_type === 'Physical' ? '#1d4ed8' : p.item_type === 'Membership' ? '#5b21b6' : '#15803d',
+                      background: p.item_type === 'Physical' ? 'var(--accent2-200)' : p.item_type === 'Membership' ? 'var(--accent-200)' : 'var(--neutral-200)',
+                      color: p.item_type === 'Physical' ? 'var(--accent2-900)' : p.item_type === 'Membership' ? 'var(--accent-900)' : 'var(--neutral-800)',
                       fontWeight: 600,
                       textTransform: 'uppercase',
                       letterSpacing: '0.05em',

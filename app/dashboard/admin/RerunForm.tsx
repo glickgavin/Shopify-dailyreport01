@@ -37,7 +37,7 @@ export default function RerunForm() {
         type="submit"
         disabled={loading}
         style={{
-          background: '#1a1a2e',
+          background: 'var(--accent)',
           color: '#fff',
           border: 'none',
           borderRadius: 8,

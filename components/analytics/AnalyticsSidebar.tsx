@@ -8,6 +8,7 @@ const NAV = [
     items: [
       { href: '/dashboard',          label: 'Daily Dashboard', exact: true },
       { href: '/dashboard/range',    label: 'Range Report' },
+      { href: '/dashboard/aov',      label: 'AOV' },
       { href: '/dashboard/ads',      label: 'Ad Report' },
       { href: '/dashboard/meta-ads', label: 'Meta Ads' },
       { href: '/dashboard/history',    label: 'History' },

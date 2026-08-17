@@ -213,7 +213,7 @@ export default async function DiscountsSection({
             </select>
           </>
         )}
-        <button type="submit" style={{ padding: '0.32rem 0.8rem', borderRadius: 6, border: '1px solid var(--border)', background: '#1a1a2e', color: '#fff', fontFamily: 'inherit', fontSize: '0.75rem', cursor: 'pointer' }}>Apply</button>
+        <button type="submit" style={{ padding: '0.32rem 0.8rem', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--accent)', color: '#fff', fontFamily: 'inherit', fontSize: '0.75rem', cursor: 'pointer' }}>Apply</button>
         {product !== 'ALL' && (
           <span style={{ color: 'var(--muted)' }}>filtering: {product}{variant !== 'ALL' ? ` · ${variant}` : ''}</span>
         )}
