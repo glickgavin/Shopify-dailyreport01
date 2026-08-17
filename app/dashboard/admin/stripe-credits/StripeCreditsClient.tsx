@@ -323,9 +323,11 @@ export default function StripeCreditsClient() {
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--neutral-600)', margin: '4px 4px 0' }}>
-        Webhook endpoint: <code>/api/webhooks/stripe-credit</code> (invoice.paid, charge.refunded) ·
+        Ingestion: polling sweep every 10 min (paid invoices + refunds, 24h lookback, idempotent) —
+        no Stripe webhook needed, though <code>/api/webhooks/stripe-credit</code> also works if registered ·
         retry cron hourly at :25, max 10 rows × 5 attempts · credits use the same Shopify flow as PayPal
-        (customer lookup by email → store-credit account → credit + member-active tag).
+        (customer lookup by email → store-credit account → credit + member-active tag) ·
+        while DISABLED, incoming invoices are recorded as skipped, so enabling only affects invoices arriving afterwards.
       </p>
     </div>
   );
