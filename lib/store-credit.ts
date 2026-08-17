@@ -17,8 +17,11 @@ import { shopifyGraphQL } from './shopify';
 /* ------------------------------------------------------------------ */
 
 export type StoreCreditAllocationResult =
-  | { ok: true;  creditReference: string; shopifyCustomerId: string; email: string }
+  | { ok: true;  creditReference: string; shopifyCustomerId: string; email: string; tagged: boolean }
   | { ok: false; reason: 'customer_not_found' | 'no_account' | 'mutation_failed'; detail: string; email: string };
+
+/** Customer-level tag applied after every successful credit allocation. */
+export const MEMBER_ACTIVE_TAG = 'member-active';
 
 interface CustomerByEmailResp {
   customers: {
@@ -57,6 +60,14 @@ const CUSTOMER_BY_EMAIL = `
           }
         }
       }
+    }
+  }
+`;
+
+const TAGS_ADD = `
+  mutation TagCustomer($id: ID!, $tags: [String!]!) {
+    tagsAdd(id: $id, tags: $tags) {
+      userErrors { message }
     }
   }
 `;
@@ -132,7 +143,26 @@ export async function allocateStoreCredit(params: {
     return { ok: false, reason: 'mutation_failed', detail: 'mutation returned no transaction', email };
   }
 
-  return { ok: true, creditReference: tx.id, shopifyCustomerId: customerNode.id, email };
+  // Tag the CUSTOMER as an active member. tagsAdd is idempotent (re-adding an
+  // existing tag is a no-op), and a tagging failure must never fail the
+  // allocation — the money has already moved — so it only logs a warning.
+  let tagged = false;
+  try {
+    const tagResp = await shopifyGraphQL<{ tagsAdd: { userErrors: Array<{ message: string }> } }>(
+      TAGS_ADD,
+      { id: customerNode.id, tags: [MEMBER_ACTIVE_TAG] },
+    );
+    const tagErrors = tagResp.tagsAdd?.userErrors ?? [];
+    if (tagErrors.length > 0) {
+      console.warn(`[store-credit] tagged=false for ${customerNode.id}: ${tagErrors.map(e => e.message).join('; ')}`);
+    } else {
+      tagged = true;
+    }
+  } catch (err) {
+    console.warn(`[store-credit] tag mutation failed for ${customerNode.id}: ${(err as Error).message}`);
+  }
+
+  return { ok: true, creditReference: tx.id, shopifyCustomerId: customerNode.id, email, tagged };
 }
 
 /**
