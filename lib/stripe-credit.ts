@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto';
 import type Stripe from 'stripe';
+import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase';
 import { allocateStoreCredit, debitStoreCredit } from '@/lib/store-credit';
 
@@ -268,6 +269,105 @@ export async function processChargeRefunded(charge: Stripe.Charge, requestId: st
   }
 
   return results;
+}
+
+// ── Polling sweep (primary ingestion — no webhook required) ──────────────────
+// Every run lists paid invoices and refunds created in the lookback window
+// straight from the Stripe API (same connection the daily snapshot cron uses),
+// batch-filters out rows we've already terminally processed, and feeds the
+// rest through the same idempotent engine the webhook uses. Overlapping
+// windows are safe: already-processed ids are skipped before any Shopify call.
+// While the kill switch is off, new invoices are ingested as terminal
+// 'skipped' rows, so flipping it on later only affects invoices that arrive
+// AFTER the flip — that is what makes the old-system cutover safe.
+
+export interface SweepSummary {
+  requestId: string;
+  invoicesSeen: number;
+  invoicesProcessed: number;
+  creditResults: ProcessResult[];
+  refundsSeen: number;
+  chargesProcessed: number;
+  refundResults: ProcessResult[];
+}
+
+export async function sweepStripe(lookbackHours = 24): Promise<SweepSummary> {
+  const requestId = randomUUID();
+  const gte = Math.floor(Date.now() / 1000) - lookbackHours * 3600;
+
+  // ── Paid invoices → credits ────────────────────────────────────────────────
+  const invoices: Stripe.Invoice[] = [];
+  for await (const inv of stripe.invoices.list({ status: 'paid', created: { gte }, limit: 100 })) {
+    invoices.push(inv);
+  }
+  const invIds = invoices.map(i => (i as unknown as { id: string }).id);
+  const { data: existingInv } = await db
+    .from('stripe_credit_invoices')
+    .select('stripe_invoice_id, allocation_status')
+    .in('stripe_invoice_id', invIds.length ? invIds : ['__none__']);
+  const invDone = new Set(
+    ((existingInv ?? []) as { stripe_invoice_id: string; allocation_status: string }[])
+      .filter(r => r.allocation_status !== 'pending')
+      .map(r => r.stripe_invoice_id),
+  );
+
+  const creditResults: ProcessResult[] = [];
+  let invoicesProcessed = 0;
+  for (const inv of invoices) {
+    if (invDone.has((inv as unknown as { id: string }).id)) continue;
+    invoicesProcessed++;
+    creditResults.push(await processInvoicePaid(inv, requestId));
+    await sleep(400); // gentle on Shopify + Supabase
+  }
+
+  // ── Refunds → proportional debits ──────────────────────────────────────────
+  const refunds: Record<string, any>[] = [];
+  for await (const r of stripe.refunds.list({ created: { gte }, limit: 100 })) {
+    refunds.push(r as unknown as Record<string, any>);
+  }
+  const refIds = refunds.map(r => r.id);
+  const { data: existingRef } = await db
+    .from('stripe_credit_refunds')
+    .select('stripe_refund_id, debit_status')
+    .in('stripe_refund_id', refIds.length ? refIds : ['__none__']);
+  const refDone = new Set(
+    ((existingRef ?? []) as { stripe_refund_id: string; debit_status: string }[])
+      .filter(r => r.debit_status !== 'pending')
+      .map(r => r.stripe_refund_id),
+  );
+
+  // One charge can carry several refunds — retrieve each charge once and let
+  // processChargeRefunded handle all of its refunds idempotently.
+  const chargeIds = new Set<string>();
+  for (const r of refunds) {
+    if (refDone.has(r.id)) continue;
+    const cid = typeof r.charge === 'string' ? r.charge : r.charge?.id;
+    if (cid) chargeIds.add(cid);
+  }
+
+  const refundResults: ProcessResult[] = [];
+  for (const cid of Array.from(chargeIds)) {
+    try {
+      const charge = await stripe.charges.retrieve(cid, { expand: ['refunds'] });
+      refundResults.push(...await processChargeRefunded(charge as unknown as Stripe.Charge, requestId));
+    } catch (err) {
+      console.error(`[stripe-credit][${requestId}] charge ${cid} retrieve/process failed: ${(err as Error).message}`);
+      refundResults.push({ id: cid, status: 'error', detail: (err as Error).message });
+    }
+    await sleep(400);
+  }
+
+  const summary: SweepSummary = {
+    requestId,
+    invoicesSeen: invoices.length,
+    invoicesProcessed,
+    creditResults,
+    refundsSeen: refunds.length,
+    chargesProcessed: chargeIds.size,
+    refundResults,
+  };
+  console.log(`[stripe-credit][${requestId}] sweep: invoices ${invoicesProcessed}/${invoices.length} processed, refunds seen ${refunds.length}, charges processed ${chargeIds.size}`);
+  return summary;
 }
 
 // ── Retry loop (hourly cron + admin button) ──────────────────────────────────
