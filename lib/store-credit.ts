@@ -85,6 +85,21 @@ const STORE_CREDIT_ACCOUNT_CREDIT = `
 `;
 
 /**
+ * Look up a Shopify customer GID by email. Returns null when no customer
+ * matches. Never throws — errors surface as { error }.
+ */
+export async function lookupCustomerIdByEmail(email: string): Promise<{ id: string | null; error?: string }> {
+  try {
+    const resp = await shopifyGraphQL<CustomerByEmailResp>(CUSTOMER_BY_EMAIL, {
+      q: `email:"${email.replace(/"/g, '\\"')}"`,
+    });
+    return { id: resp.customers.edges[0]?.node.id ?? null };
+  } catch (err) {
+    return { id: null, error: (err as Error).message };
+  }
+}
+
+/**
  * Apply the customer-level member-active tag. Idempotent (tagsAdd on an
  * existing tag is a no-op). Never throws.
  */
