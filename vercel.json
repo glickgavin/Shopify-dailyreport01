@@ -54,7 +54,7 @@
     },
     {
       "path": "/api/cron/member-tag-backfill",
-      "schedule": "45 * * * *"
+      "schedule": "15,45 * * * *"
     }
   ]
 }
