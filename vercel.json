@@ -51,6 +51,10 @@
     {
       "path": "/api/cron/stripe-credit-sweep",
       "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/member-tag-backfill",
+      "schedule": "45 * * * *"
     }
   ]
 }
