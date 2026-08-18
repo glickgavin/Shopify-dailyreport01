@@ -84,6 +84,30 @@ const STORE_CREDIT_ACCOUNT_CREDIT = `
   }
 `;
 
+/**
+ * Apply the customer-level member-active tag. Idempotent (tagsAdd on an
+ * existing tag is a no-op). Never throws.
+ */
+export async function tagCustomerMemberActive(customerGid: string): Promise<{ ok: boolean; detail?: string }> {
+  try {
+    const tagResp = await shopifyGraphQL<{ tagsAdd: { userErrors: Array<{ message: string }> } }>(
+      TAGS_ADD,
+      { id: customerGid, tags: [MEMBER_ACTIVE_TAG] },
+    );
+    const tagErrors = tagResp.tagsAdd?.userErrors ?? [];
+    if (tagErrors.length > 0) {
+      const detail = tagErrors.map(e => e.message).join('; ');
+      console.warn(`[store-credit] tagged=false for ${customerGid}: ${detail}`);
+      return { ok: false, detail };
+    }
+    return { ok: true };
+  } catch (err) {
+    const detail = (err as Error).message;
+    console.warn(`[store-credit] tag mutation failed for ${customerGid}: ${detail}`);
+    return { ok: false, detail };
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /*  Main entrypoint                                                   */
 /* ------------------------------------------------------------------ */
@@ -146,21 +170,8 @@ export async function allocateStoreCredit(params: {
   // Tag the CUSTOMER as an active member. tagsAdd is idempotent (re-adding an
   // existing tag is a no-op), and a tagging failure must never fail the
   // allocation — the money has already moved — so it only logs a warning.
-  let tagged = false;
-  try {
-    const tagResp = await shopifyGraphQL<{ tagsAdd: { userErrors: Array<{ message: string }> } }>(
-      TAGS_ADD,
-      { id: customerNode.id, tags: [MEMBER_ACTIVE_TAG] },
-    );
-    const tagErrors = tagResp.tagsAdd?.userErrors ?? [];
-    if (tagErrors.length > 0) {
-      console.warn(`[store-credit] tagged=false for ${customerNode.id}: ${tagErrors.map(e => e.message).join('; ')}`);
-    } else {
-      tagged = true;
-    }
-  } catch (err) {
-    console.warn(`[store-credit] tag mutation failed for ${customerNode.id}: ${(err as Error).message}`);
-  }
+  const tagOutcome = await tagCustomerMemberActive(customerNode.id);
+  const tagged = tagOutcome.ok;
 
   return { ok: true, creditReference: tx.id, shopifyCustomerId: customerNode.id, email, tagged };
 }

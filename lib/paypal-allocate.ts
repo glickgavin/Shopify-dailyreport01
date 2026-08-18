@@ -81,6 +81,7 @@ export async function allocateLedgerRows(
           credit_shopify_customer_id: outcome.shopifyCustomerId,
           credit_reference: outcome.creditReference,
           credit_allocated_at: new Date().toISOString(),
+          tagged_at: outcome.tagged ? new Date().toISOString() : null,
           credit_allocated_by: actor,
           credit_error: null,
         })
