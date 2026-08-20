@@ -55,6 +55,14 @@
     {
       "path": "/api/cron/member-tag-backfill",
       "schedule": "15,45 * * * *"
+    },
+    {
+      "path": "/api/cron/product-cleanup-sync",
+      "schedule": "3,13,23,33,43,53 * * * *"
+    },
+    {
+      "path": "/api/cron/product-cleanup-delete",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
