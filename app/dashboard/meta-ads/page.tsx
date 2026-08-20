@@ -187,7 +187,7 @@ export default async function MetaAdsPage({
     return (
       <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
         <TopBar range={range} tabLabels={tabLabels} isToday={isToday} nowTime={nowTime} />
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '3rem 1.5rem' }}>
+        <div style={{ maxWidth: 1520, margin: '0 auto', padding: '3rem 1.5rem' }}>
           <div style={{ background: '#fffbeb', border: '1.5px solid #f59e0b', borderRadius: 14, padding: '2rem', maxWidth: 560 }}>
             <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.75rem', color: '#92400e' }}>Meta API not configured</div>
             <div style={{ fontSize: '0.85rem', color: '#78350f', lineHeight: 1.6 }}>
@@ -247,7 +247,7 @@ export default async function MetaAdsPage({
 
       <TopBar range={range} tabLabels={tabLabels} isToday={isToday} nowTime={nowTime} />
 
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* Error state */}
         {fetchError && (

@@ -256,13 +256,13 @@ export default async function AdReportPage() {
       </div>
 
       {!hasAnyData && (
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem', color: 'var(--muted)', fontSize: '0.9rem' }}>
+        <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem', color: 'var(--muted)', fontSize: '0.9rem' }}>
           No ad data found for the past 65 days.
         </div>
       )}
 
       {hasAnyData && (
-        <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
+        <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
           {/* ── SUMMARY TABLE ───────────────────────────────────────────── */}
           <SectionLabel>Performance by Period</SectionLabel>

@@ -154,7 +154,7 @@ export default async function MembershipPage() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 1320, margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* ── KPI row ────────────────────────────────────────────────────────── */}
         <style>{`

@@ -175,7 +175,7 @@ export default function PaypalSubscriptionsClient() {
         </div>
       </div>
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '1.5rem', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
         {summary && <SummaryBar summary={summary} />}
 
         <div style={{

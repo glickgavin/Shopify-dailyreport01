@@ -161,7 +161,7 @@ export default async function HistoryPage() {
         </Link>
       </div>
 
-      <div style={{ maxWidth: 1280, margin: '0 auto', padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '1.75rem' }}>
 
         {/* Section 1 — Period comparison table */}
         <HistoryPeriodTable periods={periods} />

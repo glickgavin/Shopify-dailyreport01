@@ -799,7 +799,7 @@ export default async function RangePage({
         }
       `}</style>
 
-      <main style={{ maxWidth: 1160, margin: '0 auto', padding: '24px 32px 72px' }}>
+      <main style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
         {rows.length === 0 ? (
           <div style={{ color: 'var(--neutral-600)', fontSize: 14 }}>No data found for this range.</div>
         ) : (
