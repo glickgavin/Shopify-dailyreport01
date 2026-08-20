@@ -110,7 +110,7 @@ export default function ProductCleanupClient() {
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      setNotice(`Batch #${j.batch_number} approved (${num(j.size)} products). The worker starts on its next 5-min tick${config?.deletion_enabled ? '' : ' — once the kill switch is armed'}.`);
+      setNotice(`Batch #${j.batch_number} approved (${num(j.size)} products). The worker starts on its next 2-min tick${config?.deletion_enabled ? '' : ' — once the kill switch is armed'}.`);
       await load();
     } catch (e) { setNotice(`Approve failed: ${(e as Error).message}`); }
     finally { setBusy(false); }
@@ -278,8 +278,8 @@ export default function ProductCleanupClient() {
       </div>
 
       <p style={{ fontSize: 12, color: 'var(--neutral-600)', margin: '4px 4px 0' }}>
-        Sync cron every 10 min (Shopify bulk exports, read-only) · delete worker every 5 min, approved batches only,
-        ~150 products/run (a 5,000 batch ≈ 3 h) · every deletion is snapshotted to the log before removal ·
+        Sync cron every 10 min (Shopify bulk exports, read-only) · delete worker every 2 min, approved batches only,
+        ~90 products/run (a 1,000 batch ≈ 20 min) · every deletion is snapshotted to the log before removal ·
         sold products and the master product are excluded and re-checked at delete time.
       </p>
     </div>
