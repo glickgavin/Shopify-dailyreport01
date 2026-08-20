@@ -376,118 +376,152 @@ const PRODUCT_DELETE = `
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-export async function runDeleteWorker(limit = 90, actor = 'cron'): Promise<{ processed: number; deleted: number; skipped: number; errors: number; batch?: number; detail?: string }> {
+/**
+ * Time-budgeted, concurrent deletion worker. Runs for ~timeBudgetMs per cron
+ * tick, processing approved batches back-to-back (when one completes it rolls
+ * straight into the next approved batch). Deletions run `concurrency` at a
+ * time with per-task pacing — parallel batches wouldn't be faster because all
+ * deletes share Shopify's per-shop API budget; this uses that budget well
+ * while leaving headroom for the minting system. shopifyGraphQL already
+ * backs off automatically on 429s, so bursts self-throttle.
+ */
+export async function runDeleteWorker(options: {
+  timeBudgetMs?: number;
+  concurrency?: number;
+  actor?: string;
+} = {}): Promise<{ processed: number; deleted: number; skipped: number; errors: number; batches: number[]; detail?: string }> {
+  const timeBudgetMs = options.timeBudgetMs ?? 100_000;
+  const concurrency = options.concurrency ?? 3;
+  const actor = options.actor ?? 'cron';
+  const startedAt = Date.now();
+
+  const summary = { processed: 0, deleted: 0, skipped: 0, errors: 0, batches: [] as number[], detail: undefined as string | undefined };
+
   const cfg = await loadCleanupConfig();
-  if (!cfg.deletion_enabled) return { processed: 0, deleted: 0, skipped: 0, errors: 0, detail: 'deletion disabled (kill switch off)' };
-
-  // Pick the batch being worked on: 'deleting' first, else oldest 'approved'.
-  let { data: batch } = await db.from('product_cleanup_batches')
-    .select('*').eq('status', 'deleting').order('batch_number').limit(1).maybeSingle();
-  if (!batch) {
-    const { data: approved } = await db.from('product_cleanup_batches')
-      .select('*').eq('status', 'approved').order('batch_number').limit(1).maybeSingle();
-    if (!approved) return { processed: 0, deleted: 0, skipped: 0, errors: 0, detail: 'no approved batch' };
-    await db.from('product_cleanup_batches').update({ status: 'deleting' }).eq('id', approved.id).eq('status', 'approved');
-    batch = { ...approved, status: 'deleting' };
-  }
-
-  // Recover rows a crashed/halted run left mid-claim (safe at a 2-min cadence:
-  // a prior run's ~60s of work has finished before this runs).
-  await db.from('product_cleanup_candidates')
-    .update({ status: 'queued' })
-    .eq('batch_id', batch.id).eq('status', 'deleting');
-
-  const { data: picked, error } = await db.from('product_cleanup_candidates')
-    .select('*').eq('batch_id', batch.id).eq('status', 'queued')
-    .order('shopify_created_at', { ascending: true }).limit(limit);
-  if (error) throw new Error(`worker select: ${error.message}`);
-
-  // Overlap guard: atomically claim the picked rows (queued → deleting); a
-  // concurrent run's claim matches zero rows, so no product is processed twice.
-  let rows = picked ?? [];
-  if (rows.length > 0) {
-    const { data: claimed } = await db.from('product_cleanup_candidates')
-      .update({ status: 'deleting' })
-      .in('id', rows.map((r: any) => r.id))
-      .eq('status', 'queued')
-      .select('id');
-    const claimedIds = new Set(((claimed ?? []) as { id: string }[]).map(r => r.id));
-    rows = rows.filter((r: any) => claimedIds.has(r.id));
-  }
-
-  if (!rows || rows.length === 0) {
-    await db.from('product_cleanup_batches')
-      .update({ status: 'done', completed_at: new Date().toISOString() })
-      .eq('id', batch.id).eq('status', 'deleting');
-    return { processed: 0, deleted: 0, skipped: 0, errors: 0, batch: batch.batch_number, detail: 'batch complete' };
-  }
+  if (!cfg.deletion_enabled) return { ...summary, detail: 'deletion disabled (kill switch off)' };
 
   const protectedSet = new Set([...(cfg.protected_product_ids ?? []), MASTER_PRODUCT_ID]);
   const pattern = new RegExp(cfg.title_pattern, 'i');
-  let deleted = 0, skipped = 0, errors = 0;
 
-  for (const row of rows) {
-    // Re-check the kill switch every iteration so a mid-run flip halts instantly.
+  // Recover rows a crashed/halted run left mid-claim (safe: the previous
+  // run's time budget ends before the next tick starts).
+  await db.from('product_cleanup_candidates')
+    .update({ status: 'queued' })
+    .eq('status', 'deleting');
+
+  while (Date.now() - startedAt < timeBudgetMs) {
+    // ── Active batch: continue 'deleting', else oldest 'approved' ────────────
+    let { data: batch } = await db.from('product_cleanup_batches')
+      .select('*').eq('status', 'deleting').order('batch_number').limit(1).maybeSingle();
+    if (!batch) {
+      const { data: approved } = await db.from('product_cleanup_batches')
+        .select('*').eq('status', 'approved').order('batch_number').limit(1).maybeSingle();
+      if (!approved) {
+        if (summary.processed === 0) summary.detail = 'no approved batch';
+        break;
+      }
+      await db.from('product_cleanup_batches').update({ status: 'deleting' }).eq('id', approved.id).eq('status', 'approved');
+      batch = { ...approved, status: 'deleting' };
+    }
+    if (!summary.batches.includes(batch.batch_number)) summary.batches.push(batch.batch_number);
+
+    // ── Kill switch: re-checked once per page ────────────────────────────────
     const { data: liveCfg } = await db.from('product_cleanup_config').select('deletion_enabled').eq('id', 1).single();
-    if (!liveCfg?.deletion_enabled) return { processed: deleted + skipped + errors, deleted, skipped, errors, batch: batch.batch_number, detail: 'halted: kill switch turned off' };
+    if (!liveCfg?.deletion_enabled) { summary.detail = 'halted: kill switch turned off'; break; }
 
-    const logBase = {
-      product_id: row.product_id, title: row.title, handle: row.handle,
-      shopify_created_at: row.shopify_created_at, batch_id: batch.id,
-      batch_number: batch.batch_number, snapshot: row, deleted_by: actor,
-    };
+    // ── Claim a page of rows (queued → deleting, atomic) ─────────────────────
+    const { data: picked, error } = await db.from('product_cleanup_candidates')
+      .select('*').eq('batch_id', batch.id).eq('status', 'queued')
+      .order('shopify_created_at', { ascending: true }).limit(40);
+    if (error) throw new Error(`worker select: ${error.message}`);
 
-    // ── Hard guards, re-verified at delete time ─────────────────────────────
-    const guard =
-      protectedSet.has(row.product_id) ? 'protected product'
-      : !row.is_portrait || !pattern.test(row.title ?? '') ? 'not a Magic Portrait'
-      : null;
-    if (!guard) {
+    if (!picked || picked.length === 0) {
+      await db.from('product_cleanup_batches')
+        .update({ status: 'done', completed_at: new Date().toISOString() })
+        .eq('id', batch.id).eq('status', 'deleting');
+      continue; // roll into the next approved batch
+    }
+
+    const { data: claimed } = await db.from('product_cleanup_candidates')
+      .update({ status: 'deleting' })
+      .in('id', picked.map((r: any) => r.id))
+      .eq('status', 'queued')
+      .select('id');
+    const claimedIds = new Set(((claimed ?? []) as { id: string }[]).map(r => r.id));
+    const rows = picked.filter((r: any) => claimedIds.has(r.id));
+
+    let pageDeleted = 0, pageErrors = 0;
+
+    const processRow = async (row: any) => {
+      const logBase = {
+        product_id: row.product_id, title: row.title, handle: row.handle,
+        shopify_created_at: row.shopify_created_at, batch_id: batch.id,
+        batch_number: batch.batch_number, snapshot: row, deleted_by: actor,
+      };
+
+      // ── Hard guards, re-verified at delete time ────────────────────────────
+      const guard =
+        protectedSet.has(row.product_id) ? 'protected product'
+        : !row.is_portrait || !pattern.test(row.title ?? '') ? 'not a Magic Portrait'
+        : null;
+      if (guard) {
+        await db.from('product_cleanup_candidates').update({ status: guard === 'protected product' ? 'protected' : 'excluded', error: guard }).eq('id', row.id);
+        await db.from('product_cleanup_log').insert({ ...logBase, result: 'skipped', error: guard });
+        summary.skipped++;
+        return;
+      }
       const { data: soldNow } = await db.from('sold_products').select('product_id').eq('product_id', row.product_id).maybeSingle();
       if (soldNow) {
         await db.from('product_cleanup_candidates').update({ status: 'sold', sold: true }).eq('id', row.id);
         await db.from('product_cleanup_log').insert({ ...logBase, result: 'skipped', error: 'sold (re-check at delete time)' });
-        skipped++;
-        continue;
+        summary.skipped++;
+        return;
       }
-    } else {
-      await db.from('product_cleanup_candidates').update({ status: guard === 'protected product' ? 'protected' : 'excluded', error: guard }).eq('id', row.id);
-      await db.from('product_cleanup_log').insert({ ...logBase, result: 'skipped', error: guard });
-      skipped++;
-      continue;
-    }
 
-    // ── Delete ──────────────────────────────────────────────────────────────
-    try {
-      const resp = await shopifyGraphQL<{ productDelete: { deletedProductId: string | null; userErrors: { message: string }[] } }>(
-        PRODUCT_DELETE, { input: { id: row.product_id } },
-      );
-      const errs = resp.productDelete?.userErrors ?? [];
-      if (errs.length > 0 || !resp.productDelete?.deletedProductId) {
-        const msg = errs.map(e => e.message).join('; ') || 'no deletedProductId returned';
+      // ── Delete ─────────────────────────────────────────────────────────────
+      try {
+        const resp = await shopifyGraphQL<{ productDelete: { deletedProductId: string | null; userErrors: { message: string }[] } }>(
+          PRODUCT_DELETE, { input: { id: row.product_id } },
+        );
+        const errs = resp.productDelete?.userErrors ?? [];
+        if (errs.length > 0 || !resp.productDelete?.deletedProductId) {
+          const msg = errs.map(e => e.message).join('; ') || 'no deletedProductId returned';
+          await db.from('product_cleanup_candidates').update({ status: 'error', error: msg }).eq('id', row.id);
+          await db.from('product_cleanup_log').insert({ ...logBase, result: 'error', error: msg });
+          summary.errors++; pageErrors++;
+        } else {
+          await db.from('product_cleanup_candidates').update({ status: 'deleted', deleted_at: new Date().toISOString(), error: null }).eq('id', row.id);
+          await db.from('product_cleanup_log').insert({ ...logBase, result: 'deleted' });
+          summary.deleted++; pageDeleted++;
+        }
+      } catch (err) {
+        const msg = (err as Error).message;
         await db.from('product_cleanup_candidates').update({ status: 'error', error: msg }).eq('id', row.id);
         await db.from('product_cleanup_log').insert({ ...logBase, result: 'error', error: msg });
-        errors++;
-      } else {
-        await db.from('product_cleanup_candidates').update({ status: 'deleted', deleted_at: new Date().toISOString(), error: null }).eq('id', row.id);
-        await db.from('product_cleanup_log').insert({ ...logBase, result: 'deleted' });
-        deleted++;
+        summary.errors++; pageErrors++;
       }
-    } catch (err) {
-      const msg = (err as Error).message;
-      await db.from('product_cleanup_candidates').update({ status: 'error', error: msg }).eq('id', row.id);
-      await db.from('product_cleanup_log').insert({ ...logBase, result: 'error', error: msg });
-      errors++;
-    }
-    await sleep(600); // ~1.6 deletes/sec — a 1,000 batch clears in ~20 min at a 2-min cadence
+      await sleep(150); // per-task pacing on top of concurrency
+    };
+
+    // ── Small concurrent pool over the page ──────────────────────────────────
+    const queue = [...rows];
+    await Promise.all(Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+      while (queue.length > 0 && Date.now() - startedAt < timeBudgetMs) {
+        const row = queue.shift();
+        if (row) await processRow(row);
+      }
+    }));
+    // Rows left unprocessed by the time budget stay 'deleting'; the next
+    // run's recovery step re-queues them.
+    summary.processed += rows.length - queue.length;
+
+    // ── Batch counters ───────────────────────────────────────────────────────
+    const { data: fresh } = await db.from('product_cleanup_batches').select('deleted_count, error_count').eq('id', batch.id).single();
+    await db.from('product_cleanup_batches').update({
+      deleted_count: (fresh?.deleted_count ?? 0) + pageDeleted,
+      error_count: (fresh?.error_count ?? 0) + pageErrors,
+    }).eq('id', batch.id);
   }
 
-  // Update batch counters.
-  const { data: fresh } = await db.from('product_cleanup_batches').select('deleted_count, error_count').eq('id', batch.id).single();
-  await db.from('product_cleanup_batches').update({
-    deleted_count: (fresh?.deleted_count ?? 0) + deleted,
-    error_count: (fresh?.error_count ?? 0) + errors,
-  }).eq('id', batch.id);
-
-  return { processed: rows.length, deleted, skipped, errors, batch: batch.batch_number };
+  return summary;
 }
