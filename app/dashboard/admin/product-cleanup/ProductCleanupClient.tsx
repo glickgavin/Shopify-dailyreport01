@@ -279,7 +279,7 @@ export default function ProductCleanupClient() {
 
       <p style={{ fontSize: 12, color: 'var(--neutral-600)', margin: '4px 4px 0' }}>
         Sync cron every 10 min (Shopify bulk exports, read-only) · delete worker every 2 min, approved batches only,
-        ~90 products/run (a 1,000 batch ≈ 20 min) · every deletion is snapshotted to the log before removal ·
+        3 concurrent deletions with batch roll-over (~12–15k/hour; a 1,000 batch ≈ 5 min) · every deletion is snapshotted to the log before removal ·
         sold products and the master product are excluded and re-checked at delete time.
       </p>
     </div>
