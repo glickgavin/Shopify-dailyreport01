@@ -151,7 +151,7 @@ export default function PriceListClient() {
   const bundleVariant = product.variants[0] ?? null;
 
   return (
-    <div style={{ padding: '24px 32px 64px', fontFamily: 'system-ui, sans-serif', color: '#111827', maxWidth: 1100 }}>
+    <div style={{ padding: '24px 32px 64px', fontFamily: 'system-ui, sans-serif', color: '#111827', maxWidth: 1520 }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, margin: 0 }}>Price List — {product.title}</h1>
         {products.length > 0 && (

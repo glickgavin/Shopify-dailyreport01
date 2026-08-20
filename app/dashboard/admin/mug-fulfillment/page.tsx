@@ -296,7 +296,7 @@ export default async function MugFulfillmentPage({ searchParams }: Props) {
         </div>
       </div>
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '1.5rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '1.5rem' }}>
 
         {/* Scan mug:ready status across recent orders */}
         <MugReadyScanForm action={scanMugReady} />

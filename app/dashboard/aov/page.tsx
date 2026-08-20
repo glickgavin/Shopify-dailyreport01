@@ -87,7 +87,7 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
         </div>
       </header>
 
-      <main style={{ maxWidth: 1160, margin: '0 auto', padding: '24px 32px 72px' }}>
+      <main style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
         {segments.length === 0 ? (
           <div style={{ color: 'var(--neutral-600)', fontSize: 14 }}>No data found for this range.</div>
         ) : (

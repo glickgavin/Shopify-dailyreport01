@@ -323,7 +323,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           .segments-row { flex-direction: column !important; }
         }
       `}</style>
-      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
         <SectionLabel>Total Business</SectionLabel>

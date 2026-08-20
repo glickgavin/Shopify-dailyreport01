@@ -166,7 +166,7 @@ export default function StripeCreditsClient() {
   if (!config) return null;
 
   return (
-    <div style={{ maxWidth: 1160, margin: '0 auto', padding: '24px 32px 72px' }}>
+    <div style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 20 }}>
         <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 28, fontWeight: 400, margin: 0 }}>
           Stripe <span style={{ color: 'var(--accent)' }}>Store Credits</span>
