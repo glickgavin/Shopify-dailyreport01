@@ -231,6 +231,31 @@ export default function AovClient({
     });
     return { avg: orders > 0 ? units / orders : null, orders, units, daily };
   }, [codes, tilesOn, segments]);
+  // ── Order size by product ──────────────────────────────────────────────────
+  // Note: each product row's units count that product's OWN line quantity in
+  // orders containing it — for Magic Portrait products that is tiles, so the
+  // default selection is the portrait products.
+  const [prodTilesOn, setProdTilesOn] = useState<Set<string>>(() => {
+    const portraits = productOptions.filter(([k]) => /magic portrait/i.test(k)).map(([k]) => k);
+    return new Set(portraits.length > 0 ? portraits : productOptions.map(([k]) => k));
+  });
+  const prodTilesCalc = useMemo(() => {
+    let orders = 0, units = 0;
+    const byDate = new Map<string, { o: number; u: number }>();
+    for (const r of products) {
+      if (!prodTilesOn.has(r.key)) continue;
+      orders += r.orders; units += r.units;
+      const e = byDate.get(r.date) ?? { o: 0, u: 0 };
+      e.o += r.orders; e.u += r.units;
+      byDate.set(r.date, e);
+    }
+    const daily = dates.map(date => {
+      const e = byDate.get(date);
+      return { date, aov: e && e.o > 0 ? e.u / e.o : null };
+    });
+    return { avg: orders > 0 ? units / orders : null, orders, units, daily };
+  }, [products, prodTilesOn, segments]);
+
   const tilesOverall = useMemo(() => {
     const orders = blendedTiles.reduce((s, d) => s + d.orders, 0);
     const units  = blendedTiles.reduce((s, d) => s + d.units, 0);
@@ -390,9 +415,51 @@ export default function AovClient({
         <TrendChart data={tilesCalc.daily} overallByDate={tilesOverall.byDate} money={false} />
       </SectionCard>
 
+      {/* ── 5. Order size by product ──────────────────────────────────────── */}
+      <SectionCard
+        title="Order size — units per order, by product"
+        note="Select products; order size = the selected products' own units in the orders containing them ÷ those orders. For Magic Portrait products (selected by default) units are tiles; other products count their own items."
+        pills={
+          <>
+            {allNone(productOptions, prodTilesOn, setProdTilesOn)}
+            {productOptions.map(([key, agg]) => (
+              <SelectPill
+                key={key}
+                label={trim(key)}
+                sub={`${agg.orders} ord · ${agg.orders > 0 ? (agg.units / agg.orders).toFixed(1) : '—'} u/ord`}
+                on={prodTilesOn.has(key)}
+                onClick={() => toggle(prodTilesOn, setProdTilesOn, key)}
+              />
+            ))}
+          </>
+        }
+        headline={
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>
+              {prodTilesCalc.avg !== null ? `${prodTilesCalc.avg.toFixed(1)} units` : '—'}
+            </span>
+            {prodTilesCalc.avg !== null && tilesOverall.avg != null && tilesOverall.avg > 0 && Math.abs((prodTilesCalc.avg - tilesOverall.avg) / tilesOverall.avg) * 100 >= 0.05 && (
+              <span style={{
+                background: prodTilesCalc.avg >= tilesOverall.avg ? 'var(--accent2-200)' : 'var(--accent-200)',
+                color: prodTilesCalc.avg >= tilesOverall.avg ? 'var(--accent2-900)' : 'var(--accent-900)',
+                borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+              }}>
+                {prodTilesCalc.avg >= tilesOverall.avg ? '▲' : '▼'} {(Math.abs(prodTilesCalc.avg - tilesOverall.avg) / tilesOverall.avg * 100).toFixed(1)}% vs overall tiles/order
+              </span>
+            )}
+            <span style={{ fontSize: 13, color: 'var(--neutral-600)' }}>
+              {prodTilesCalc.orders} orders · {prodTilesCalc.units} units
+            </span>
+          </div>
+        }
+      >
+        <TrendChart data={prodTilesCalc.daily} overallByDate={tilesOverall.byDate} money={false} />
+      </SectionCard>
+
       <p style={{ margin: '4px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
         AOV = full order value (net sales + shipping) ÷ distinct orders, from the same daily rollups as the rest of the dashboard ·
-        Order size counts Magic Portrait tiles only · dashed line = overall per day · PT days, no partial days.
+        Order size by code counts Magic Portrait tiles only; by product it counts the selected products' own units ·
+        dashed line = overall per day · PT days, no partial days.
       </p>
     </div>
   );
