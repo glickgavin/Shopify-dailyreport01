@@ -62,7 +62,7 @@
     },
     {
       "path": "/api/cron/product-cleanup-delete",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/2 * * * *"
     }
   ]
 }

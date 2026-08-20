@@ -301,7 +301,7 @@ const PRODUCT_DELETE = `
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-export async function runDeleteWorker(limit = 150, actor = 'cron'): Promise<{ processed: number; deleted: number; skipped: number; errors: number; batch?: number; detail?: string }> {
+export async function runDeleteWorker(limit = 90, actor = 'cron'): Promise<{ processed: number; deleted: number; skipped: number; errors: number; batch?: number; detail?: string }> {
   const cfg = await loadCleanupConfig();
   if (!cfg.deletion_enabled) return { processed: 0, deleted: 0, skipped: 0, errors: 0, detail: 'deletion disabled (kill switch off)' };
 
@@ -316,10 +316,29 @@ export async function runDeleteWorker(limit = 150, actor = 'cron'): Promise<{ pr
     batch = { ...approved, status: 'deleting' };
   }
 
-  const { data: rows, error } = await db.from('product_cleanup_candidates')
+  // Recover rows a crashed/halted run left mid-claim (safe at a 2-min cadence:
+  // a prior run's ~60s of work has finished before this runs).
+  await db.from('product_cleanup_candidates')
+    .update({ status: 'queued' })
+    .eq('batch_id', batch.id).eq('status', 'deleting');
+
+  const { data: picked, error } = await db.from('product_cleanup_candidates')
     .select('*').eq('batch_id', batch.id).eq('status', 'queued')
     .order('shopify_created_at', { ascending: true }).limit(limit);
   if (error) throw new Error(`worker select: ${error.message}`);
+
+  // Overlap guard: atomically claim the picked rows (queued → deleting); a
+  // concurrent run's claim matches zero rows, so no product is processed twice.
+  let rows = picked ?? [];
+  if (rows.length > 0) {
+    const { data: claimed } = await db.from('product_cleanup_candidates')
+      .update({ status: 'deleting' })
+      .in('id', rows.map((r: any) => r.id))
+      .eq('status', 'queued')
+      .select('id');
+    const claimedIds = new Set(((claimed ?? []) as { id: string }[]).map(r => r.id));
+    rows = rows.filter((r: any) => claimedIds.has(r.id));
+  }
 
   if (!rows || rows.length === 0) {
     await db.from('product_cleanup_batches')
@@ -385,7 +404,7 @@ export async function runDeleteWorker(limit = 150, actor = 'cron'): Promise<{ pr
       await db.from('product_cleanup_log').insert({ ...logBase, result: 'error', error: msg });
       errors++;
     }
-    await sleep(600); // ~1.6 deletes/sec — well inside Shopify limits
+    await sleep(600); // ~1.6 deletes/sec — a 1,000 batch clears in ~20 min at a 2-min cadence
   }
 
   // Update batch counters.
