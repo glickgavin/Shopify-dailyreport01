@@ -458,7 +458,7 @@ export default function AovClient({
 
       <p style={{ margin: '4px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
         AOV = full order value (net sales + shipping) ÷ distinct orders, from the same daily rollups as the rest of the dashboard ·
-        Order size by code counts Magic Portrait tiles only; by product it counts the selected products' own units ·
+        Order size by code counts Magic Portrait tiles only; by product it counts the selected products&apos; own units ·
         dashed line = overall per day · PT days, no partial days.
       </p>
     </div>
