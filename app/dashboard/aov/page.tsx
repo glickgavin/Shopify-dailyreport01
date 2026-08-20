@@ -16,12 +16,12 @@ export const revalidate = 0;
 //   3. by discount code — same rollup at product=ALL: per code per day.
 // The client component handles selection and recomputes instantly.
 
-type RangePreset = '3d' | '7d' | '30d';
+type RangePreset = '3d' | '7d' | '30d' | '60d';
 
 function computeRange(preset: string | undefined): { startDate: string; endDate: string; preset: RangePreset; days: number } {
   const yest = format(subDays(new Date(), 1), 'yyyy-MM-dd');
-  const p: RangePreset = preset === '3d' || preset === '30d' ? preset : '7d';
-  const days = p === '3d' ? 3 : p === '30d' ? 30 : 7;
+  const p: RangePreset = preset === '3d' || preset === '30d' || preset === '60d' ? preset : '7d';
+  const days = p === '3d' ? 3 : p === '30d' ? 30 : p === '60d' ? 60 : 7;
   return { startDate: format(subDays(new Date(), days), 'yyyy-MM-dd'), endDate: yest, preset: p, days };
 }
 
@@ -36,7 +36,7 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
       .order('date', { ascending: true }),
     supabaseAdmin
       .from('daily_discounts')
-      .select('date,discount_code,product_title,variant_title,orders,order_value')
+      .select('date,discount_code,product_title,variant_title,orders,order_value,units_primary')
       .gte('date', startDate).lte('date', endDate),
   ]);
 
@@ -49,17 +49,24 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
     amazonRev: Number(r.amazon_revenue ?? 0),        amazonOrd: Number(r.amazon_orders ?? 0),
   }));
 
-  const dRows = (discountRows ?? []) as { date: string; discount_code: string; product_title: string; variant_title: string; orders: number; order_value: number }[];
+  const dRows = (discountRows ?? []) as { date: string; discount_code: string; product_title: string; variant_title: string; orders: number; order_value: number; units_primary: number }[];
 
   // Products: blended-code rows, title level (variant=ALL), excluding the ALL sentinel.
   const products: DimRow[] = dRows
     .filter(r => r.discount_code === 'ALL' && r.variant_title === 'ALL' && r.product_title !== 'ALL')
-    .map(r => ({ date: r.date, key: r.product_title, orders: Number(r.orders), value: Number(r.order_value) }));
+    .map(r => ({ date: r.date, key: r.product_title, orders: Number(r.orders), value: Number(r.order_value), units: Number(r.units_primary ?? 0) }));
 
   // Discount codes: product=ALL rows, excluding the blended sentinel. '' = no discount.
+  // units carries Magic Portrait tiles only (units_primary), for the Order
+  // Size section.
   const codes: DimRow[] = dRows
     .filter(r => r.product_title === 'ALL' && r.variant_title === 'ALL' && r.discount_code !== 'ALL')
-    .map(r => ({ date: r.date, key: r.discount_code, orders: Number(r.orders), value: Number(r.order_value) }));
+    .map(r => ({ date: r.date, key: r.discount_code, orders: Number(r.orders), value: Number(r.order_value), units: Number(r.units_primary ?? 0) }));
+
+  // Blended (code=ALL) rows: overall tiles-per-order reference for Order Size.
+  const blendedTiles = dRows
+    .filter(r => r.product_title === 'ALL' && r.variant_title === 'ALL' && r.discount_code === 'ALL')
+    .map(r => ({ date: r.date, orders: Number(r.orders), units: Number(r.units_primary ?? 0) }));
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
@@ -68,7 +75,7 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
           AOV <span style={{ color: 'var(--accent)' }}>Analysis</span>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
-          {([['3d', '3 days'], ['7d', '7 days'], ['30d', '30 days']] as [RangePreset, string][]).map(([id, lbl]) => (
+          {([['3d', '3 days'], ['7d', '7 days'], ['30d', '30 days'], ['60d', '60 days']] as [RangePreset, string][]).map(([id, lbl]) => (
             <Link key={id} href={`/dashboard/aov?preset=${id}`}
               className={`pill pill--sm${preset === id ? ' pill--active' : ''}`}>
               {lbl}
@@ -84,7 +91,7 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
         {segments.length === 0 ? (
           <div style={{ color: 'var(--neutral-600)', fontSize: 14 }}>No data found for this range.</div>
         ) : (
-          <AovClient segments={segments} products={products} codes={codes} days={days} />
+          <AovClient segments={segments} products={products} codes={codes} blendedTiles={blendedTiles} days={days} />
         )}
       </main>
     </div>

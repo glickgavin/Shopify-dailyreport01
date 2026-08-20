@@ -6,8 +6,9 @@ import {
 } from 'recharts';
 
 // ── AOV analysis client ───────────────────────────────────────────────────────
-// Three rule sections (segment / product / discount code). Each lets you
-// select/deselect options; the combined AOV and its daily trend recompute
+// Four rule sections (AOV by segment / product / discount code, plus order
+// size in Magic Portrait tiles by discount code). Each lets you select/
+// deselect options; the combined figure and its daily trend recompute
 // instantly from the pre-fetched rows.
 
 export interface SegmentDay {
@@ -19,12 +20,14 @@ export interface SegmentDay {
   amazonRev: number; amazonOrd: number;
 }
 
-/** One (day, dimension-key) cell: distinct orders and their full order value. */
+/** One (day, dimension-key) cell: distinct orders, their full order value,
+ *  and their Magic Portrait tile count (units_primary). */
 export interface DimRow {
   date: string;
   key: string;
   orders: number;
   value: number;
+  units: number;
 }
 
 const fmtUsd = (n: number) =>
@@ -40,21 +43,22 @@ function shortDate(d: string) {
   return `${Number(m)}/${Number(day)}`;
 }
 
-function AovTooltip({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number }[]; label?: string }) {
+function AovTooltip({ active, payload, label, money = true }: { active?: boolean; payload?: { name: string; value: number }[]; label?: string; money?: boolean }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: '#282c28', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 12 }}>
       <div style={{ color: 'rgba(255,255,255,0.7)', marginBottom: 2 }}>{label}</div>
       {payload.map(p => (
-        <div key={p.name}><strong>{fmtUsd(p.value)}</strong> {p.name}</div>
+        <div key={p.name}><strong>{money ? fmtUsd(p.value) : p.value.toFixed(1)}</strong> {p.name}</div>
       ))}
     </div>
   );
 }
 
-function TrendChart({ data, overallByDate }: {
+function TrendChart({ data, overallByDate, money = true }: {
   data: { date: string; aov: number | null }[];
   overallByDate: Map<string, number | null>;
+  money?: boolean;
 }) {
   const rows = data.map(d => ({
     date: shortDate(d.date),
@@ -66,8 +70,8 @@ function TrendChart({ data, overallByDate }: {
       <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
         <CartesianGrid stroke="var(--neutral-200)" vertical={false} />
         <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#747c74' }} tickLine={false} axisLine={{ stroke: 'var(--neutral-300)' }} />
-        <YAxis tick={{ fontSize: 11, fill: '#747c74' }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `$${Math.round(v)}`} width={48} />
-        <Tooltip content={<AovTooltip />} />
+        <YAxis tick={{ fontSize: 11, fill: '#747c74' }} tickLine={false} axisLine={false} tickFormatter={(v: number) => money ? `$${Math.round(v)}` : String(Math.round(v * 10) / 10)} width={48} />
+        <Tooltip content={<AovTooltip money={money} />} />
         <Line type="monotone" dataKey="Overall" stroke="#b8beb8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} connectNulls />
         <Line type="monotone" dataKey="Selection" stroke="#17a97b" strokeWidth={2.5} dot={{ r: 3, fill: '#17a97b', strokeWidth: 0 }} isAnimationActive={false} connectNulls />
       </LineChart>
@@ -133,11 +137,13 @@ function Headline({ aov, orders, value, overallAov }: { aov: number | null; orde
 }
 
 export default function AovClient({
-  segments, products, codes, days,
+  segments, products, codes, blendedTiles, days,
 }: {
   segments: SegmentDay[];
   products: DimRow[];
   codes: DimRow[];
+  /** code=ALL rows: overall orders + Magic Portrait tiles per day. */
+  blendedTiles: { date: string; orders: number; units: number }[];
   days: number;
 }) {
   // ── Overall AOV (reference in every chart) ─────────────────────────────────
@@ -172,10 +178,10 @@ export default function AovClient({
 
   // ── generic dimension calc (products, codes) ───────────────────────────────
   const dimOptions = (rows: DimRow[]) => {
-    const m = new Map<string, { orders: number; value: number }>();
+    const m = new Map<string, { orders: number; value: number; units: number }>();
     for (const r of rows) {
-      const e = m.get(r.key) ?? { orders: 0, value: 0 };
-      e.orders += r.orders; e.value += r.value;
+      const e = m.get(r.key) ?? { orders: 0, value: 0, units: 0 };
+      e.orders += r.orders; e.value += r.value; e.units += r.units;
       m.set(r.key, e);
     }
     return Array.from(m.entries()).sort((a, b) => b[1].orders - a[1].orders);
@@ -207,12 +213,39 @@ export default function AovClient({
   const [codeOn, setCodeOn] = useState<Set<string>>(() => new Set(codeOptions.map(([k]) => k)));
   const codeCalc = useMemo(() => dimCalc(codes, codeOn, dates), [codes, codeOn, segments]);
 
+  // ── Order size (Magic Portrait tiles per order) by discount code ───────────
+  const [tilesOn, setTilesOn] = useState<Set<string>>(() => new Set(codeOptions.map(([k]) => k)));
+  const tilesCalc = useMemo(() => {
+    let orders = 0, units = 0;
+    const byDate = new Map<string, { o: number; u: number }>();
+    for (const r of codes) {
+      if (!tilesOn.has(r.key)) continue;
+      orders += r.orders; units += r.units;
+      const e = byDate.get(r.date) ?? { o: 0, u: 0 };
+      e.o += r.orders; e.u += r.units;
+      byDate.set(r.date, e);
+    }
+    const daily = dates.map(date => {
+      const e = byDate.get(date);
+      return { date, aov: e && e.o > 0 ? e.u / e.o : null };
+    });
+    return { avg: orders > 0 ? units / orders : null, orders, units, daily };
+  }, [codes, tilesOn, segments]);
+  const tilesOverall = useMemo(() => {
+    const orders = blendedTiles.reduce((s, d) => s + d.orders, 0);
+    const units  = blendedTiles.reduce((s, d) => s + d.units, 0);
+    const byDate = new Map<string, number | null>(
+      blendedTiles.map(d => [d.date, d.orders > 0 ? d.units / d.orders : null]),
+    );
+    return { avg: orders > 0 ? units / orders : null, byDate };
+  }, [blendedTiles]);
+
   const toggle = (set: Set<string>, setter: (s: Set<string>) => void, key: string) => {
     const next = new Set(set);
     if (next.has(key)) next.delete(key); else next.add(key);
     setter(next);
   };
-  const allNone = (opts: [string, { orders: number; value: number }][], set: Set<string>, setter: (s: Set<string>) => void) => (
+  const allNone = (opts: [string, { orders: number; value: number; units: number }][], set: Set<string>, setter: (s: Set<string>) => void) => (
     <button
       onClick={() => setter(set.size === opts.length ? new Set() : new Set(opts.map(([k]) => k)))}
       className="pill pill--sm"
@@ -316,9 +349,50 @@ export default function AovClient({
         <TrendChart data={codeCalc.daily} overallByDate={overall.byDate} />
       </SectionCard>
 
+      {/* ── 4. Order size (Magic Portrait tiles) by discount code ─────────── */}
+      <SectionCard
+        title="Order size — Magic Portrait tiles per order, by discount code"
+        note="Select the discount codes in the mix; order size = Magic Portrait tiles in the matching orders ÷ those orders. Only Magic Portrait line items count — mugs, downloads, memberships etc. are excluded."
+        pills={
+          <>
+            {allNone(codeOptions, tilesOn, setTilesOn)}
+            {codeOptions.map(([key, agg]) => (
+              <SelectPill
+                key={key || 'none'}
+                label={key === '' ? 'No discount' : trim(key)}
+                sub={`${agg.orders} ord · ${agg.orders > 0 ? (agg.units / agg.orders).toFixed(1) : '—'} tiles/ord`}
+                on={tilesOn.has(key)}
+                onClick={() => toggle(tilesOn, setTilesOn, key)}
+              />
+            ))}
+          </>
+        }
+        headline={
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 18, flexWrap: 'wrap', marginBottom: 8, fontVariantNumeric: 'tabular-nums' }}>
+            <span style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>
+              {tilesCalc.avg !== null ? `${tilesCalc.avg.toFixed(1)} tiles` : '—'}
+            </span>
+            {tilesCalc.avg !== null && tilesOverall.avg != null && tilesOverall.avg > 0 && Math.abs((tilesCalc.avg - tilesOverall.avg) / tilesOverall.avg) * 100 >= 0.05 && (
+              <span style={{
+                background: tilesCalc.avg >= tilesOverall.avg ? 'var(--accent2-200)' : 'var(--accent-200)',
+                color: tilesCalc.avg >= tilesOverall.avg ? 'var(--accent2-900)' : 'var(--accent-900)',
+                borderRadius: 999, padding: '4px 12px', fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap',
+              }}>
+                {tilesCalc.avg >= tilesOverall.avg ? '▲' : '▼'} {(Math.abs(tilesCalc.avg - tilesOverall.avg) / tilesOverall.avg * 100).toFixed(1)}% vs overall
+              </span>
+            )}
+            <span style={{ fontSize: 13, color: 'var(--neutral-600)' }}>
+              {tilesCalc.orders} orders · {tilesCalc.units} tiles
+            </span>
+          </div>
+        }
+      >
+        <TrendChart data={tilesCalc.daily} overallByDate={tilesOverall.byDate} money={false} />
+      </SectionCard>
+
       <p style={{ margin: '4px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
         AOV = full order value (net sales + shipping) ÷ distinct orders, from the same daily rollups as the rest of the dashboard ·
-        dashed line = overall AOV per day · PT days, no partial days.
+        Order size counts Magic Portrait tiles only · dashed line = overall per day · PT days, no partial days.
       </p>
     </div>
   );
