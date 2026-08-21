@@ -747,7 +747,7 @@ export default async function RangePage({
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
 
       {/* ── HEADER ────────────────────────────────────────────────────────── */}
-      <header style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '20px 40px', flexWrap: 'wrap' }}>
+      <header className="range-header" style={{ display: 'flex', alignItems: 'center', gap: 24, padding: '20px 40px', flexWrap: 'wrap' }}>
         <div style={{ fontFamily: 'var(--font-heading)', fontSize: 22, lineHeight: 1 }}>
           Range <span style={{ color: 'var(--accent)' }}>Report</span>
         </div>
@@ -797,16 +797,22 @@ export default async function RangePage({
           .cust-pair { grid-template-columns: 1fr !important; }
           .segments-row { flex-direction: column !important; }
         }
+        @media (max-width: 760px) {
+          .range-header { padding: 12px 14px !important; gap: 10px !important; }
+          .range-main { padding: 16px 12px 56px !important; }
+          .range-title { font-size: 28px !important; }
+          .range-main table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+        }
       `}</style>
 
-      <main style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
+      <main className="range-main" style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
         {rows.length === 0 ? (
           <div style={{ color: 'var(--neutral-600)', fontSize: 14 }}>No data found for this range.</div>
         ) : (
           <RangeTabs
             title={
               <div>
-                <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 400, margin: '0 0 6px' }}>{label}</h1>
+                <h1 className="range-title" style={{ fontFamily: 'var(--font-heading)', fontSize: 38, fontWeight: 400, margin: '0 0 6px' }}>{label}</h1>
                 <p style={{ margin: 0, fontSize: 14, color: 'var(--neutral-700)' }}>
                   {days === 1 ? `One day · ${startDate}` : `${days} days · ${startDate} → ${endDate}`} · all sales channels
                 </p>
