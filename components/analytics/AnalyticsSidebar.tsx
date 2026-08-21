@@ -1,6 +1,11 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
+
+// Responsive navigation: a fixed left rail on desktop (≥1024px) and a sticky
+// top bar with a slide-in drawer on smaller screens. Detection is pure CSS
+// media queries, so the same markup adapts automatically to the device.
 
 const NAV = [
   {
@@ -51,23 +56,31 @@ const NAV = [
   },
 ];
 
+function Brand() {
+  return (
+    <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--accent)', textTransform: 'uppercase' }}>
+      Storyboards
+    </span>
+  );
+}
+
 export default function AnalyticsSidebar() {
   const pathname = usePathname();
+  const [open, setOpen] = useState(false);
 
-  return (
-    <nav style={{
-      width: 200,
-      minHeight: '100vh',
-      background: 'var(--surface)',
-      borderRight: '1px solid var(--border)',
-      padding: '1.25rem 0',
-      flexShrink: 0,
-    }}>
-      <Link href="/" style={{ display: 'block', padding: '0 1rem 1rem', textDecoration: 'none' }}>
-        <span style={{ fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.08em', color: 'var(--accent)', textTransform: 'uppercase' }}>
-          Storyboards
-        </span>
-      </Link>
+  // Close the drawer whenever navigation happens.
+  useEffect(() => { setOpen(false); }, [pathname]);
+  // Prevent background scroll while the drawer is open.
+  useEffect(() => {
+    if (open) {
+      const prev = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = prev; };
+    }
+  }, [open]);
+
+  const navGroups = (
+    <>
       {NAV.map(section => (
         <div key={section.group} style={{ marginBottom: '0.25rem' }}>
           <div style={{
@@ -90,14 +103,13 @@ export default function AnalyticsSidebar() {
                 href={item.href}
                 style={{
                   display: 'block',
-                  padding: '0.45rem 1rem',
-                  fontSize: '0.875rem',
+                  padding: '0.55rem 1rem',
+                  fontSize: '0.9rem',
                   textDecoration: 'none',
-                  borderRadius: 0,
                   color: active ? 'var(--text)' : 'var(--muted)',
                   fontWeight: active ? 600 : 400,
-                  background: active ? 'rgba(0,0,0,0.04)' : 'transparent',
-                  borderLeft: active ? '3px solid #1a1a2e' : '3px solid transparent',
+                  background: active ? 'var(--accent-100)' : 'transparent',
+                  borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
                 }}
               >
                 {item.label}
@@ -106,6 +118,87 @@ export default function AnalyticsSidebar() {
           })}
         </div>
       ))}
-    </nav>
+    </>
+  );
+
+  return (
+    <>
+      <style>{`
+        .sb-desktop { display: block; }
+        .sb-topbar  { display: none; }
+        @media (max-width: 1023px) {
+          .sb-desktop { display: none; }
+          .sb-topbar  { display: flex; }
+        }
+      `}</style>
+
+      {/* ── Desktop rail ──────────────────────────────────────────────────── */}
+      <nav className="sb-desktop" style={{
+        width: 200,
+        minHeight: '100vh',
+        background: 'var(--surface)',
+        borderRight: '1px solid var(--border)',
+        padding: '1.25rem 0',
+        flexShrink: 0,
+      }}>
+        <Link href="/" style={{ display: 'block', padding: '0 1rem 1rem', textDecoration: 'none' }}>
+          <Brand />
+        </Link>
+        {navGroups}
+      </nav>
+
+      {/* ── Mobile top bar ────────────────────────────────────────────────── */}
+      <div className="sb-topbar" style={{
+        position: 'sticky', top: 0, zIndex: 200,
+        alignItems: 'center', gap: 12,
+        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
+        padding: '10px 14px',
+      }}>
+        <button
+          aria-label="Open menu"
+          onClick={() => setOpen(true)}
+          style={{
+            border: '1px solid var(--border)', background: 'var(--surface)',
+            borderRadius: 10, padding: '6px 12px', fontSize: 18, lineHeight: 1, cursor: 'pointer',
+            color: 'var(--text)',
+          }}
+        >
+          ☰
+        </button>
+        <Link href="/" style={{ textDecoration: 'none' }}><Brand /></Link>
+      </div>
+
+      {/* ── Mobile drawer ─────────────────────────────────────────────────── */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 300, background: 'rgba(29,33,31,0.45)' }}
+        >
+          <nav
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 0, left: 0, bottom: 0,
+              width: 'min(280px, 82vw)',
+              background: 'var(--surface)',
+              overflowY: 'auto',
+              padding: '0.75rem 0 2rem',
+              boxShadow: '0 0 40px rgba(0,0,0,0.25)',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.25rem 1rem 0.75rem' }}>
+              <Link href="/" style={{ textDecoration: 'none' }}><Brand /></Link>
+              <button
+                aria-label="Close menu"
+                onClick={() => setOpen(false)}
+                style={{ border: 'none', background: 'transparent', fontSize: 20, cursor: 'pointer', color: 'var(--neutral-600)' }}
+              >
+                ✕
+              </button>
+            </div>
+            {navGroups}
+          </nav>
+        </div>
+      )}
+    </>
   );
 }

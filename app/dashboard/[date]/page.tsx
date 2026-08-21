@@ -231,7 +231,7 @@ export default async function DashboardPage({ params }: { params: { date: string
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <div className="tint-grid" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
           <Link
             href="/dashboard/history"
             style={{
@@ -318,18 +318,22 @@ export default async function DashboardPage({ params }: { params: { date: string
 
       {/* ── MAIN CONTENT ─────────────────────────────────────────────────── */}
       <style>{`
-        @media (max-width: 768px) {
-          .desktop-only { display: none !important; }
+        @media (max-width: 900px) {
           .segments-row { flex-direction: column !important; }
+          .kpi-grid, .tint-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .triple-grid { grid-template-columns: 1fr !important; }
+          .quad-grid { grid-template-columns: repeat(2, 1fr) !important; }
+          .page-pad { padding: 1rem 0.75rem 3.5rem !important; }
+          .page-pad table { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
         }
       `}</style>
-      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <div className="page-pad" style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
         {/* ── TOTAL KPIs ──────────────────────────────────────────────────── */}
         <SectionLabel>Total Business</SectionLabel>
 
         {/* Row 1 */}
-        <div style={{
+        <div className="kpi-grid" style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(5, 1fr)',
           gap: 10,
@@ -623,7 +627,7 @@ export default async function DashboardPage({ params }: { params: { date: string
               padding: '1.5rem',
               marginBottom: '2rem',
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
+              <div className="triple-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1.5rem' }}>
                 {/* Successful */}
                 <div style={{ background: '#f0fdf4', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #bbf7d0' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#15803d', marginBottom: '0.5rem' }}>Successful (direct)</div>
@@ -698,7 +702,7 @@ export default async function DashboardPage({ params }: { params: { date: string
               padding: '1.5rem',
               marginBottom: '2rem',
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+              <div className="triple-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
                 {/* Successful */}
                 <div style={{ background: '#e8f0fe', borderRadius: 10, padding: '1rem 1.25rem', border: '1px solid #b3c6f7' }}>
                   <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: '#003087', marginBottom: '0.5rem' }}>Successful (direct)</div>
@@ -748,7 +752,7 @@ export default async function DashboardPage({ params }: { params: { date: string
               padding: '1.5rem',
               marginBottom: '2rem',
             }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
+              <div className="quad-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem', marginBottom: '1.25rem' }}>
                 {[
                   { label: 'Ad Spend',   value: fmt(ads.spend),                    accent: '#1d4ed8' },
                   { label: 'Purchases',  value: String(ads.purchases),              accent: '#15803d' },
