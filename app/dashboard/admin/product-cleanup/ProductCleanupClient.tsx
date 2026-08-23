@@ -57,6 +57,8 @@ export default function ProductCleanupClient() {
   const [log, setLog] = useState<LogRow[]>([]);
   const [search, setSearch] = useState<SearchRow[]>([]);
   const [q, setQ] = useState('');
+  const [batchFilter, setBatchFilter] = useState('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -99,18 +101,25 @@ export default function ProductCleanupClient() {
     finally { setBusy(false); }
   };
 
-  const approveBatch = async (b: Batch) => {
-    const t = window.prompt(`Approve batch #${b.batch_number} (${num(b.size)} products, ${b.month_label ?? ''}) for PERMANENT deletion?\nType DELETE to confirm:`);
+  const approveBatches = async (targets: Batch[]) => {
+    const readyTargets = targets.filter(b => b.status === 'ready');
+    if (readyTargets.length === 0) return;
+    const totalProducts = readyTargets.reduce((sum, b) => sum + b.size, 0);
+    const label = readyTargets.length === 1
+      ? `batch #${readyTargets[0].batch_number}`
+      : `${readyTargets.length} batches (#${readyTargets.map(b => b.batch_number).join(', #')})`;
+    const t = window.prompt(`Approve ${label} — ${num(totalProducts)} products — for PERMANENT deletion?\nType DELETE to confirm:`);
     if (t !== 'DELETE') return;
     setBusy(true);
     try {
       const r = await fetch('/api/admin/product-cleanup/approve', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: b.id, confirm: 'DELETE' }),
+        body: JSON.stringify({ batch_ids: readyTargets.map(b => b.id), confirm: 'DELETE' }),
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      setNotice(`Batch #${j.batch_number} approved (${num(j.size)} products). The worker starts on its next 2-min tick${config?.deletion_enabled ? '' : ' — once the kill switch is armed'}.`);
+      setNotice(`${j.approved} batch(es) approved — ${num(j.total_products)} products queued. The worker processes them oldest-first${config?.deletion_enabled ? '' : ' — once the kill switch is armed'}.`);
+      setSelected(new Set());
       await load();
     } catch (e) { setNotice(`Approve failed: ${(e as Error).message}`); }
     finally { setBusy(false); }
@@ -122,6 +131,14 @@ export default function ProductCleanupClient() {
 
   const phase = config.sync_state?.phase ?? 'idle';
   const numericId = (gid: string) => gid.split('/').pop();
+  const shownBatches = batches.filter(b => batchFilter === 'all' || b.status === batchFilter);
+  const readyShown = shownBatches.filter(b => b.status === 'ready');
+  const allReadySelected = readyShown.length > 0 && readyShown.every(b => selected.has(b.id));
+  const toggleSelected = (id: string) => {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelected(next);
+  };
 
   return (
     <div style={{ maxWidth: 1520, margin: '0 auto', padding: '24px 32px 72px' }}>
@@ -177,21 +194,59 @@ export default function ProductCleanupClient() {
 
       {/* ── Batches ───────────────────────────────────────────────────────── */}
       <div style={card}>
-        <div style={{ ...label, marginBottom: 14 }}>Batches</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 14 }}>
+          <span style={label}>Batches</span>
+          <select value={batchFilter} onChange={e => { setBatchFilter(e.target.value); setSelected(new Set()); }}
+            style={{ padding: '6px 10px', borderRadius: 10, border: '1px solid var(--border)', fontSize: 12.5, background: 'var(--surface)' }}>
+            {['all', 'ready', 'approved', 'deleting', 'done', 'cancelled'].map(sv => (
+              <option key={sv} value={sv}>{sv === 'all' ? 'All statuses' : sv}</option>
+            ))}
+          </select>
+          {selected.size > 0 && (
+            <button
+              className="pill pill--sm"
+              style={{ borderColor: 'var(--accent-400)', color: 'var(--accent-700)', fontWeight: 600 }}
+              disabled={busy}
+              onClick={() => approveBatches(batches.filter(b => selected.has(b.id)))}
+            >
+              Approve &amp; delete {selected.size} selected ({num(batches.filter(b => selected.has(b.id)).reduce((sum, b) => sum + b.size, 0))} products)…
+            </button>
+          )}
+        </div>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontVariantNumeric: 'tabular-nums' }}>
             <thead><tr>
+              <th style={th}>
+                <input
+                  type="checkbox"
+                  aria-label="Select all ready batches"
+                  checked={allReadySelected}
+                  onChange={() => setSelected(allReadySelected ? new Set() : new Set(readyShown.map(b => b.id)))}
+                  disabled={readyShown.length === 0}
+                />
+              </th>
               <th style={th}>#</th><th style={th}>Window</th><th style={th}>Size</th><th style={th}>Status</th>
               <th style={th}>Progress</th><th style={th}>Errors</th><th style={th}>Approved</th><th style={th}></th>
             </tr></thead>
             <tbody>
-              {batches.length === 0 && (
-                <tr><td style={{ ...td, color: 'var(--neutral-500)' }} colSpan={8}>
-                  No batches yet — they appear once the sync finishes scanning products and the sold ledger.
+              {shownBatches.length === 0 && (
+                <tr><td style={{ ...td, color: 'var(--neutral-500)' }} colSpan={9}>
+                  {batches.length === 0
+                    ? 'No batches yet — they appear once the sync finishes scanning products and the sold ledger.'
+                    : 'No batches match this status filter.'}
                 </td></tr>
               )}
-              {batches.map(b => (
-                <tr key={b.id}>
+              {shownBatches.map(b => (
+                <tr key={b.id} style={selected.has(b.id) ? { background: 'var(--accent2-100)' } : undefined}>
+                  <td style={td}>
+                    <input
+                      type="checkbox"
+                      aria-label={`Select batch ${b.batch_number}`}
+                      checked={selected.has(b.id)}
+                      onChange={() => toggleSelected(b.id)}
+                      disabled={b.status !== 'ready'}
+                    />
+                  </td>
                   <td style={{ ...td, fontWeight: 700 }}>{b.batch_number}</td>
                   <td style={td}>{b.month_label ?? '—'}</td>
                   <td style={{ ...td, textAlign: 'right' }}>{num(b.size)}</td>
@@ -207,7 +262,7 @@ export default function ProductCleanupClient() {
                   <td style={td}>
                     {b.status === 'ready' && (
                       <button className="pill pill--sm" style={{ borderColor: 'var(--accent-400)', color: 'var(--accent-700)' }}
-                        onClick={() => approveBatch(b)} disabled={busy}>
+                        onClick={() => approveBatches([b])} disabled={busy}>
                         Approve & delete…
                       </button>
                     )}
