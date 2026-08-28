@@ -1,6 +1,21 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import { SectionLabel, fmt, fmtDec } from '../_components/cards';
 
+// PostgREST caps queries at 1000 rows — page explicitly so wide windows and
+// the ever-growing prior-codes history never truncate silently.
+async function fetchPaged<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let from = 0; from < 100_000; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
+
 // ── Range Discounts section ───────────────────────────────────────────────────
 // Renders discount-code performance over the selected range from the
 // daily_discounts rollup (same pipeline & rules as the rest of the dashboard):
@@ -105,32 +120,36 @@ export default async function DiscountsSection({
   const product = dProduct && dProduct !== 'ALL' ? dProduct : 'ALL';
   const variant = product !== 'ALL' && dVariant && dVariant !== 'ALL' ? dVariant : 'ALL';
 
-  const [{ data: filteredRows }, { data: allLevelRows }, { data: optionRows }, { data: priorRows }] = await Promise.all([
+  const [filteredRows, allLevelRows, optionRows, priorRows] = await Promise.all([
     // Rows at the selected filter level, for the tables
-    supabaseAdmin.from('daily_discounts').select('date,discount_code,orders,units,units_primary,net_sales,order_value')
+    fetchPaged<DRow>((from, to) => supabaseAdmin.from('daily_discounts').select('date,discount_code,orders,units,units_primary,net_sales,order_value')
       .gte('date', startDate).lte('date', endDate)
-      .eq('product_title', product).eq('variant_title', variant),
+      .eq('product_title', product).eq('variant_title', variant)
+      .order('date', { ascending: true }).range(from, to)),
     // ALL-level rows, to enumerate codes + compute share of blended orders
-    supabaseAdmin.from('daily_discounts').select('date,discount_code,orders')
+    fetchPaged<{ date: string; discount_code: string; orders: number }>((from, to) => supabaseAdmin.from('daily_discounts').select('date,discount_code,orders')
       .gte('date', startDate).lte('date', endDate)
-      .eq('product_title', 'ALL').eq('variant_title', 'ALL'),
+      .eq('product_title', 'ALL').eq('variant_title', 'ALL')
+      .order('date', { ascending: true }).range(from, to)),
     // Filter options: products (and their variants) present in the window
-    supabaseAdmin.from('daily_discounts').select('product_title,variant_title')
+    fetchPaged<{ product_title: string; variant_title: string }>((from, to) => supabaseAdmin.from('daily_discounts').select('product_title,variant_title')
       .gte('date', startDate).lte('date', endDate)
-      .eq('discount_code', 'ALL'),
+      .eq('discount_code', 'ALL')
+      .order('product_title', { ascending: true }).range(from, to)),
     // Codes seen BEFORE the window → anything not in this set is NEW
-    supabaseAdmin.from('daily_discounts').select('discount_code')
+    fetchPaged<{ discount_code: string }>((from, to) => supabaseAdmin.from('daily_discounts').select('discount_code')
       .lt('date', startDate)
-      .eq('product_title', 'ALL').eq('variant_title', 'ALL'),
+      .eq('product_title', 'ALL').eq('variant_title', 'ALL')
+      .order('date', { ascending: true }).range(from, to)),
   ]);
 
-  const rows = (filteredRows ?? []) as DRow[];
-  if ((allLevelRows ?? []).length === 0) return null; // no discount data yet for this range
+  const rows = filteredRows;
+  if (allLevelRows.length === 0) return null; // no discount data yet for this range
 
   // Enumerate codes from ALL level (so zero-row filtered codes still render)
   const codeOrders = new Map<string, number>();
   let blendedOrders = 0;
-  for (const r of allLevelRows ?? []) {
+  for (const r of allLevelRows) {
     if (r.discount_code === 'ALL') { blendedOrders += r.orders; continue; }
     codeOrders.set(r.discount_code, (codeOrders.get(r.discount_code) ?? 0) + r.orders);
   }
@@ -139,14 +158,14 @@ export default async function DiscountsSection({
     .sort((a, b) => b[1] - a[1])
     .map(([c]) => c);
 
-  const seenBefore = new Set((priorRows ?? []).map(r => r.discount_code));
+  const seenBefore = new Set(priorRows.map(r => r.discount_code));
 
   const byCode = (code: string) => rows.filter(r => r.discount_code === code);
 
   // Filter options
-  const products = Array.from(new Set((optionRows ?? []).map(r => r.product_title).filter(t => t !== 'ALL'))).sort();
+  const products = Array.from(new Set(optionRows.map(r => r.product_title).filter(t => t !== 'ALL'))).sort();
   const variants = product !== 'ALL'
-    ? Array.from(new Set((optionRows ?? []).filter(r => r.product_title === product).map(r => r.variant_title).filter(v => v !== 'ALL'))).sort()
+    ? Array.from(new Set(optionRows.filter(r => r.product_title === product).map(r => r.variant_title).filter(v => v !== 'ALL'))).sort()
     : [];
 
   // ── Commentary ──────────────────────────────────────────────────────────────
@@ -173,12 +192,12 @@ export default async function DiscountsSection({
   if (newCodes.length > 0) bullets.push(`NEW code${newCodes.length > 1 ? 's' : ''} this window: ${newCodes.join(', ')}.`);
   // Share shift: first half vs second half of the window
   {
-    const dates = Array.from(new Set((allLevelRows ?? []).map(r => r.date))).sort();
+    const dates = Array.from(new Set(allLevelRows.map(r => r.date))).sort();
     if (dates.length >= 4) {
       const mid = dates[Math.floor(dates.length / 2)];
       const share = (code: string, half: (d: string) => boolean) => {
-        const tot  = (allLevelRows ?? []).filter(r => r.discount_code === 'ALL' && half(r.date)).reduce((s, r) => s + r.orders, 0);
-        const c    = (allLevelRows ?? []).filter(r => r.discount_code === code && half(r.date)).reduce((s, r) => s + r.orders, 0);
+        const tot  = allLevelRows.filter(r => r.discount_code === 'ALL' && half(r.date)).reduce((s, r) => s + r.orders, 0);
+        const c    = allLevelRows.filter(r => r.discount_code === code && half(r.date)).reduce((s, r) => s + r.orders, 0);
         return tot > 0 ? (c / tot) * 100 : 0;
       };
       for (const code of codes.slice(0, 5)) {

@@ -25,19 +25,47 @@ function computeRange(preset: string | undefined): { startDate: string; endDate:
   return { startDate: format(subDays(new Date(), days), 'yyyy-MM-dd'), endDate: yest, preset: p, days };
 }
 
+// PostgREST caps every query at 1000 rows; wide windows exceed that and get
+// silently truncated (the 30d AOV chart lost its most recent days that way).
+// Page through explicitly so no window size can drop rows.
+async function fetchPaged<T>(build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
+  const PAGE = 1000;
+  for (let from = 0; from < 100_000; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    if (!data || data.length === 0) break;
+    out.push(...data);
+    if (data.length < PAGE) break;
+  }
+  return out;
+}
+
 export default async function AovPage({ searchParams }: { searchParams: { preset?: string } }) {
   const { startDate, endDate, preset, days } = computeRange(searchParams.preset);
 
-  const [{ data: summaryRows }, { data: discountRows }] = await Promise.all([
+  const [{ data: summaryRows }, codeLevelRows, productLevelRows] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
       .select('date,total_revenue,total_orders,phys_cash_revenue,phys_cash_orders,phys_non_cash_revenue,phys_non_cash_orders,mem_revenue,mem_orders,amazon_revenue,amazon_orders')
       .gte('date', startDate).lte('date', endDate)
       .order('date', { ascending: true }),
-    supabaseAdmin
+    // Code-level rows only (product=ALL, variant=ALL): codes + blended.
+    fetchPaged<any>((from, to) => supabaseAdmin
       .from('daily_discounts')
       .select('date,discount_code,product_title,variant_title,orders,order_value,units_primary')
-      .gte('date', startDate).lte('date', endDate),
+      .gte('date', startDate).lte('date', endDate)
+      .eq('product_title', 'ALL').eq('variant_title', 'ALL')
+      .order('date', { ascending: true })
+      .range(from, to)),
+    // Product-level rows only (code=ALL, variant=ALL, specific product).
+    fetchPaged<any>((from, to) => supabaseAdmin
+      .from('daily_discounts')
+      .select('date,discount_code,product_title,variant_title,orders,order_value,units_primary')
+      .gte('date', startDate).lte('date', endDate)
+      .eq('discount_code', 'ALL').eq('variant_title', 'ALL').neq('product_title', 'ALL')
+      .order('date', { ascending: true })
+      .range(from, to)),
   ]);
 
   const segments: SegmentDay[] = (summaryRows ?? []).map(r => ({
@@ -49,23 +77,22 @@ export default async function AovPage({ searchParams }: { searchParams: { preset
     amazonRev: Number(r.amazon_revenue ?? 0),        amazonOrd: Number(r.amazon_orders ?? 0),
   }));
 
-  const dRows = (discountRows ?? []) as { date: string; discount_code: string; product_title: string; variant_title: string; orders: number; order_value: number; units_primary: number }[];
+  type DRow = { date: string; discount_code: string; product_title: string; variant_title: string; orders: number; order_value: number; units_primary: number };
+  const codeRows = codeLevelRows as DRow[];
+  const prodRows = productLevelRows as DRow[];
 
-  // Products: blended-code rows, title level (variant=ALL), excluding the ALL sentinel.
-  const products: DimRow[] = dRows
-    .filter(r => r.discount_code === 'ALL' && r.variant_title === 'ALL' && r.product_title !== 'ALL')
+  // Products: one row per (day, product title), full order value + own units.
+  const products: DimRow[] = prodRows
     .map(r => ({ date: r.date, key: r.product_title, orders: Number(r.orders), value: Number(r.order_value), units: Number(r.units_primary ?? 0) }));
 
-  // Discount codes: product=ALL rows, excluding the blended sentinel. '' = no discount.
-  // units carries Magic Portrait tiles only (units_primary), for the Order
-  // Size section.
-  const codes: DimRow[] = dRows
-    .filter(r => r.product_title === 'ALL' && r.variant_title === 'ALL' && r.discount_code !== 'ALL')
+  // Discount codes, excluding the blended sentinel. '' = no discount.
+  const codes: DimRow[] = codeRows
+    .filter(r => r.discount_code !== 'ALL')
     .map(r => ({ date: r.date, key: r.discount_code, orders: Number(r.orders), value: Number(r.order_value), units: Number(r.units_primary ?? 0) }));
 
   // Blended (code=ALL) rows: overall tiles-per-order reference for Order Size.
-  const blendedTiles = dRows
-    .filter(r => r.product_title === 'ALL' && r.variant_title === 'ALL' && r.discount_code === 'ALL')
+  const blendedTiles = codeRows
+    .filter(r => r.discount_code === 'ALL')
     .map(r => ({ date: r.date, orders: Number(r.orders), units: Number(r.units_primary ?? 0) }));
 
   return (
