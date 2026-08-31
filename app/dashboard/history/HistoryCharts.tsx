@@ -22,13 +22,17 @@ function ChartCard({ title }: { title: string; children?: React.ReactNode }) {
 
 export default function HistoryCharts({ rows }: { rows: HistoryRow[] }) {
   const data = rows.map((r) => ({
-    date:    r.date.slice(5),          // MM-DD
-    Cash:    r.phys_cash_revenue,
-    NonCash: r.phys_non_cash_revenue,
-    Mem:     r.mem_revenue,
-    orders:  r.total_orders,
-    margin:  r.total_margin,
-    aov:     r.total_aov,
+    date:     r.date.slice(5),          // MM-DD
+    Cash:     r.phys_cash_revenue,
+    NonCash:  r.phys_non_cash_revenue,
+    Mem:      r.mem_revenue,
+    orders:   r.total_orders,
+    margin:   r.total_margin,
+    aov:      r.total_aov,
+    adSpend:  r.ad_spend,
+    gp:       r.gross_profit,
+    gpAds:    r.gp_ads,
+    gpAdsLtv: r.gp_ads_ltv,
   }));
 
   const cardStyle: React.CSSProperties = {
@@ -105,6 +109,40 @@ export default function HistoryCharts({ rows }: { rows: HistoryRow[] }) {
               <YAxis tickFormatter={(v) => `$${v}`} tick={axisStyle} axisLine={false} tickLine={false} width={44} />
               <Tooltip formatter={(v: unknown) => [fmtRev(v as number), 'AOV']} {...tooltipStyle} />
               <Line dataKey="aov" stroke="#1D9E75" strokeWidth={2} dot={false} name="AOV" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 5 — GP − Ad Spend */}
+        <div style={cardStyle}>
+          <div style={titleStyle}>GP − Ad Spend</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="date" tick={axisStyle} axisLine={false} tickLine={false} interval={4} />
+              <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} tick={axisStyle} axisLine={false} tickLine={false} width={46} />
+              <Tooltip formatter={(v: unknown, n: unknown) => [fmtRev(v as number), n as string]} {...tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }} />
+              <ReferenceLine y={0} stroke="#d54c30" strokeDasharray="4 3" strokeWidth={1} />
+              <Line dataKey="gp"    stroke="#b8beb8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="Gross Profit" />
+              <Line dataKey="gpAds" stroke="#17a97b" strokeWidth={2.5} dot={false} name="GP − Ads" />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* 6 — GP − Ad Spend + LTV */}
+        <div style={cardStyle}>
+          <div style={titleStyle}>GP − Ad Spend + LTV</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="date" tick={axisStyle} axisLine={false} tickLine={false} interval={4} />
+              <YAxis tickFormatter={(v) => `$${(v / 1000).toFixed(1)}k`} tick={axisStyle} axisLine={false} tickLine={false} width={46} />
+              <Tooltip formatter={(v: unknown, n: unknown) => [fmtRev(v as number), n as string]} {...tooltipStyle} />
+              <Legend wrapperStyle={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)' }} />
+              <ReferenceLine y={0} stroke="#d54c30" strokeDasharray="4 3" strokeWidth={1} />
+              <Line dataKey="gpAds"    stroke="#b8beb8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} name="GP − Ads" />
+              <Line dataKey="gpAdsLtv" stroke="#f4694a" strokeWidth={2.5} dot={false} name="GP − Ads + LTV" />
             </LineChart>
           </ResponsiveContainer>
         </div>

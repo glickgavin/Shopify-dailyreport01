@@ -44,7 +44,7 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
   // Margin are recomputed from the totals (not summed).
   const totals = useMemo(() => {
     const t = {
-      revenue: 0, net_sales: 0, orders: 0, profit: 0,
+      revenue: 0, net_sales: 0, orders: 0, profit: 0, ad_spend: 0,
       gp_ads: 0, gp_ads_ltv: 0, cash: 0, non_cash: 0, mem: 0,
     };
     for (const r of filtered) {
@@ -52,6 +52,7 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
       t.net_sales  += r.total_net_sales;
       t.orders     += r.total_orders;
       t.profit     += r.gross_profit;
+      t.ad_spend   += r.ad_spend;
       t.gp_ads     += r.gp_ads;
       t.gp_ads_ltv += r.gp_ads_ltv;
       t.cash       += r.phys_cash_revenue;
@@ -129,6 +130,7 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
               <Th label="Orders"    k="total_orders" />
               <Th label="AOV"       k="total_aov" />
               <Th label="Margin"    k="total_margin" />
+              <Th label="Ad Spend"     k="ad_spend" />
               <Th label="GP"           k="gross_profit" />
               <Th label="GP − Ads"     k="gp_ads" />
               <Th label="GP − Ads + LTV" k="gp_ads_ltv" />
@@ -182,6 +184,9 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
                 <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: r.total_margin < 80 ? '#dc2626' : 'inherit' }}>
                   {r.total_margin.toFixed(1)}%
                 </td>
+                <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--accent-700)' }}>
+                  {r.ad_spend > 0 ? fmt(r.ad_spend) : '—'}
+                </td>
                 <td style={{ padding: '0.7rem 1rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.82rem', fontWeight: 600 }}>
                   {fmt(r.gross_profit)}
                 </td>
@@ -211,6 +216,7 @@ export default function HistoryTable({ rows }: { rows: HistoryRow[] }) {
               <td style={tf()}>{totals.orders.toLocaleString()}</td>
               <td style={tf()}>{fmt(totalAov)}</td>
               <td style={tf()}>{totalMargin.toFixed(1)}%</td>
+              <td style={{ ...tf(), color: 'var(--accent-700)' }}>{fmt(totals.ad_spend)}</td>
               <td style={tf()}>{fmt(totals.profit)}</td>
               <td style={{ ...tf(), color: totals.gp_ads < 0 ? '#dc2626' : 'inherit' }}>{fmt(totals.gp_ads)}</td>
               <td style={{ ...tf(), color: 'var(--accent)' }}>{fmt(totals.gp_ads_ltv)}</td>
