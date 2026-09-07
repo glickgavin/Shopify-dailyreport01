@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { subDays, format, parseISO, isValid } from 'date-fns';
+import { subDays, subMonths, startOfMonth, endOfMonth, format, parseISO, isValid } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAdsRange } from '@/lib/ads';
 import { computeDerivedKPIs, memberLtv, MEMBER_LTV_VALUE } from '@/lib/business-rules';
@@ -18,7 +18,7 @@ export const revalidate = 0;
 
 // ── date range helpers ────────────────────────────────────────────────────────
 
-type Preset = 'today' | 'yesterday' | '3d' | '7d' | '30d';
+type Preset = 'today' | 'yesterday' | '3d' | '7d' | '30d' | 'mtd' | 'm1' | 'm2';
 
 function computeRange(
   preset: string | undefined,
@@ -45,6 +45,23 @@ function computeRange(
   if (preset === '30d') {
     const s = format(subDays(new Date(), 30), 'yyyy-MM-dd');
     return { startDate: s, endDate: yestStr, label: 'Past 30 Days', days: 30 };
+  }
+  if (preset === 'mtd') {
+    // Month to date: 1st of the current month through yesterday (complete
+    // days only). On the 1st of a month there is no complete day yet, so
+    // fall back to today like the 'today' preset does.
+    const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+    const end = yestStr >= monthStart ? yestStr : todayStr;
+    const days = Math.round((parseISO(end).getTime() - parseISO(monthStart).getTime()) / 86400000) + 1;
+    return { startDate: monthStart, endDate: end, label: `${format(new Date(), 'MMMM')} MTD`, days };
+  }
+  if (preset === 'm1' || preset === 'm2') {
+    // Full previous calendar month (m1) or the month before that (m2).
+    const ref = subMonths(new Date(), preset === 'm1' ? 1 : 2);
+    const s = format(startOfMonth(ref), 'yyyy-MM-dd');
+    const e = format(endOfMonth(ref), 'yyyy-MM-dd');
+    const days = Math.round((parseISO(e).getTime() - parseISO(s).getTime()) / 86400000) + 1;
+    return { startDate: s, endDate: e, label: format(ref, 'MMMM yyyy'), days };
   }
   if (preset === 'custom' && from && to) {
     const fParsed = parseISO(from);
@@ -815,6 +832,9 @@ export default async function RangePage({
             ['3d',        '3 days'],
             ['7d',        '7 days'],
             ['30d',       '30 days'],
+            ['mtd',       'MTD'],
+            ['m1',        format(subMonths(new Date(), 1), 'MMM')],
+            ['m2',        format(subMonths(new Date(), 2), 'MMM')],
           ] as [Preset, string][]).map(([id, lbl]) => (
             <Link key={id} href={`/dashboard/range?preset=${id}`}
               className={`pill pill--sm${activePreset === id ? ' pill--active' : ''}`}>
