@@ -79,6 +79,43 @@ function computeRange(
   return { startDate: s, endDate: yestStr, label: 'Past 7 Days', days: 7 };
 }
 
+// ── smart prior windows ───────────────────────────────────────────────────────
+// What "previous period" means depends on the preset:
+//   • MTD        → the SAME number of days of the previous month (Aug 1–27 vs
+//                  Jul 1–27), so mid-month comparisons are fair.
+//   • m1 / m2    → the full calendar month before the selected month.
+//   • everything else → the window of equal length immediately before.
+function computePriorRange(
+  preset: string | undefined,
+  startDate: string,
+  days: number,
+): { prevStart: string; prevEnd: string; prevLabel: string } {
+  if (preset === 'mtd') {
+    const prevMonthStart = startOfMonth(subMonths(parseISO(startDate), 1));
+    const prevMonthEnd   = endOfMonth(prevMonthStart);
+    const cappedEnd = new Date(Math.min(
+      prevMonthStart.getTime() + (days - 1) * 86400000,
+      prevMonthEnd.getTime(),
+    ));
+    return {
+      prevStart: format(prevMonthStart, 'yyyy-MM-dd'),
+      prevEnd:   format(cappedEnd, 'yyyy-MM-dd'),
+      prevLabel: `${format(prevMonthStart, 'MMMM')} 1–${format(cappedEnd, 'd')}`,
+    };
+  }
+  if (preset === 'm1' || preset === 'm2') {
+    const ref = startOfMonth(subMonths(parseISO(startDate), 1));
+    return {
+      prevStart: format(ref, 'yyyy-MM-dd'),
+      prevEnd:   format(endOfMonth(ref), 'yyyy-MM-dd'),
+      prevLabel: format(ref, 'MMMM yyyy'),
+    };
+  }
+  const prevEnd   = format(subDays(parseISO(startDate), 1), 'yyyy-MM-dd');
+  const prevStart = format(subDays(parseISO(startDate), days), 'yyyy-MM-dd');
+  return { prevStart, prevEnd, prevLabel: `${prevStart} → ${prevEnd}` };
+}
+
 // ── aggregation ───────────────────────────────────────────────────────────────
 
 interface AggBlock {
@@ -221,9 +258,10 @@ function aggPaypalSnapshots(snaps: { payload: unknown }[]): PayPalSummary | null
 export default async function RangePage({
   searchParams,
 }: {
-  searchParams: { preset?: string; from?: string; to?: string; d_product?: string; d_variant?: string };
+  searchParams: { preset?: string; from?: string; to?: string; d_product?: string; d_variant?: string; compare?: string };
 }) {
   const { preset, from, to, d_product, d_variant } = searchParams;
+  const compare = searchParams.compare === '1';
   const { startDate, endDate, label, days } = computeRange(preset, from, to);
 
   const [
@@ -347,45 +385,39 @@ export default async function RangePage({
   //
   // memNew (used for LTV) intentionally uses new_first_ever only — an intro
   // repeat isn't a new lifetime-value acquisition, it's a returning customer.
-  let memNewFirstEver = 0;
-  let memIntroRepeat  = 0;
-  {
-    // Fetch every intro event IN the range (one row per charge, not deduped) —
-    // matches the order-count semantics of the existing "New: N" label.
+  async function countIntroSplit(sd: string, ed: string): Promise<{ firstEver: number; introRepeat: number }> {
+    const out = { firstEver: 0, introRepeat: 0 };
     const { data: rangeIntros, error: rErr } = await supabaseAdmin
       .from('membership_billing_events')
       .select('customer_id, charged_at')
       .eq('is_intro', true)
-      .gte('charged_at', `${startDate}T00:00:00Z`)
-      .lte('charged_at', `${endDate}T23:59:59Z`);
+      .gte('charged_at', `${sd}T00:00:00Z`)
+      .lte('charged_at', `${ed}T23:59:59Z`);
     if (rErr) throw new Error(`membership_billing_events range fetch: ${rErr.message}`);
+    if (!rangeIntros || rangeIntros.length === 0) return out;
 
-    if (rangeIntros && rangeIntros.length > 0) {
-      const custIds = Array.from(new Set(rangeIntros.map(r => r.customer_id as string)));
-      // Earliest charge across all history per customer
-      const { data: allCharges, error: aErr } = await supabaseAdmin
-        .from('membership_billing_events')
-        .select('customer_id, charged_at')
-        .in('customer_id', custIds);
-      if (aErr) throw new Error(`membership_billing_events history fetch: ${aErr.message}`);
+    const custIds = Array.from(new Set(rangeIntros.map(r => r.customer_id as string)));
+    const { data: allCharges, error: aErr } = await supabaseAdmin
+      .from('membership_billing_events')
+      .select('customer_id, charged_at')
+      .in('customer_id', custIds);
+    if (aErr) throw new Error(`membership_billing_events history fetch: ${aErr.message}`);
 
-      const firstByCust = new Map<string, string>();
-      for (const c of (allCharges ?? []) as { customer_id: string; charged_at: string }[]) {
-        const prev = firstByCust.get(c.customer_id);
-        if (!prev || c.charged_at < prev) firstByCust.set(c.customer_id, c.charged_at);
-      }
-
-      // For each event: is this event that customer's first-ever charge? Then
-      // it's a real new signup. Otherwise it's a repeat intro (existing
-      // customer paying another $9.99 — churn-and-return, retry, promo redo).
-      for (const ev of rangeIntros as { customer_id: string; charged_at: string }[]) {
-        const first = firstByCust.get(ev.customer_id);
-        if (!first) continue;
-        if (ev.charged_at === first) memNewFirstEver++;
-        else                         memIntroRepeat++;
-      }
+    const firstByCust = new Map<string, string>();
+    for (const c of (allCharges ?? []) as { customer_id: string; charged_at: string }[]) {
+      const prev = firstByCust.get(c.customer_id);
+      if (!prev || c.charged_at < prev) firstByCust.set(c.customer_id, c.charged_at);
     }
+    for (const ev of rangeIntros as { customer_id: string; charged_at: string }[]) {
+      const first = firstByCust.get(ev.customer_id);
+      if (!first) continue;
+      if (ev.charged_at === first) out.firstEver++;
+      else                        out.introRepeat++;
+    }
+    return out;
   }
+
+  const { firstEver: memNewFirstEver, introRepeat: memIntroRepeat } = await countIntroSplit(startDate, endDate);
 
   const memNew       = memNewFirstEver;                                                          // for LTV — only true first-timers
   const memNewTotal  = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;    // price-based (kept for parity check)
@@ -447,16 +479,71 @@ export default async function RangePage({
     netSales: p.net_sales,
   }));
 
-  // ── prior window (for the Highlights trend badge) ─────────────────────────
-  const prevEnd   = format(subDays(parseISO(startDate), 1), 'yyyy-MM-dd');
-  const prevStart = format(subDays(parseISO(startDate), days), 'yyyy-MM-dd');
+  // ── prior window (smart per preset) — Highlights badge + compare mode ─────
+  const { prevStart, prevEnd, prevLabel } = computePriorRange(preset, startDate, days);
   const { data: prevRows } = await supabaseAdmin
     .from('daily_summary')
-    .select('total_revenue')
+    .select('total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,total_orders,total_qty,phys_cash_revenue,phys_cash_net_sales,phys_cash_shipping,phys_cash_cogs,phys_cash_profit,phys_cash_orders,phys_cash_qty,phys_non_cash_revenue,phys_non_cash_net_sales,phys_non_cash_shipping,phys_non_cash_cogs,phys_non_cash_profit,phys_non_cash_orders,phys_non_cash_qty,mem_revenue,mem_net_sales,mem_shipping,mem_cogs,mem_profit,mem_orders,mem_qty,amazon_revenue,amazon_net_sales,amazon_shipping,amazon_cogs,amazon_profit,amazon_orders,amazon_qty')
     .gte('date', prevStart)
     .lte('date', prevEnd);
-  const prevRevenue = (prevRows ?? []).reduce((sum, r) => sum + Number(r.total_revenue ?? 0), 0);
-  const revDeltaPct = prevRevenue > 0 ? ((total.revenue - prevRevenue) / prevRevenue) * 100 : null;
+  const pRows = (prevRows ?? []) as Record<string, number>[];
+  const pTotal = aggSummaryRows(pRows, {
+    revenue: 'total_revenue', netSales: 'total_net_sales', shipping: 'total_shipping',
+    cogs: 'total_cogs', profit: 'total_profit', orders: 'total_orders', qty: 'total_qty',
+  });
+  const revDeltaPct = pTotal.revenue > 0 ? ((total.revenue - pTotal.revenue) / pTotal.revenue) * 100 : null;
+
+  // Full prior aggregates only when compare mode is on (extra queries).
+  let prior: null | {
+    physCash: AggBlock; physNonCash: AggBlock; membership: AggBlock; amazon: AggBlock;
+    adCost: number; cashIn: number; ltv: number; gpLtvMinusAds: number; firstEver: number;
+  } = null;
+  if (compare && pRows.length > 0) {
+    const pPhysCash = aggSummaryRows(pRows, {
+      revenue: 'phys_cash_revenue', netSales: 'phys_cash_net_sales', shipping: 'phys_cash_shipping',
+      cogs: 'phys_cash_cogs', profit: 'phys_cash_profit', orders: 'phys_cash_orders', qty: 'phys_cash_qty',
+    });
+    const pPhysNonCash = aggSummaryRows(pRows, {
+      revenue: 'phys_non_cash_revenue', netSales: 'phys_non_cash_net_sales', shipping: 'phys_non_cash_shipping',
+      cogs: 'phys_non_cash_cogs', profit: 'phys_non_cash_profit', orders: 'phys_non_cash_orders', qty: 'phys_non_cash_qty',
+    });
+    const pMembership = aggSummaryRows(pRows, {
+      revenue: 'mem_revenue', netSales: 'mem_net_sales', shipping: 'mem_shipping',
+      cogs: 'mem_cogs', profit: 'mem_profit', orders: 'mem_orders', qty: 'mem_qty',
+    });
+    const pAmazon = aggSummaryRows(pRows, {
+      revenue: 'amazon_revenue', netSales: 'amazon_net_sales', shipping: 'amazon_shipping',
+      cogs: 'amazon_cogs', profit: 'amazon_profit', orders: 'amazon_orders', qty: 'amazon_qty',
+    });
+    const [{ data: pStripeSnaps }, pAds, pIntro] = await Promise.all([
+      supabaseAdmin.from('stripe_daily_snapshot').select('payload').gte('date', prevStart).lte('date', prevEnd),
+      fetchAdsRange(prevStart, prevEnd),
+      countIntroSplit(prevStart, prevEnd),
+    ]);
+    const pStripe = aggStripeSnapshots((pStripeSnaps ?? []) as { payload: unknown }[]);
+    const pDerived = computeDerivedKPIs(
+      {
+        total:      { revenue: pTotal.revenue, profit: pTotal.profit, orders: pTotal.orders },
+        physCash:   { revenue: pPhysCash.revenue },
+        membership: { revenue: pMembership.revenue },
+      } as Parameters<typeof computeDerivedKPIs>[0],
+      pAds?.spend ?? null,
+      pAds?.purchases ?? null,
+      pStripe?.direct_success_total_cents ?? null,
+      pStripe?.refunds_total_cents ?? null,
+      pPhysCash.orders + pPhysNonCash.orders + pAmazon.orders,
+    );
+    const pLtv = memberLtv(pIntro.firstEver);
+    prior = {
+      physCash: pPhysCash, physNonCash: pPhysNonCash, membership: pMembership, amazon: pAmazon,
+      adCost: pDerived.adCost, cashIn: pDerived.cashIn, ltv: pLtv,
+      gpLtvMinusAds: pTotal.profit + pLtv - pDerived.adCost,
+      firstEver: pIntro.firstEver,
+    };
+  }
+
+  const d = (cur: number, prev: number | undefined | null): number | null =>
+    prev != null && prev !== 0 ? ((cur - prev) / Math.abs(prev)) * 100 : null;
 
   const activePreset = preset ?? '7d';
 
@@ -479,8 +566,74 @@ export default async function RangePage({
   const typeTag = (t: string) =>
     t === 'Physical' ? 'tag tag-accent-2' : t === 'Membership' ? 'tag tag-accent' : 'tag tag-neutral';
 
+  // ── comparison table (compare mode) ───────────────────────────────────────
+  const compRow = (metric: string, cur: number, prev: number | null | undefined, money = true) => {
+    const delta = prev != null ? cur - prev : null;
+    const pct = d(cur, prev);
+    const fmtV = (n: number) => money ? fmt(n) : String(Math.round(n));
+    return (
+      <tr key={metric}>
+        <td style={{ fontWeight: 500 }}>{metric}</td>
+        <td style={{ textAlign: 'right', fontWeight: 600 }}>{fmtV(cur)}</td>
+        <td style={{ textAlign: 'right', color: 'var(--neutral-600)' }}>{prev != null ? fmtV(prev) : '—'}</td>
+        <td style={{ textAlign: 'right', color: delta != null && delta < 0 ? 'var(--accent-700)' : 'var(--accent2-800)' }}>
+          {delta != null ? `${delta < 0 ? '−' : '+'}${fmtV(Math.abs(delta))}` : '—'}
+        </td>
+        <td style={{ textAlign: 'right' }}>
+          {pct != null ? (
+            <span className={pct >= 0 ? 'tag tag-accent-2' : 'tag tag-accent'}>
+              {pct >= 0 ? '▲' : '▼'} {Math.abs(pct).toFixed(1)}%
+            </span>
+          ) : '—'}
+        </td>
+      </tr>
+    );
+  };
+
+  const comparisonSection = compare && prior ? (
+    <div style={{ marginTop: 14 }}>
+      <div className="table-card">
+        <div style={{ ...labelStyle, padding: '12px 0 4px' }}>
+          vs previous period · {prevLabel}
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th style={{ textAlign: 'right' }}>Current</th>
+              <th style={{ textAlign: 'right' }}>Previous</th>
+              <th style={{ textAlign: 'right' }}>Δ</th>
+              <th style={{ textAlign: 'right' }}>Δ%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {compRow('Revenue', total.revenue, pTotal.revenue)}
+            {compRow('Orders', total.orders, pTotal.orders, false)}
+            {compRow('AOV', total.aov, pTotal.aov)}
+            {compRow('Gross Profit', total.profit, pTotal.profit)}
+            {compRow('Ad Spend', derived.adCost, prior.adCost)}
+            {compRow('GP − Ads', total.profit - derived.adCost, pTotal.profit - prior.adCost)}
+            {compRow('LTV (first-ever signups)', rangeLtv, prior.ltv)}
+            {compRow('GP + LTV − Ads', rangeGpLtvMinusAds, prior.gpLtvMinusAds)}
+            {compRow('Cash In', derived.cashIn, prior.cashIn)}
+            {compRow('Cash revenue', physCash.revenue, prior.physCash.revenue)}
+            {compRow('Non-Cash revenue', physNonCash.revenue, prior.physNonCash.revenue)}
+            {compRow('Membership revenue', membership.revenue, prior.membership.revenue)}
+            {compRow('Amazon revenue', amazon.revenue, prior.amazon.revenue)}
+            {compRow('New members (first-ever)', memNewFirstEver, prior.firstEver, false)}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ margin: '10px 4px 0', fontSize: 12, color: 'var(--neutral-600)' }}>
+        Previous period: {prevLabel}
+        {preset === 'mtd' ? ' (same number of days of the previous month)' : preset === 'm1' || preset === 'm2' ? ' (full previous calendar month)' : ' (equal-length window immediately before)'} ·
+        margin compares as a ratio of its own values.
+      </p>
+    </div>
+  ) : null;
+
   // ── tab sections ──────────────────────────────────────────────────────────
-  const highlightsSection = (
+  const highlightsInner = (
     <Highlights
       rangeLabel={label}
       revenue={total.revenue}
@@ -512,23 +665,44 @@ export default async function RangePage({
       gpPerOrder={total.orders > 0 ? total.profit / total.orders : null}
     />
   );
+  const highlightsSection = (
+    <>
+      {highlightsInner}
+      {comparisonSection}
+    </>
+  );
 
   const overviewSection = (
     <div>
       <div className="ov-kpis" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 14 }}>
         <div style={{ background: 'var(--accent2-100)', borderRadius: 24, padding: '22px 24px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ ...labelStyle, color: 'var(--accent2-700)' }}>Total revenue</div>
-          <div style={{ fontSize: 34, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent2-900)' }}>{fmt(total.revenue)}</div>
+          <div style={{ fontSize: 34, fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: 'var(--accent2-900)' }}>
+            {fmt(total.revenue)}
+            {compare && revDeltaPct !== null && (
+              <span style={{
+                fontSize: 12, fontWeight: 600, borderRadius: 999, padding: '2px 8px', marginLeft: 8, verticalAlign: 'middle',
+                background: revDeltaPct >= 0 ? 'var(--accent2-200)' : 'var(--accent-200)',
+                color: revDeltaPct >= 0 ? 'var(--accent2-900)' : 'var(--accent-900)',
+              }}>
+                {revDeltaPct >= 0 ? '▲' : '▼'} {Math.abs(revDeltaPct).toFixed(1)}%
+              </span>
+            )}
+          </div>
           <div style={{ fontSize: 12, color: 'var(--accent2-700)' }}>{total.orders} orders · {total.qty} units</div>
         </div>
         <KpiCard label="Gross Profit" value={fmt(total.profit)} sub="revenue − COGS"
+          delta={compare ? d(total.profit, pTotal.profit) : undefined}
           info={"Revenue − COGS, summed over the range.\nCOGS = Shopify's 'Cost per item' × quantity; variants with no cost set (e.g. membership) count as $0. Shipping counts as revenue with no shipping cost deducted."} />
         <KpiCard label="GP + LTV − Ads" value={fmt(rangeGpLtvMinusAds)}
+          delta={compare && prior ? d(rangeGpLtvMinusAds, prior.gpLtvMinusAds) : undefined}
           sub={`+${fmt(rangeLtv)} LTV (${memNew}×$${MEMBER_LTV_VALUE}) · −${fmt(derived.adCost)} ads`}
           info={"Gross Profit + new-member LTV − Meta ad spend, over the range.\nLTV = new membership signups × $70 assumed lifetime value."} />
         <KpiCard label="Margin" value={fmtPct(total.margin)} sub="GP ÷ revenue"
+          delta={compare ? d(total.margin, pTotal.margin) : undefined}
           info={"Gross Profit ÷ Total Revenue over the range."} />
         <KpiCard label="AOV" value={fmtDec(total.aov)} sub="per order"
+          delta={compare ? d(total.aov, pTotal.aov) : undefined}
           info={"Average order value: Total Revenue ÷ total orders over the range."} />
       </div>
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14, marginBottom: 32 }}>
@@ -850,6 +1024,17 @@ export default async function RangePage({
               style={{ padding: '5px 10px', borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', fontSize: 12, fontFamily: 'var(--font-body)' }} />
             <button type="submit" className="pill pill--sm">Go</button>
           </form>
+          <Link
+            href={`/dashboard/range?${new URLSearchParams({
+              ...(preset ? { preset } : {}),
+              ...(preset === 'custom' && from ? { from } : {}),
+              ...(preset === 'custom' && to ? { to } : {}),
+              ...(compare ? {} : { compare: '1' }),
+            }).toString()}`}
+            className={`pill pill--sm${compare ? ' pill--active' : ''}`}
+          >
+            {compare ? '✓ Compare' : 'Compare'}
+          </Link>
         </div>
         <div style={{ fontSize: 13, color: 'var(--neutral-700)' }}>
           {days === 1 ? startDate : `${startDate} → ${endDate}`} · Pacific
