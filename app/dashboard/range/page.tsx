@@ -314,7 +314,64 @@ export default async function RangePage({
   const hasSegments      = (segmentRows ?? []).length > 0;
 
   // ── membership new/recurring ──────────────────────────────────────────────
-  const memNew       = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;
+  // The daily_membership_orders classifier uses a price threshold (net_sales
+  // < $35 → 'new'). That over-counts because an existing member who gets a
+  // second intro-priced $9.99 charge (churn-and-return, refund-then-rebill,
+  // or a delayed successful retry after an earlier failure) is bucketed as
+  // 'new' despite being a returning customer.
+  //
+  // Split the price-based 'new' bucket into two using membership_billing_events
+  // (populated from every VIP Membership line item on Shopify orders — so it
+  // covers Shopify Payments, Selling Plans, PayPal, and any other gateway):
+  //   • new_first_ever  = customer's very first VIP Membership charge lands in range
+  //   • intro_repeat    = intro-priced charge in range, but customer had an
+  //                       earlier VIP Membership charge before the range starts
+  // Recurring stays as-is (per-order, net >= $35).
+  //
+  // memNew (used for LTV) intentionally uses new_first_ever only — an intro
+  // repeat isn't a new lifetime-value acquisition, it's a returning customer.
+  let memNewFirstEver = 0;
+  let memIntroRepeat  = 0;
+  {
+    // Fetch every intro event IN the range (one row per charge, not deduped) —
+    // matches the order-count semantics of the existing "New: N" label.
+    const { data: rangeIntros, error: rErr } = await supabaseAdmin
+      .from('membership_billing_events')
+      .select('customer_id, charged_at')
+      .eq('is_intro', true)
+      .gte('charged_at', `${startDate}T00:00:00Z`)
+      .lte('charged_at', `${endDate}T23:59:59Z`);
+    if (rErr) throw new Error(`membership_billing_events range fetch: ${rErr.message}`);
+
+    if (rangeIntros && rangeIntros.length > 0) {
+      const custIds = Array.from(new Set(rangeIntros.map(r => r.customer_id as string)));
+      // Earliest charge across all history per customer
+      const { data: allCharges, error: aErr } = await supabaseAdmin
+        .from('membership_billing_events')
+        .select('customer_id, charged_at')
+        .in('customer_id', custIds);
+      if (aErr) throw new Error(`membership_billing_events history fetch: ${aErr.message}`);
+
+      const firstByCust = new Map<string, string>();
+      for (const c of (allCharges ?? []) as { customer_id: string; charged_at: string }[]) {
+        const prev = firstByCust.get(c.customer_id);
+        if (!prev || c.charged_at < prev) firstByCust.set(c.customer_id, c.charged_at);
+      }
+
+      // For each event: is this event that customer's first-ever charge? Then
+      // it's a real new signup. Otherwise it's a repeat intro (existing
+      // customer paying another $9.99 — churn-and-return, retry, promo redo).
+      for (const ev of rangeIntros as { customer_id: string; charged_at: string }[]) {
+        const first = firstByCust.get(ev.customer_id);
+        if (!first) continue;
+        if (ev.charged_at === first) memNewFirstEver++;
+        else                         memIntroRepeat++;
+      }
+    }
+  }
+
+  const memNew       = memNewFirstEver;                                                          // for LTV — only true first-timers
+  const memNewTotal  = (memTypeRows ?? []).filter((m) => m.membership_type === 'new').length;    // price-based (kept for parity check)
   const memRecurring = (memTypeRows ?? []).filter((m) => m.membership_type === 'recurring').length;
 
   // New-member LTV over the range: new members × MEMBER_LTV_VALUE. Headline
@@ -492,7 +549,7 @@ export default async function RangePage({
           revenue={membership.revenue} orders={membership.orders} qty={membership.qty}
           netSales={membership.netSales} shipping={membership.shipping} cogs={membership.cogs}
           profit={membership.profit} margin={membership.margin} aov={membership.aov}
-          breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNew} · Recurring: ${memRecurring}` : undefined}
+          breakdownLabel={(memTypeRows ?? []).length > 0 ? `New: ${memNewFirstEver} · Returning intro: ${memIntroRepeat} · Recurring: ${memRecurring}` : undefined}
         />
         {amazon.orders > 0 && (
           <SegmentCard
