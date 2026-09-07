@@ -5,6 +5,7 @@ import { fetchAdsRangeRaw } from '@/lib/ads';
 import type { AdsRow } from '@/lib/ads';
 import { fmt, fmtDec, SectionLabel } from '../_components/cards';
 import AdChart from './AdChart';
+import RoasChart, { type RoasDay } from './RoasChart';
 import type { ChartDay } from './AdChart';
 
 export const dynamic = 'force-dynamic';
@@ -102,7 +103,7 @@ export default async function AdReportPage() {
   const d80str       = format(subDays(new Date(), 80), 'yyyy-MM-dd'); // fetch window start (covers 10 weeks + prior)
 
   // Fetch 81 days of raw data (covers chart + all prior periods + 10-week table with prior)
-  const [adsRaw, { data: summaryRaw }] = await Promise.all([
+  const [adsRaw, { data: summaryRaw }, { data: insightRaw }] = await Promise.all([
     fetchAdsRangeRaw(d80str, todayStr),
     supabaseAdmin
       .from('daily_summary')
@@ -110,7 +111,50 @@ export default async function AdReportPage() {
       .gte('date', d80str)
       .lte('date', todayStr)
       .order('date', { ascending: true }),
+    (supabaseAdmin as any)
+      .from('meta_insights_daily')
+      .select('date,campaign_id,campaign_name,spend,impressions,clicks,purchases,revenue')
+      .gte('date', d30str)
+      .lte('date', todayStr)
+      .order('date', { ascending: true }),
   ]);
+
+  // ── attributed revenue & ROAS (meta_insights_daily snapshot) ──────────────
+  type InsightRow = { date: string; campaign_id: string; campaign_name: string | null; spend: number; impressions: number; clicks: number | null; purchases: number; revenue: number | null };
+  const insights = (insightRaw ?? []) as InsightRow[];
+
+  const byDay = new Map<string, { spend: number; revenue: number; hasRevenue: boolean }>();
+  for (const r of insights) {
+    const e = byDay.get(r.date) ?? { spend: 0, revenue: 0, hasRevenue: false };
+    e.spend += Number(r.spend);
+    if (r.revenue != null) { e.revenue += Number(r.revenue); e.hasRevenue = true; }
+    byDay.set(r.date, e);
+  }
+  const summaryRevByDate = new Map((summaryRaw ?? []).map((r: { date: string; total_revenue: number }) => [r.date, Number(r.total_revenue ?? 0)]));
+  const roasDays: RoasDay[] = Array.from(byDay.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, e]) => ({
+      date: date.slice(5),
+      spend: Math.round(e.spend * 100) / 100,
+      revenue: e.hasRevenue ? Math.round(e.revenue * 100) / 100 : null,
+      roas: e.hasRevenue && e.spend > 0 ? e.revenue / e.spend : null,
+      mer: e.spend > 0 && summaryRevByDate.has(date) ? (summaryRevByDate.get(date) ?? 0) / e.spend : null,
+    }));
+
+  const byCampaign = new Map<string, { name: string; spend: number; revenue: number; hasRevenue: boolean; purchases: number; clicks: number; days: number }>();
+  for (const r of insights) {
+    const e = byCampaign.get(r.campaign_id) ?? { name: r.campaign_name ?? r.campaign_id, spend: 0, revenue: 0, hasRevenue: false, purchases: 0, clicks: 0, days: 0 };
+    if (r.campaign_name) e.name = r.campaign_name;
+    e.spend += Number(r.spend);
+    if (r.revenue != null) { e.revenue += Number(r.revenue); e.hasRevenue = true; }
+    e.purchases += Number(r.purchases);
+    e.clicks += Number(r.clicks ?? 0);
+    e.days++;
+    byCampaign.set(r.campaign_id, e);
+  }
+  const campaignRows = Array.from(byCampaign.values())
+    .filter(c => c.spend > 0)
+    .sort((a, b) => b.spend - a.spend);
 
   const sumRows = (summaryRaw ?? []) as SummaryRow[];
 
@@ -469,6 +513,59 @@ export default async function AdReportPage() {
           )}
 
           {/* ── DAY-OF-WEEK BREAKDOWN ────────────────────────────────────── */}
+          <SectionLabel>Attributed Revenue &amp; ROAS — Last 30 Days</SectionLabel>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.25rem 1.25rem 1rem', marginBottom: '2rem' }}>
+            {roasDays.length === 0 ? (
+              <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: '0.5rem 0' }}>
+                No snapshot data yet — the Meta insights cron collects per-campaign spend and attributed
+                revenue every 4 hours; this chart fills in after its first run (and backfills 30 days).
+              </p>
+            ) : (
+              <>
+                <RoasChart data={roasDays} />
+                <div style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: '0.5rem' }}>
+                  Attributed revenue = Meta pixel purchase conversion value · ROAS = attributed revenue ÷ spend ·
+                  MER (dashed) = total store revenue ÷ spend · red line = break-even 1×
+                </div>
+              </>
+            )}
+          </div>
+
+          {campaignRows.length > 0 && (
+            <>
+              <SectionLabel>Campaign History — Last 30 Days</SectionLabel>
+              <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1rem 1.25rem', marginBottom: '2rem', overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--border)' }}>
+                      {['Campaign', 'Spend', 'Attributed Rev', 'ROAS', 'Purchases', 'CPP', 'Clicks', 'Active Days'].map((h, i) => (
+                        <th key={h} style={{ padding: '0.6rem 0.8rem', textAlign: i === 0 ? 'left' : 'right', fontFamily: 'var(--font-mono)', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {campaignRows.map((c, i) => {
+                      const roas = c.hasRevenue && c.spend > 0 ? c.revenue / c.spend : null;
+                      const cpp  = c.purchases > 0 ? c.spend / c.purchases : null;
+                      return (
+                        <tr key={c.name + i} style={{ borderBottom: i < campaignRows.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <td style={{ padding: '0.55rem 0.8rem', fontWeight: 500, maxWidth: 380, whiteSpace: 'normal' }}>{c.name}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right' }}>{fmt(c.spend)}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right', fontWeight: 600, color: 'var(--accent2-800)' }}>{c.hasRevenue ? fmt(c.revenue) : '—'}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right', fontWeight: 600, color: roas != null && roas < 1 ? 'var(--accent-700)' : 'inherit' }}>{roas != null ? `${roas.toFixed(2)}×` : '—'}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right' }}>{c.purchases}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right' }}>{cpp != null ? fmtDec(cpp) : '—'}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right', color: 'var(--muted)' }}>{c.clicks.toLocaleString()}</td>
+                          <td style={{ padding: '0.55rem 0.8rem', textAlign: 'right', color: 'var(--muted)' }}>{c.days}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
           <SectionLabel>Day-of-Week Performance — Last 30 Days</SectionLabel>
           <div style={{
             background: 'var(--surface)',
