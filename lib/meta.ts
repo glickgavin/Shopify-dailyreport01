@@ -153,3 +153,53 @@ export async function fetchAdInsightsForCampaign(campaignId: string, preset: Met
     };
   });
 }
+
+// ── historical daily insights (for the snapshot cron) ─────────────────────────
+
+export interface DailyCampaignInsight {
+  date: string;              // yyyy-MM-dd
+  campaign_id: string;
+  campaign_name: string;
+  spend: number;
+  impressions: number;
+  clicks: number | null;
+  purchases: number;
+  /** Meta-attributed purchase conversion value (action_values), USD. */
+  revenue: number | null;
+}
+
+/**
+ * Per-campaign, PER-DAY insights for a date range (time_increment=1), with
+ * attributed purchase revenue via action_values. Meta allows ranges well past
+ * 30 days in one call; rows = campaigns × days, paged.
+ */
+export async function fetchCampaignInsightsDaily(since: string, until: string): Promise<DailyCampaignInsight[]> {
+  const params = new URLSearchParams({
+    level: 'campaign',
+    time_range: JSON.stringify({ since, until }),
+    time_increment: '1',
+    fields: 'campaign_id,campaign_name,spend,impressions,clicks,actions,action_values',
+    filtering: JSON.stringify([
+      { field: 'campaign.effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED', 'ARCHIVED'] },
+    ]),
+    limit: '500',
+    access_token: TOKEN,
+  });
+  const rows = await fetchAllPages(`${GRAPH}/act_${ACCOUNT}/insights?${params}`, 0);
+
+  return rows.map((r) => {
+    const actions = r.actions       as { action_type: string; value: string }[] | undefined;
+    const values  = r.action_values as { action_type: string; value: string }[] | undefined;
+    const revenueStr = values?.find(v => v.action_type === 'offsite_conversion.fb_pixel_purchase')?.value;
+    return {
+      date:          String(r.date_start ?? ''),
+      campaign_id:   String(r.campaign_id ?? ''),
+      campaign_name: String(r.campaign_name ?? ''),
+      spend:         Number(r.spend ?? 0),
+      impressions:   Number(r.impressions ?? 0),
+      clicks:        r.clicks != null ? Number(r.clicks) : null,
+      purchases:     extractAction(actions, 'offsite_conversion.fb_pixel_purchase'),
+      revenue:       revenueStr != null ? Number(revenueStr) : null,
+    };
+  }).filter(r => r.date && r.campaign_id);
+}
