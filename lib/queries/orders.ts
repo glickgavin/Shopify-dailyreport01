@@ -82,6 +82,12 @@ const ORDERS_QUERY = `
         shippingAddress { countryCodeV2 }
         billingAddress { countryCodeV2 }
         paymentGatewayNames
+        transactions(first: 20) {
+          gateway
+          kind
+          status
+          amountSet { shopMoney { amount } }
+        }
         totalPriceSet { shopMoney { amount } }
         totalRefundedSet { shopMoney { amount } }
         shippingLines(first: 10) {
@@ -127,6 +133,12 @@ interface GQLOrder {
   shippingAddress: { countryCodeV2: string | null } | null;
   billingAddress: { countryCodeV2: string | null } | null;
   paymentGatewayNames: string[];
+  transactions: {
+    gateway: string | null;
+    kind: string;      // SALE, CAPTURE, AUTHORIZATION, REFUND, VOID, etc
+    status: string;    // SUCCESS, FAILURE, PENDING, ERROR
+    amountSet: { shopMoney: { amount: string } };
+  }[];
   totalPriceSet: { shopMoney: { amount: string } };
   totalRefundedSet: { shopMoney: { amount: string } };
   shippingLines: {
@@ -233,11 +245,34 @@ export async function fetchOrdersForDate(date?: string): Promise<{ orderRows: Or
       0,
     );
 
-    // Payment row — skip store credit when a real gateway is also present
+    // Payment row — pick the gateway that carried the largest share of the
+    // captured payment, using actual transaction amounts. Fixes the earlier
+    // heuristic that always de-prioritised shopify_store_credit and thus
+    // misclassified orders like $394.79 store-credit + $13.01 card as "Cash".
+    // Falls back to the paymentGatewayNames order if transactions aren't
+    // present (unpaid / cancelled orders).
     const gateways = order.paymentGatewayNames;
-    const primaryGateway = gateways.includes('shopify_store_credit') && gateways.length > 1
-      ? gateways.find((g) => g !== 'shopify_store_credit') ?? gateways[0]
-      : gateways[0] ?? 'unknown';
+    let primaryGateway: string;
+    const gatewayTotals = new Map<string, number>();
+    for (const t of order.transactions ?? []) {
+      // SALE and CAPTURE both represent captured money. REFUND, VOID, AUTHORIZATION,
+      // and non-SUCCESS statuses don't count towards which gateway "owned" the payment.
+      if (t.status !== 'SUCCESS') continue;
+      if (t.kind !== 'SALE' && t.kind !== 'CAPTURE') continue;
+      const g = t.gateway ?? 'unknown';
+      const amt = parseFloat(t.amountSet.shopMoney.amount) || 0;
+      gatewayTotals.set(g, (gatewayTotals.get(g) ?? 0) + amt);
+    }
+    if (gatewayTotals.size > 0) {
+      let bestG = '';
+      let bestAmt = -Infinity;
+      gatewayTotals.forEach((amt, g) => {
+        if (amt > bestAmt) { bestAmt = amt; bestG = g; }
+      });
+      primaryGateway = bestG;
+    } else {
+      primaryGateway = gateways[0] ?? 'unknown';
+    }
 
     paymentRows.push({
       order_name: order.name,
