@@ -24,7 +24,7 @@ function fmtMonth(isoMonth: string): string {
 }
 
 export default async function MembershipPage() {
-  const [{ data: latest }, { data: payerRows }, { data: activeRow }] = await Promise.all([
+  const [{ data: latest }, { data: payerRows }, { data: activeRows }] = await Promise.all([
     supabaseAdmin
       .from('membership_metrics_daily')
       .select('*')
@@ -39,10 +39,14 @@ export default async function MembershipPage() {
     (supabaseAdmin as any)
       .from('membership_active_snapshot')
       .select('date, member_count, store_credit_total_cents, accounts_with_credit')
-      .order('date', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order('date', { ascending: true }),
   ]);
+
+  // Latest snapshot for the KPI cards; last snapshot of each month for the gap line.
+  const snapshots = ((activeRows ?? []) as ActiveSnapshot[]);
+  const activeSnapshot: ActiveSnapshot | null = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+  const segmentByMonth = new Map<string, number>();
+  for (const s of snapshots) segmentByMonth.set(s.date.slice(0, 7), s.member_count);
 
   // Monthly payer rows → one entry per month with stripe/paypal counts.
   const byMonth = new Map<string, { stripe: number | null; paypal: number | null }>();
@@ -55,8 +59,7 @@ export default async function MembershipPage() {
   }
   const payerMonths: PayerMonthRow[] = Array.from(byMonth.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([m, v]) => ({ month: fmtMonth(m), ...v }));
-  const activeSnapshot = (activeRow ?? null) as ActiveSnapshot | null;
+    .map(([m, v]) => ({ month: fmtMonth(m), segment: segmentByMonth.get(m) ?? null, ...v }));
 
   if (!latest) {
     return (
