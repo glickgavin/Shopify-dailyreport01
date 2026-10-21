@@ -40,6 +40,7 @@ const NAV = [
       { href: '/dashboard/admin/paypal-subscriptions', label: 'PayPal Subscriptions' },
       { href: '/dashboard/admin/stripe-credits',       label: 'Stripe Credits' },
       { href: '/dashboard/admin/product-cleanup',      label: 'Product Cleanup' },
+      { href: '/dashboard/admin/credit-correction',    label: 'Credit Correction' },
       { href: '/dashboard/admin/price-list',           label: 'Price List' },
       { href: '/systems',                          label: 'Systems' },
     ],
