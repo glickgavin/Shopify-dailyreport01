@@ -1,5 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase';
 import MembershipCharts, { type MembershipChartsProps } from './_components/MembershipCharts';
+import PayersSection, { type PayerMonthRow, type ActiveSnapshot } from './_components/PayersSection';
 
 export const dynamic   = 'force-dynamic';
 export const revalidate = 0;
@@ -23,12 +24,39 @@ function fmtMonth(isoMonth: string): string {
 }
 
 export default async function MembershipPage() {
-  const { data: latest } = await supabaseAdmin
-    .from('membership_metrics_daily')
-    .select('*')
-    .order('metric_date', { ascending: false })
-    .limit(1)
-    .single();
+  const [{ data: latest }, { data: payerRows }, { data: activeRow }] = await Promise.all([
+    supabaseAdmin
+      .from('membership_metrics_daily')
+      .select('*')
+      .order('metric_date', { ascending: false })
+      .limit(1)
+      .single(),
+    (supabaseAdmin as any)
+      .from('membership_monthly_payers')
+      .select('month, provider, unique_payers')
+      .gte('month', '2026-01-01')
+      .order('month', { ascending: true }),
+    (supabaseAdmin as any)
+      .from('membership_active_snapshot')
+      .select('date, member_count, store_credit_total_cents, accounts_with_credit')
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  // Monthly payer rows → one entry per month with stripe/paypal counts.
+  const byMonth = new Map<string, { stripe: number | null; paypal: number | null }>();
+  for (const r of (payerRows ?? []) as { month: string; provider: string; unique_payers: number }[]) {
+    const key = r.month.slice(0, 7);
+    const entry = byMonth.get(key) ?? { stripe: null, paypal: null };
+    if (r.provider === 'stripe') entry.stripe = r.unique_payers;
+    if (r.provider === 'paypal') entry.paypal = r.unique_payers;
+    byMonth.set(key, entry);
+  }
+  const payerMonths: PayerMonthRow[] = Array.from(byMonth.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([m, v]) => ({ month: fmtMonth(m), ...v }));
+  const activeSnapshot = (activeRow ?? null) as ActiveSnapshot | null;
 
   if (!latest) {
     return (
@@ -235,6 +263,9 @@ export default async function MembershipPage() {
 
         {/* ── Charts ─────────────────────────────────────────────────────────── */}
         <MembershipCharts {...chartProps} />
+
+        {/* ── Payments & Active Members ──────────────────────────────────────── */}
+        <PayersSection months={payerMonths} active={activeSnapshot} />
 
         {/* ── Insights ───────────────────────────────────────────────────────── */}
         <div style={{
