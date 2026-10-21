@@ -71,6 +71,14 @@
     {
       "path": "/api/cron/mug-fulfill-approved",
       "schedule": "8,18,28,38,48,58 * * * *"
+    },
+    {
+      "path": "/api/cron/membership-payers",
+      "schedule": "50 * * * *"
+    },
+    {
+      "path": "/api/cron/membership-active",
+      "schedule": "40 6 * * *"
     }
   ]
 }

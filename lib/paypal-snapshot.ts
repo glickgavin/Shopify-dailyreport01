@@ -269,3 +269,32 @@ export async function fetchAndStorePayPalSnapshot(
 
   return payload;
 }
+
+// ── monthly payers rollup (for the membership page) ───────────────────────────
+// Same classification as the daily snapshot (direct, attributed, status S,
+// positive gross), aggregated over an arbitrary window (≤31 days — PayPal's
+// reporting API cap). Distinct payers are counted by email.
+
+export async function fetchPayPalMonthlyPayers(
+  startIso: string,
+  endIso: string,
+): Promise<{ uniquePayers: number; payments: number; amountCents: number }> {
+  const rawDetails = await listAllTransactions(startIso, endIso);
+
+  const rows = rawDetails.map((d) => {
+    try { return toRow(d); } catch { return null; }
+  }).filter((r): r is PayPalTxnRow => r !== null);
+
+  const payers = new Set<string>();
+  let payments = 0;
+  let amountCents = 0;
+  for (const r of rows) {
+    if (r.is_shopify) continue;
+    if (r.status !== 'S' || r.gross_cents <= 0) continue;
+    if (!hasCustomer(r)) continue;
+    payments++;
+    amountCents += r.gross_cents;
+    if (r.email) payers.add(r.email.toLowerCase());
+  }
+  return { uniquePayers: payers.size, payments, amountCents };
+}
