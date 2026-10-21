@@ -78,7 +78,7 @@
     },
     {
       "path": "/api/cron/membership-active",
-      "schedule": "*/10 * * * *"
+      "schedule": "40 6 * * *"
     }
   ]
 }
