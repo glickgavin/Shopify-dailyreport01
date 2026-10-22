@@ -62,7 +62,7 @@ interface HistoryResp {
             edges: {
               node: {
                 __typename: string;
-                id: string;
+                id?: string | null;
                 createdAt: string;
                 amount: { amount: string };
                 ['remainingAmount']?: { amount: string } | null;
@@ -91,10 +91,10 @@ const HISTORY_QUERY = `
               edges {
                 node {
                   __typename
-                  id
                   createdAt
                   amount { amount }
                   ... on StoreCreditAccountCreditTransaction {
+                    id
                     remainingAmount { amount }
                   }
                 }
@@ -138,7 +138,7 @@ export async function scanCustomer(customerId: string): Promise<ScanOutcome> {
         if (e.node.createdAt < WINDOW_START || e.node.createdAt >= WINDOW_END) continue;
         const amountCents = Math.round(parseFloat(e.node.amount.amount) * 100) || 0;
         credits.push({
-          tx_id:           e.node.id,
+          tx_id:           e.node.id ?? `${e.node.createdAt}|${amountCents}`,
           occurred_at:     e.node.createdAt,
           amount_cents:    amountCents,
           remaining_cents: e.node.remainingAmount ? Math.round(parseFloat(e.node.remainingAmount.amount) * 100) : null,
