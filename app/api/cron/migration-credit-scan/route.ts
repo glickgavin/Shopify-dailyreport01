@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { loadFixConfig, saveScanState, scanCustomer } from '@/lib/migration-credit';
+import {
+  loadFixConfig,
+  saveScanState,
+  scanCustomer,
+  startHoldersBulk,
+  pollHoldersBulk,
+  ingestHoldersChunk,
+  nextUnscannedHolders,
+} from '@/lib/migration-credit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
 
-// Time-budgeted, resumable scan of the Membership 2025 members for duplicate
-// migration credits (Mar–Apr 2026). Walks membership_credit_members in
-// customer_id order, one page per run, cursor kept in migration_fix_config.
-// Re-run from scratch with ?restart=1.
+// Migration-credit scan, two passes:
+//   (segment pass, no phase) walk membership_credit_members — completed 2026-10-22.
+//   (store-wide pass) phase machine: bulk_start → bulk_running → bulk_ingest
+//   → holders → done. The bulk export enumerates EVERY customer with a
+//   store-credit balance; 'holders' then scans the ones with no review row
+//   yet (ex-members outside the segment). Kick the store-wide pass with
+//   ?phase=bulk_start (or set scan_state.phase manually); ?restart=1 restarts
+//   the legacy segment walk.
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -18,17 +30,90 @@ function authorized(req: NextRequest): boolean {
   return header === `Bearer ${secret}` || query === secret;
 }
 
+const INGEST_LINES_PER_RUN = 120_000;
+const DEADLINE_MS = 240_000;
+
 async function run(req: NextRequest): Promise<NextResponse> {
   const cfg = await loadFixConfig();
   let state = cfg.scan_state ?? {};
   if (req.nextUrl.searchParams.get('restart') === '1') state = {};
+  if (req.nextUrl.searchParams.get('phase') === 'bulk_start') state = { phase: 'bulk_start' };
 
-  if (state.done_at) {
-    return NextResponse.json({ status: 'ok', done: true, done_at: state.done_at });
+  const phase = state.phase;
+
+  // ── store-wide pass ──────────────────────────────────────────────────────────
+  if (phase === 'bulk_start') {
+    const started = await startHoldersBulk();
+    if (started.error) {
+      // Another bulk op may be in flight (one per shop) — retry next tick.
+      console.error('[migration-credit-scan] bulk start deferred:', started.error);
+      return NextResponse.json({ status: 'ok', phase, detail: `start deferred: ${started.error}` });
+    }
+    await saveScanState({ phase: 'bulk_running', bulk_op_id: started.id });
+    return NextResponse.json({ status: 'ok', phase: 'bulk_running', bulk_op_id: started.id });
   }
 
+  if (phase === 'bulk_running') {
+    const op = await pollHoldersBulk(state.bulk_op_id!);
+    if (op.status === 'COMPLETED' && op.url) {
+      await saveScanState({ phase: 'bulk_ingest', url: op.url, line_offset: 0, carry: null });
+      return NextResponse.json({ status: 'ok', phase: 'bulk_ingest', objects: op.objectCount });
+    }
+    if (op.status === 'RUNNING' || op.status === 'CREATED') {
+      return NextResponse.json({ status: 'ok', phase, detail: `bulk ${op.status}` });
+    }
+    await saveScanState({ phase: 'bulk_start' });
+    console.error(`[migration-credit-scan] bulk failed: ${op.status} ${op.errorCode ?? ''} — will restart`);
+    return NextResponse.json({ status: 'ok', phase: 'bulk_start', detail: `bulk failed: ${op.status}` });
+  }
+
+  if (phase === 'bulk_ingest') {
+    const r = await ingestHoldersChunk(state.url!, state.line_offset ?? 0, state.carry ?? null, INGEST_LINES_PER_RUN);
+    if (r.done) {
+      await saveScanState({ phase: 'holders', cursor_customer_id: '' });
+      console.log(`[migration-credit-scan] holders ingest complete (+${r.inserted} this run)`);
+      return NextResponse.json({ status: 'ok', phase: 'holders', inserted: r.inserted });
+    }
+    await saveScanState({ phase: 'bulk_ingest', url: state.url, line_offset: r.nextOffset, carry: r.carry });
+    return NextResponse.json({ status: 'ok', phase, offset: r.nextOffset, inserted: r.inserted });
+  }
+
+  if (phase === 'holders') {
+    const startedAt = Date.now();
+    let scanned = 0, flagged = 0, errors = 0;
+    let cursor = state.cursor_customer_id ?? '';
+
+    while (Date.now() - startedAt < DEADLINE_MS) {
+      const { ids, lastCursor } = await nextUnscannedHolders(cursor, 25);
+      if (lastCursor === null) {
+        await saveScanState({ phase: 'done', done_at: new Date().toISOString() });
+        console.log(`[migration-credit-scan] store-wide pass complete — scanned ${scanned} this run`);
+        return NextResponse.json({ status: 'ok', phase: 'done', scanned, flagged, errors });
+      }
+      for (const id of ids) {
+        if (Date.now() - startedAt > DEADLINE_MS) break;
+        try {
+          const out = await scanCustomer(id);
+          scanned++;
+          if (out.status === 'pending_review') flagged++;
+        } catch (err) {
+          errors++;
+          console.error(`[migration-credit-scan] ${id}:`, (err as Error).message);
+        }
+      }
+      cursor = lastCursor;
+      await saveScanState({ phase: 'holders', cursor_customer_id: cursor });
+    }
+    console.log(`[migration-credit-scan] holders progress — scanned ${scanned}, flagged ${flagged}, errors ${errors}`);
+    return NextResponse.json({ status: 'ok', phase, scanned, flagged, errors, cursor });
+  }
+
+  if (phase === 'done' || state.done_at) {
+    return NextResponse.json({ status: 'ok', done: true, done_at: state.done_at ?? null });
+  }
+
+  // ── legacy segment pass (membership_credit_members cursor walk) ─────────────
   const startedAt = Date.now();
-  const DEADLINE_MS = 240_000;
   let scanned = 0, flagged = 0, errors = 0;
   let cursor = state.cursor_customer_id ?? '';
 
@@ -43,7 +128,7 @@ async function run(req: NextRequest): Promise<NextResponse> {
 
     if (!batch || batch.length === 0) {
       await saveScanState({ done_at: new Date().toISOString() });
-      console.log(`[migration-credit-scan] complete — scanned ${scanned} this run`);
+      console.log(`[migration-credit-scan] segment pass complete — scanned ${scanned} this run`);
       return NextResponse.json({ status: 'ok', done: true, scanned, flagged, errors });
     }
 

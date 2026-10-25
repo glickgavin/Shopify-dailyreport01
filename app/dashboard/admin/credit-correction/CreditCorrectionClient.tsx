@@ -258,7 +258,7 @@ export default function CreditCorrectionClient() {
         </div>
 
         <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-          Flow: scan flags duplicates → you approve rows (REVERSE) → arm the worker (ARM) → debits post with a correction note on each customer. Showing up to 500 rows, biggest duplicates first.
+          Flow: scan flags duplicates → you approve rows (REVERSE) → arm the worker (ARM) → debits post with a correction note on each customer. Showing up to 2,000 rows, biggest duplicates first.
         </div>
       </div>
     </div>

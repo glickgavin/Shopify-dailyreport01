@@ -29,7 +29,17 @@ export interface WindowCredit {
 
 export interface MigrationFixConfig {
   reversal_enabled: boolean;
-  scan_state: { cursor_customer_id?: string; done_at?: string };
+  scan_state: {
+    // segment pass (phase absent): cursor over membership_credit_members
+    cursor_customer_id?: string;
+    done_at?: string;
+    // store-wide pass: bulk_start → bulk_running → bulk_ingest → holders → done
+    phase?: string;
+    bulk_op_id?: string;
+    url?: string;
+    line_offset?: number;
+    carry?: { id: string; email: string | null; name: string | null; balance_cents: number } | null;
+  };
 }
 
 export async function loadFixConfig(): Promise<MigrationFixConfig> {
@@ -291,4 +301,153 @@ export async function fixApprovedRow(row: {
     .eq('customer_id', row.customer_id);
 
   return { customerId: row.customer_id, status: 'reversed' };
+}
+
+// ── store-wide discovery (bulk export of all credit holders) ─────────────────
+// Enumerates every customer with a store-credit balance via one Shopify bulk
+// operation, filling store_credit_holders. The scan route then walks holders
+// that have no migration_credit_review row yet (i.e. outside the already-
+// scanned Membership 2025 segment).
+
+const BULK_RUN = `
+  mutation BulkRun($query: String!) {
+    bulkOperationRunQuery(query: $query) {
+      bulkOperation { id status }
+      userErrors { field message }
+    }
+  }
+`;
+const BULK_POLL = `
+  query BulkPoll($id: ID!) {
+    node(id: $id) {
+      ... on BulkOperation { id status errorCode objectCount url }
+    }
+  }
+`;
+
+export const HOLDERS_BULK_QUERY = `{
+  customers {
+    edges {
+      node {
+        id
+        email
+        displayName
+        storeCreditAccounts {
+          edges { node { id balance { amount currencyCode } } }
+        }
+      }
+    }
+  }
+}`;
+
+export async function startHoldersBulk(): Promise<{ id?: string; error?: string }> {
+  const resp = await shopifyGraphQL<{
+    bulkOperationRunQuery: { bulkOperation: { id: string; status: string } | null; userErrors: { message: string }[] };
+  }>(BULK_RUN, { query: HOLDERS_BULK_QUERY });
+  const errs = resp.bulkOperationRunQuery?.userErrors ?? [];
+  if (errs.length > 0) return { error: errs.map(e => e.message).join('; ') };
+  const id = resp.bulkOperationRunQuery?.bulkOperation?.id;
+  return id ? { id } : { error: 'no bulk operation id returned' };
+}
+
+export async function pollHoldersBulk(id: string): Promise<{ status: string; url?: string | null; errorCode?: string | null; objectCount?: string }> {
+  const resp = await shopifyGraphQL<{ node: { status: string; url: string | null; errorCode: string | null; objectCount: string } | null }>(BULK_POLL, { id });
+  if (!resp.node) return { status: 'MISSING' };
+  return resp.node;
+}
+
+type Carry = { id: string; email: string | null; name: string | null; balance_cents: number } | null;
+
+/**
+ * Ingest one chunk of the bulk JSONL (parent customer lines followed by their
+ * storeCreditAccount child lines). Returns the next offset, the carried
+ * in-progress customer (a parent whose children may continue in the next
+ * chunk), and whether the file is exhausted.
+ */
+export async function ingestHoldersChunk(
+  url: string,
+  offset: number,
+  carryIn: Carry,
+  maxLines: number,
+): Promise<{ nextOffset: number; carry: Carry; done: boolean; inserted: number }> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`bulk download HTTP ${res.status}`);
+  const lines = (await res.text()).split('\n');
+
+  let carry: Carry = carryIn;
+  const rows: Array<{ customer_id: string; email: string | null; display_name: string | null; balance_cents: number }> = [];
+
+  const flushCarry = () => {
+    if (carry && carry.balance_cents > 0) {
+      rows.push({ customer_id: carry.id, email: carry.email, display_name: carry.name, balance_cents: carry.balance_cents });
+    }
+    carry = null;
+  };
+
+  const end = Math.min(offset + maxLines, lines.length);
+  let i = offset;
+  for (; i < end; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    let obj: Record<string, unknown>;
+    try { obj = JSON.parse(line); } catch { continue; }
+
+    const id = typeof obj.id === 'string' ? obj.id : '';
+    if (id.includes('/Customer/')) {
+      flushCarry();
+      carry = {
+        id,
+        email: typeof obj.email === 'string' ? obj.email : null,
+        name: typeof obj.displayName === 'string' ? obj.displayName : null,
+        balance_cents: 0,
+      };
+    } else if (id.includes('/StoreCreditAccount/') && carry) {
+      const parent = obj.__parentId;
+      if (typeof parent === 'string' && parent === carry.id) {
+        const bal = (obj.balance as { amount?: string } | undefined)?.amount;
+        carry.balance_cents += Math.round(parseFloat(bal ?? '0') * 100) || 0;
+      }
+    }
+  }
+
+  const done = i >= lines.length;
+  if (done) flushCarry();
+
+  let inserted = 0;
+  for (let j = 0; j < rows.length; j += 500) {
+    const { error } = await (supabaseAdmin as any)
+      .from('store_credit_holders')
+      .upsert(rows.slice(j, j + 500).map(r => ({ ...r, ingested_at: new Date().toISOString() })), { onConflict: 'customer_id' });
+    if (error) throw new Error(`holders upsert: ${error.message}`);
+    inserted += Math.min(500, rows.length - j);
+  }
+
+  return { nextOffset: i, carry: done ? null : carry, done, inserted };
+}
+
+/**
+ * Next batch of holders that still need scanning: positive balance, no review
+ * row yet (segment members already have one). Walks by customer_id cursor.
+ */
+export async function nextUnscannedHolders(cursor: string, batchSize: number): Promise<{ ids: string[]; lastCursor: string | null }> {
+  const { data: holders, error } = await (supabaseAdmin as any)
+    .from('store_credit_holders')
+    .select('customer_id')
+    .gt('customer_id', cursor)
+    .gt('balance_cents', 0)
+    .order('customer_id', { ascending: true })
+    .limit(batchSize);
+  if (error) throw new Error(`holders page: ${error.message}`);
+  const list = (holders ?? []) as { customer_id: string }[];
+  if (list.length === 0) return { ids: [], lastCursor: null };
+
+  const ids = list.map(h => h.customer_id);
+  const { data: existing, error: exErr } = await (supabaseAdmin as any)
+    .from('migration_credit_review')
+    .select('customer_id')
+    .in('customer_id', ids);
+  if (exErr) throw new Error(`review existence check: ${exErr.message}`);
+  const have = new Set(((existing ?? []) as { customer_id: string }[]).map(r => r.customer_id));
+
+  return { ids: ids.filter(id => !have.has(id)), lastCursor: ids[ids.length - 1] };
 }

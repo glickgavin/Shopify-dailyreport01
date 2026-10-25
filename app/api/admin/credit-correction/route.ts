@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     .from('migration_credit_review')
     .select('*')
     .order('duplicate_cents', { ascending: false })
-    .limit(500);
+    .limit(2000);
   if (status !== 'all') query = query.eq('status', status);
   const { data: rows, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
