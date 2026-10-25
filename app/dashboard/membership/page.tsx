@@ -1,6 +1,8 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import Link from 'next/link';
 import MembershipCharts, { type MembershipChartsProps } from './_components/MembershipCharts';
 import PayersSection, { type PayerMonthRow, type ActiveSnapshot } from './_components/PayersSection';
+import MembersTable, { type MemberRow } from './_components/MembersTable';
 
 export const dynamic   = 'force-dynamic';
 export const revalidate = 0;
@@ -23,7 +25,41 @@ function fmtMonth(isoMonth: string): string {
   return (months[parseInt(mo) - 1] ?? mo) + " '" + yr.slice(2);
 }
 
-export default async function MembershipPage() {
+export default async function MembershipPage({
+  searchParams,
+}: {
+  searchParams: { tab?: string };
+}) {
+  const tab = searchParams.tab === 'members' ? 'members' : 'overview';
+
+  // Members tab: full member list with current store credit (paged past the
+  // PostgREST 1,000-row cap), then render just the table.
+  if (tab === 'members') {
+    const members: MemberRow[] = [];
+    let asOf: string | null = null;
+    for (let from = 0; ; from += 1000) {
+      const { data } = await (supabaseAdmin as any)
+        .from('membership_credit_members')
+        .select('customer_id, email, display_name, credit_cents, computed_at')
+        .order('credit_cents', { ascending: false })
+        .range(from, from + 999);
+      const rows = (data ?? []) as (MemberRow & { computed_at: string })[];
+      for (const r of rows) {
+        members.push({ customer_id: r.customer_id, email: r.email, display_name: r.display_name, credit_cents: r.credit_cents });
+        if (!asOf || r.computed_at > asOf) asOf = r.computed_at;
+      }
+      if (rows.length < 1000) break;
+    }
+    return (
+      <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
+        <MembershipTopBar tab="members" right={`${members.length} members`} />
+        <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
+          <MembersTable rows={members} asOf={asOf} />
+        </div>
+      </div>
+    );
+  }
+
   const [{ data: latest }, { data: payerRows }, { data: activeRows }] = await Promise.all([
     supabaseAdmin
       .from('membership_metrics_daily')
@@ -162,28 +198,10 @@ export default async function MembershipPage() {
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
 
       {/* ── Top bar ──────────────────────────────────────────────────────────── */}
-      <div style={{
-        background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)',
-        padding: '1rem 2rem',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        position: 'sticky', top: 0, zIndex: 50,
-      }}>
-        <div>
-          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
-            VIP Membership <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Subscription</em>
-          </h1>
-          <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-            Recurring billing analytics · $9.99 intro → $39.99/mo
-          </div>
-        </div>
-        <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)', lineHeight: 1.7 }}>
-          <div>
-            <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 0 3px rgba(29,158,117,0.25)', marginRight: 6, verticalAlign: 'middle' }} />
-            <strong style={{ color: 'var(--text)' }}>{latest.active_members}</strong> active members
-          </div>
-          <div>Data as of <strong style={{ color: 'var(--text)' }}>{latest.metric_date}</strong></div>
-        </div>
-      </div>
+      <MembershipTopBar
+        tab="overview"
+        right={`${latest.active_members} active members · data as of ${latest.metric_date}`}
+      />
 
       <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
 
@@ -318,6 +336,52 @@ export default async function MembershipPage() {
           Reconstructed from Shopify billing events · cancellation vs. failed-payment split lives in the Simplee app
         </div>
 
+      </div>
+    </div>
+  );
+}
+
+// ── shared top bar with tabs (Overview / Members) ─────────────────────────────
+
+function MembershipTopBar({ tab, right }: { tab: 'overview' | 'members'; right: string }) {
+  const tabs: { key: 'overview' | 'members'; label: string; href: string }[] = [
+    { key: 'overview', label: 'Overview', href: '/dashboard/membership' },
+    { key: 'members',  label: 'Members',  href: '/dashboard/membership?tab=members' },
+  ];
+  return (
+    <div style={{
+      background: 'var(--surface)', color: 'var(--text)', borderBottom: '1px solid var(--border)',
+      padding: '1rem 2rem',
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.75rem',
+      position: 'sticky', top: 0, zIndex: 50,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
+            VIP Membership <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Subscription</em>
+          </h1>
+          <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
+            Recurring billing analytics · $9.99 intro → $39.99/mo
+          </div>
+        </div>
+        <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+        <div style={{ display: 'flex', gap: '0.25rem' }}>
+          {tabs.map(t => (
+            <Link key={t.key} href={t.href} style={{
+              padding: '0.3rem 0.8rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
+              textDecoration: 'none', border: '1px solid var(--border)',
+              background: tab === t.key ? 'var(--accent-100)' : 'var(--neutral-100)',
+              color: tab === t.key ? '#fff' : 'var(--neutral-600)',
+              fontWeight: tab === t.key ? 600 : 400,
+            }}>
+              {t.label}
+            </Link>
+          ))}
+        </div>
+      </div>
+      <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)' }}>
+        <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: '#1D9E75', boxShadow: '0 0 0 3px rgba(29,158,117,0.25)', marginRight: 6, verticalAlign: 'middle' }} />
+        {right}
       </div>
     </div>
   );
