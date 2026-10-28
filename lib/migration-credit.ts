@@ -11,8 +11,11 @@ import { debitStoreCredit } from '@/lib/store-credit';
 // duplicate amount as a debit, posts a correction note on the customer, and
 // refreshes the stored balance.
 
-const WINDOW_START = '2026-03-01T00:00:00Z';
-const WINDOW_END   = '2026-05-01T00:00:00Z'; // exclusive
+// Widened 2026-10-28: the duplicated migration also posted credits outside
+// Mar-Apr (seen on customer 6572399984836 — 7 identical credits, 2 beyond the
+// old window). The anchor-match rule below keeps unrelated manual credits safe.
+const WINDOW_START = '2026-01-01T00:00:00Z';
+const WINDOW_END   = '2027-01-01T00:00:00Z'; // exclusive
 // Normal monthly subscription allocations — never flagged as migration credits.
 const NORMAL_AMOUNTS_CENTS = [2999, 3999];
 
@@ -120,7 +123,7 @@ const HISTORY_QUERY = `
 
 export interface ScanOutcome {
   customerId: string;
-  status: 'pending_review' | 'no_duplicates';
+  status: 'pending_review' | 'no_duplicates' | 'reversed';
   duplicateCents: number;
 }
 
@@ -170,18 +173,36 @@ export async function scanCustomer(customerId: string): Promise<ScanOutcome> {
     .filter(c => (seen.has(c.tx_id) ? false : (seen.add(c.tx_id), true)))
     .sort((a, b) => a.occurred_at.localeCompare(b.occurred_at));
 
-  // First NON-normal window credit = the legitimate migration; later ones are duplicates.
-  let sawMigration = false;
+  // First NON-normal window credit = the legitimate migration anchor. A later
+  // non-normal credit is a duplicate only when its amount sits within 10% of
+  // the anchor (covers the observed drift, e.g. $690.76 -> $720.75, while
+  // leaving unrelated manual adjustments alone).
+  let anchorCents: number | null = null;
   let duplicateCents = 0;
   for (const c of windowCredits) {
     if (c.normal) continue;
-    if (!sawMigration) { sawMigration = true; continue; }
-    c.duplicate = true;
-    duplicateCents += c.amount_cents;
+    if (anchorCents === null) { anchorCents = c.amount_cents; continue; }
+    if (Math.abs(c.amount_cents - anchorCents) <= anchorCents * 0.1) {
+      c.duplicate = true;
+      duplicateCents += c.amount_cents;
+    }
   }
 
-  const proposed = Math.min(duplicateCents, balanceCents);
-  const status: ScanOutcome['status'] = duplicateCents > 0 ? 'pending_review' : 'no_duplicates';
+  // Never double-claw: subtract what the fix worker already reversed for this
+  // customer (earlier, narrower scans).
+  const { data: priorLog } = await (supabaseAdmin as any)
+    .from('migration_credit_fix_log')
+    .select('debit_cents')
+    .eq('customer_id', customerId)
+    .eq('action', 'reversed');
+  const alreadyReversed = ((priorLog ?? []) as { debit_cents: number | null }[])
+    .reduce((s2, r) => s2 + (r.debit_cents ?? 0), 0);
+
+  const remainingDup = Math.max(0, duplicateCents - alreadyReversed);
+  const proposed = Math.min(remainingDup, balanceCents);
+  const status: ScanOutcome['status'] = proposed > 0
+    ? 'pending_review'
+    : (alreadyReversed > 0 ? ('reversed' as ScanOutcome['status']) : 'no_duplicates');
 
   const { error } = await (supabaseAdmin as any).from('migration_credit_review').upsert({
     customer_id:            customerId,

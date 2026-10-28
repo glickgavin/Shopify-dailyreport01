@@ -36,6 +36,17 @@ const DEADLINE_MS = 240_000;
 async function run(req: NextRequest): Promise<NextResponse> {
   const cfg = await loadFixConfig();
   let state = cfg.scan_state ?? {};
+
+  // One-off probe: scan a single customer named in scan_state.probe_customer_id
+  // (set via SQL), clear the flag, and report. Used for investigations.
+  const probeId = (state as { probe_customer_id?: string }).probe_customer_id;
+  if (probeId) {
+    const { probe_customer_id: _drop, ...rest } = state as Record<string, unknown>;
+    await saveScanState(rest as typeof state);
+    const out = await scanCustomer(probeId);
+    console.log(`[migration-credit-scan] probe ${probeId}: ${out.status}, duplicates $${(out.duplicateCents / 100).toFixed(2)}`);
+    return NextResponse.json({ status: 'ok', probe: probeId, result: out });
+  }
   if (req.nextUrl.searchParams.get('restart') === '1') state = {};
   if (req.nextUrl.searchParams.get('phase') === 'bulk_start') state = { phase: 'bulk_start' };
 
