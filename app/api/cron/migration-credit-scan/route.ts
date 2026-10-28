@@ -95,7 +95,7 @@ async function run(req: NextRequest): Promise<NextResponse> {
     let cursor = state.cursor_customer_id ?? '';
 
     while (Date.now() - startedAt < DEADLINE_MS) {
-      const { ids, lastCursor } = await nextUnscannedHolders(cursor, 25);
+      const { ids, lastCursor } = await nextUnscannedHolders(cursor, 25, (state as { rescan_all?: boolean }).rescan_all === true);
       if (lastCursor === null) {
         await saveScanState({ phase: 'done', done_at: new Date().toISOString() });
         console.log(`[migration-credit-scan] store-wide pass complete — scanned ${scanned} this run`);
@@ -113,7 +113,7 @@ async function run(req: NextRequest): Promise<NextResponse> {
         }
       }
       cursor = lastCursor;
-      await saveScanState({ phase: 'holders', cursor_customer_id: cursor });
+      await saveScanState({ ...(state as Record<string, unknown>), phase: 'holders', cursor_customer_id: cursor });
     }
     console.log(`[migration-credit-scan] holders progress — scanned ${scanned}, flagged ${flagged}, errors ${errors}`);
     return NextResponse.json({ status: 'ok', phase, scanned, flagged, errors, cursor });

@@ -454,7 +454,7 @@ export async function ingestHoldersChunk(
  * Next batch of holders that still need scanning: positive balance, no review
  * row yet (segment members already have one). Walks by customer_id cursor.
  */
-export async function nextUnscannedHolders(cursor: string, batchSize: number): Promise<{ ids: string[]; lastCursor: string | null }> {
+export async function nextUnscannedHolders(cursor: string, batchSize: number, includeScanned = false): Promise<{ ids: string[]; lastCursor: string | null }> {
   const { data: holders, error } = await (supabaseAdmin as any)
     .from('store_credit_holders')
     .select('customer_id')
@@ -467,6 +467,8 @@ export async function nextUnscannedHolders(cursor: string, batchSize: number): P
   if (list.length === 0) return { ids: [], lastCursor: null };
 
   const ids = list.map(h => h.customer_id);
+  if (includeScanned) return { ids, lastCursor: ids[ids.length - 1] };
+
   const { data: existing, error: exErr } = await (supabaseAdmin as any)
     .from('migration_credit_review')
     .select('customer_id')
