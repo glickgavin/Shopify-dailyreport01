@@ -87,6 +87,10 @@
     {
       "path": "/api/cron/migration-credit-fix",
       "schedule": "9,19,29,39,49,59 * * * *"
+    },
+    {
+      "path": "/api/cron/credit-monthly-snapshot",
+      "schedule": "6,16,26,36,46,56 * * * *"
     }
   ]
 }
