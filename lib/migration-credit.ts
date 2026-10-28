@@ -18,6 +18,9 @@ const WINDOW_START = '2026-01-01T00:00:00Z';
 const WINDOW_END   = '2027-01-01T00:00:00Z'; // exclusive
 // Normal monthly subscription allocations — never flagged as migration credits.
 const NORMAL_AMOUNTS_CENTS = [2999, 3999];
+// Duplicates below this are never flagged/reversed (user rule: only claw back
+// when each extra migration charge exceeds $50).
+const MIN_DUPLICATE_CENTS = 5000;
 
 export interface WindowCredit {
   tx_id: string;
@@ -182,6 +185,7 @@ export async function scanCustomer(customerId: string): Promise<ScanOutcome> {
   for (const c of windowCredits) {
     if (c.normal) continue;
     if (anchorCents === null) { anchorCents = c.amount_cents; continue; }
+    if (c.amount_cents <= MIN_DUPLICATE_CENTS) continue;
     if (Math.abs(c.amount_cents - anchorCents) <= anchorCents * 0.1) {
       c.duplicate = true;
       duplicateCents += c.amount_cents;
