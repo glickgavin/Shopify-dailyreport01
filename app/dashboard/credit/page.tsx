@@ -4,10 +4,11 @@ import CreditTrendChart, { type CreditMonth } from './CreditTrendChart';
 
 export const dynamic = 'force-dynamic';
 
-// Store Credit — every customer holding credit, searchable, with monthly
-// change tracking. Data: credit_monthly_history (one snapshot per month from
-// the monthly bulk export); the latest month is "current", the prior month
-// feeds the Δ column. Server-side search + pagination (≈47k rows).
+// Store Credit — every customer holding credit, searchable, fully sortable,
+// with monthly change tracking. Data: credit_monthly_history (snapshots from
+// the weekly/monthly bulk export); the page itself is served by the
+// credit_page() SQL function so sorting (incl. the Δ column) runs over the
+// full ~47k set, not just the visible page.
 
 const PAGE_SIZE = 100;
 
@@ -20,26 +21,36 @@ function fmtMonthLabel(iso: string): string {
   return `${months[parseInt(m) - 1]} '${y.slice(2)}`;
 }
 
+const fmtDate = (iso: string | null) => (iso ? iso.slice(0, 10) : '—');
+
 interface Row {
   customer_id: string;
   email: string | null;
   display_name: string | null;
   credit_cents: number;
   in_segment: boolean;
+  tags: string | null;
+  last_purchase_at: string | null;
+  last_credit_at: string | null;
   prev_cents: number | null;
+  total_count: number;
 }
+
+const SORTS = ['name', 'email', 'credit', 'change', 'tags', 'last_purchase', 'last_credit'] as const;
+type SortKey = (typeof SORTS)[number];
 
 export default async function CreditPage({
   searchParams,
 }: {
-  searchParams: { q?: string; page?: string; scope?: string; sort?: string };
+  searchParams: { q?: string; page?: string; scope?: string; sort?: string; dir?: string };
 }) {
   const q = (searchParams.q ?? '').trim();
   const page = Math.max(0, parseInt(searchParams.page ?? '0', 10) || 0);
   const scope = searchParams.scope === 'members' ? 'members' : 'all';
-  const sort = searchParams.sort === 'change' ? 'change' : 'credit';
+  const sort: SortKey = (SORTS as readonly string[]).includes(searchParams.sort ?? '') ? (searchParams.sort as SortKey) : 'credit';
+  const dir = searchParams.dir === 'asc' ? 'asc' : 'desc';
 
-  // Which months exist?
+  // Months present (for the trend chart and current/prior selection).
   const { data: monthRows } = await (supabaseAdmin as any)
     .from('credit_monthly_history')
     .select('month, credit_cents.sum(), customer_id.count()')
@@ -63,47 +74,51 @@ export default async function CreditPage({
     latestTotalCents = monthAgg[monthAgg.length - 1].sum;
     if (priorMonth) priorTotalCents = monthAgg[monthAgg.length - 2].sum;
 
-    let query = (supabaseAdmin as any)
-      .from('credit_monthly_history')
-      .select('customer_id, email, display_name, credit_cents, in_segment', { count: 'exact' })
-      .eq('month', latestMonth);
-    if (scope === 'members') query = query.eq('in_segment', true);
-    if (q) query = query.or(`email.ilike.%${q}%,display_name.ilike.%${q}%,customer_id.ilike.%${q}%`);
-    query = query.order('credit_cents', { ascending: false }).order('customer_id', { ascending: true })
-      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
-
-    const { data, count, error } = await query;
+    const { data, error } = await (supabaseAdmin as any).rpc('credit_page', {
+      p_month: latestMonth,
+      p_prior: priorMonth,
+      p_q: q || null,
+      p_scope: scope,
+      p_sort: sort,
+      p_dir: dir,
+      p_limit: PAGE_SIZE,
+      p_offset: page * PAGE_SIZE,
+    });
     if (!error) {
-      totalCount = count ?? 0;
-      const pageRows = (data ?? []) as Omit<Row, 'prev_cents'>[];
-
-      // Prior-month balances for just the visible rows (Δ column).
-      const prevMap = new Map<string, number>();
-      if (priorMonth && pageRows.length > 0) {
-        const { data: prev } = await (supabaseAdmin as any)
-          .from('credit_monthly_history')
-          .select('customer_id, credit_cents')
-          .eq('month', priorMonth)
-          .in('customer_id', pageRows.map(r => r.customer_id));
-        for (const p of (prev ?? []) as { customer_id: string; credit_cents: number }[]) {
-          prevMap.set(p.customer_id, p.credit_cents);
-        }
-      }
-      rows = pageRows.map(r => ({ ...r, prev_cents: priorMonth ? (prevMap.get(r.customer_id) ?? 0) : null }));
-      if (sort === 'change' && priorMonth) {
-        rows = [...rows].sort((a, b) => Math.abs((b.credit_cents - (b.prev_cents ?? 0))) - Math.abs((a.credit_cents - (a.prev_cents ?? 0))));
-      }
+      rows = (data ?? []) as Row[];
+      totalCount = rows.length > 0 ? Number(rows[0].total_count) : 0;
     }
   }
 
   const pages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
-  const urlFor = (p: { q?: string; page?: number; scope?: string }) => {
+  const urlFor = (p: { q?: string; page?: number; scope?: string; sort?: string; dir?: string }) => {
     const sp = new URLSearchParams();
     const qq = p.q ?? q; if (qq) sp.set('q', qq);
     const sc = p.scope ?? scope; if (sc !== 'all') sp.set('scope', sc);
+    const so = p.sort ?? sort; if (so !== 'credit') sp.set('sort', so);
+    const dd = p.dir ?? dir; if (dd !== 'desc') sp.set('dir', dd);
     const pg = p.page ?? 0; if (pg > 0) sp.set('page', String(pg));
     const s = sp.toString();
     return `/dashboard/credit${s ? `?${s}` : ''}`;
+  };
+
+  // Clicking the active sort column flips direction; a new column starts desc
+  // (asc for text columns).
+  const sortHeader = (label: string, key: SortKey, align: 'left' | 'right') => {
+    const active = sort === key;
+    const nextDir = active ? (dir === 'desc' ? 'asc' : 'desc') : (key === 'name' || key === 'email' || key === 'tags' ? 'asc' : 'desc');
+    return (
+      <th key={key} style={{ padding: 0, textAlign: align }}>
+        <Link href={urlFor({ sort: key, dir: nextDir, page: 0 })} style={{
+          display: 'block', padding: '0.6rem 0.875rem', textDecoration: 'none',
+          fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase',
+          letterSpacing: '0.07em', color: active ? 'var(--accent)' : 'var(--muted)',
+          fontWeight: active ? 700 : 500, whiteSpace: 'nowrap', textAlign: align,
+        }}>
+          {label}{active ? (dir === 'asc' ? ' ▲' : ' ▼') : ''}
+        </Link>
+      </th>
+    );
   };
 
   const deltaTotal = priorTotalCents !== null ? latestTotalCents - priorTotalCents : null;
@@ -117,7 +132,7 @@ export default async function CreditPage({
             Store <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Credit</em>
           </h1>
           <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-            Every customer holding credit · monthly snapshots{latestMonth ? ` · latest: ${fmtMonthLabel(latestMonth.slice(0, 7))}` : ''}
+            Every customer holding credit · refreshed weekly{latestMonth ? ` · snapshot: ${fmtMonthLabel(latestMonth.slice(0, 7))}` : ''}
           </div>
         </div>
         <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)' }}>
@@ -156,10 +171,12 @@ export default async function CreditPage({
             {/* Controls */}
             <form action="/dashboard/credit" method="get" style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
               {scope !== 'all' && <input type="hidden" name="scope" value={scope} />}
+              {sort !== 'credit' && <input type="hidden" name="sort" value={sort} />}
+              {dir !== 'desc' && <input type="hidden" name="dir" value={dir} />}
               <input
                 name="q"
                 defaultValue={q}
-                placeholder="Search name, email or customer ID…"
+                placeholder="Search name, email, tag or customer ID…"
                 style={{ flex: 1, minWidth: 240, padding: '0.6rem 0.9rem', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '0.85rem', color: 'var(--text)' }}
               />
               <button type="submit" style={{ padding: '0.55rem 1rem', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer' }}>Search</button>
@@ -186,29 +203,49 @@ export default async function CreditPage({
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82rem' }}>
                 <thead>
                   <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                    {['Customer', 'Email', 'Credit', priorMonth ? `Δ vs ${fmtMonthLabel(priorMonth.slice(0, 7))}` : 'Δ (from next month)', 'Member', 'ID'].map((h, hi) => (
-                      <th key={h} style={{ padding: '0.6rem 0.875rem', textAlign: hi >= 2 && hi <= 3 ? 'right' : hi >= 4 ? 'right' : 'left', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', fontWeight: 500, whiteSpace: 'nowrap' }}>{h}</th>
-                    ))}
+                    {sortHeader('Customer', 'name', 'left')}
+                    {sortHeader('Email', 'email', 'left')}
+                    {sortHeader('Tags', 'tags', 'left')}
+                    {sortHeader('Credit', 'credit', 'right')}
+                    {sortHeader(priorMonth ? `Δ vs ${fmtMonthLabel(priorMonth.slice(0, 7))}` : 'Δ', 'change', 'right')}
+                    {sortHeader('Last Purchase', 'last_purchase', 'right')}
+                    {sortHeader('Last Credit Added', 'last_credit', 'right')}
+                    <th style={{ padding: '0.6rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.6rem', textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--muted)', fontWeight: 500 }}>Member</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.length === 0 && (
-                    <tr><td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No customers match.</td></tr>
+                    <tr><td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>No customers match.</td></tr>
                   )}
                   {rows.map((r, i) => {
-                    const delta = r.prev_cents !== null ? r.credit_cents - r.prev_cents : null;
+                    const delta = priorMonth ? r.credit_cents - (r.prev_cents ?? 0) : null;
+                    const tagList = (r.tags ?? '').split(',').map(t => t.trim()).filter(Boolean);
                     return (
                       <tr key={r.customer_id} style={{ borderBottom: i < rows.length - 1 ? '1px solid var(--border)' : 'none', background: i % 2 === 1 ? 'rgba(0,0,0,0.015)' : 'transparent' }}>
-                        <td style={{ padding: '0.55rem 0.875rem', fontWeight: 500 }}>{r.display_name || '—'}</td>
-                        <td style={{ padding: '0.55rem 0.875rem', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--neutral-600)' }}>{r.email ?? '—'}</td>
+                        <td style={{ padding: '0.55rem 0.875rem', fontWeight: 500, whiteSpace: 'nowrap' }}>
+                          {r.display_name || '—'}
+                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.66rem', color: 'var(--muted)' }}>{r.customer_id.split('/').pop()}</div>
+                        </td>
+                        <td style={{ padding: '0.55rem 0.875rem', fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--neutral-600)' }}>{r.email ?? '—'}</td>
+                        <td style={{ padding: '0.55rem 0.875rem', maxWidth: 220 }} title={r.tags ?? ''}>
+                          {tagList.length === 0 ? <span style={{ color: 'var(--muted)' }}>—</span> : (
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              {tagList.slice(0, 3).map(t => (
+                                <span key={t} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 5, padding: '0.05rem 0.4rem', fontSize: '0.66rem', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{t}</span>
+                              ))}
+                              {tagList.length > 3 && <span style={{ fontSize: '0.66rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>+{tagList.length - 3}</span>}
+                            </div>
+                          )}
+                        </td>
                         <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{usd(r.credit_cents)}</td>
                         <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', color: delta === null ? 'var(--muted)' : delta > 0 ? '#15803d' : delta < 0 ? '#b91c1c' : 'var(--muted)' }}>
                           {delta === null ? '—' : delta === 0 ? '±$0' : `${delta > 0 ? '+' : '−'}${usd(Math.abs(delta))}`}
                         </td>
+                        <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.76rem' }}>{fmtDate(r.last_purchase_at)}</td>
+                        <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.76rem' }}>{fmtDate(r.last_credit_at)}</td>
                         <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right' }}>
                           {r.in_segment ? <span style={{ background: '#dcfce7', color: '#15803d', padding: '0.1rem 0.45rem', borderRadius: 5, fontSize: '0.68rem', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>member</span> : <span style={{ color: 'var(--muted)', fontSize: '0.72rem' }}>—</span>}
                         </td>
-                        <td style={{ padding: '0.55rem 0.875rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--muted)' }}>{r.customer_id.split('/').pop()}</td>
                       </tr>
                     );
                   })}
@@ -225,6 +262,10 @@ export default async function CreditPage({
               {page < pages - 1
                 ? <Link href={urlFor({ page: page + 1 })} style={{ padding: '0.3rem 0.8rem', borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text)', textDecoration: 'none' }}>Next ›</Link>
                 : <span style={{ padding: '0.3rem 0.8rem', color: 'var(--muted)' }}>Next ›</span>}
+            </div>
+
+            <div style={{ marginTop: '0.5rem', fontSize: '0.7rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+              Tags, last purchase and last credit come from the weekly snapshot — &apos;—&apos; until the next refresh completes. Click any column header to sort.
             </div>
           </>
         )}

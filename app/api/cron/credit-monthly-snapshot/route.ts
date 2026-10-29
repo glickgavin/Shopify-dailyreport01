@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { startHoldersBulk, pollHoldersBulk, ingestHoldersChunk } from '@/lib/migration-credit';
+import { startHoldersBulk, pollHoldersBulk, ingestHoldersChunk, HOLDERS_BULK_QUERY_BASIC } from '@/lib/migration-credit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -51,14 +51,26 @@ async function run(req: NextRequest): Promise<NextResponse> {
   const month = currentMonth();
   let state = await loadState();
 
-  // Idle check: does this month already have rows?
+  // Idle check: run when this month has no rows yet, OR when the holders data
+  // is older than 7 days (weekly refresh keeps tags / last purchase / last
+  // credit and balances current; the copy phase upserts the current month).
   if (!state.phase) {
     const { count, error } = await (supabaseAdmin as any)
       .from('credit_monthly_history')
       .select('id', { count: 'exact', head: true })
       .eq('month', month);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-    if ((count ?? 0) > 0 && req.nextUrl.searchParams.get('force') !== '1') {
+
+    const { data: freshRow } = await (supabaseAdmin as any)
+      .from('store_credit_holders')
+      .select('ingested_at')
+      .order('ingested_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const ageMs = freshRow?.ingested_at ? Date.now() - new Date(freshRow.ingested_at).getTime() : Infinity;
+    const stale = ageMs > 7 * 24 * 3600 * 1000;
+
+    if ((count ?? 0) > 0 && !stale && req.nextUrl.searchParams.get('force') !== '1') {
       return NextResponse.json({ status: 'ok', month, done: true, rows: count });
     }
     state = { phase: 'bulk_start', target_month: month };
@@ -68,7 +80,13 @@ async function run(req: NextRequest): Promise<NextResponse> {
   const target = state.target_month ?? month;
 
   if (state.phase === 'bulk_start') {
-    const started = await startHoldersBulk();
+    // Try the rich query (tags + last order + credit transactions); if the
+    // schema rejects it, fall back to the basic one so the snapshot still runs.
+    let started = await startHoldersBulk();
+    if (started.error && !/already in progress|is already running/i.test(started.error)) {
+      console.error('[credit-monthly-snapshot] rich bulk rejected, trying basic:', started.error);
+      started = await startHoldersBulk(HOLDERS_BULK_QUERY_BASIC);
+    }
     if (started.error) {
       // Another bulk op may be running (one per shop) — retry next tick.
       console.error('[credit-monthly-snapshot] bulk start deferred:', started.error);

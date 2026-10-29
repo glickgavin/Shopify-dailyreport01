@@ -350,6 +350,12 @@ const BULK_POLL = `
   }
 `;
 
+// Rich variant adds tags, last order date, and every credit transaction's
+// createdAt (child lines) so the Store Credit list can show/sort by Tags,
+// Last Purchase and Last Credit Added. Bulk ops require id on every node, and
+// the 2024-04 transaction interface lacks it, so id/createdAt live in
+// per-type fragments. If Shopify rejects the rich query, callers fall back to
+// HOLDERS_BULK_QUERY_BASIC (everything except last_credit_at).
 export const HOLDERS_BULK_QUERY = `{
   customers {
     edges {
@@ -357,6 +363,41 @@ export const HOLDERS_BULK_QUERY = `{
         id
         email
         displayName
+        tags
+        lastOrder { id createdAt }
+        storeCreditAccounts {
+          edges {
+            node {
+              id
+              balance { amount currencyCode }
+              transactions {
+                edges {
+                  node {
+                    __typename
+                    ... on StoreCreditAccountCreditTransaction { id createdAt }
+                    ... on StoreCreditAccountDebitTransaction { id createdAt }
+                    ... on StoreCreditAccountDebitRevertTransaction { id createdAt }
+                    ... on StoreCreditAccountExpirationTransaction { id createdAt }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+export const HOLDERS_BULK_QUERY_BASIC = `{
+  customers {
+    edges {
+      node {
+        id
+        email
+        displayName
+        tags
+        lastOrder { id createdAt }
         storeCreditAccounts {
           edges { node { id balance { amount currencyCode } } }
         }
@@ -365,10 +406,10 @@ export const HOLDERS_BULK_QUERY = `{
   }
 }`;
 
-export async function startHoldersBulk(): Promise<{ id?: string; error?: string }> {
+export async function startHoldersBulk(query: string = HOLDERS_BULK_QUERY): Promise<{ id?: string; error?: string }> {
   const resp = await shopifyGraphQL<{
     bulkOperationRunQuery: { bulkOperation: { id: string; status: string } | null; userErrors: { message: string }[] };
-  }>(BULK_RUN, { query: HOLDERS_BULK_QUERY });
+  }>(BULK_RUN, { query });
   const errs = resp.bulkOperationRunQuery?.userErrors ?? [];
   if (errs.length > 0) return { error: errs.map(e => e.message).join('; ') };
   const id = resp.bulkOperationRunQuery?.bulkOperation?.id;
@@ -381,7 +422,15 @@ export async function pollHoldersBulk(id: string): Promise<{ status: string; url
   return resp.node;
 }
 
-type Carry = { id: string; email: string | null; name: string | null; balance_cents: number } | null;
+type Carry = {
+  id: string;
+  email: string | null;
+  name: string | null;
+  balance_cents: number;
+  tags?: string | null;
+  last_purchase_at?: string | null;
+  last_credit_at?: string | null;
+} | null;
 
 /**
  * Ingest one chunk of the bulk JSONL (parent customer lines followed by their
@@ -400,11 +449,22 @@ export async function ingestHoldersChunk(
   const lines = (await res.text()).split('\n');
 
   let carry: Carry = carryIn;
-  const rows: Array<{ customer_id: string; email: string | null; display_name: string | null; balance_cents: number }> = [];
+  const rows: Array<{
+    customer_id: string; email: string | null; display_name: string | null; balance_cents: number;
+    tags: string | null; last_purchase_at: string | null; last_credit_at: string | null;
+  }> = [];
 
   const flushCarry = () => {
     if (carry && carry.balance_cents > 0) {
-      rows.push({ customer_id: carry.id, email: carry.email, display_name: carry.name, balance_cents: carry.balance_cents });
+      rows.push({
+        customer_id: carry.id,
+        email: carry.email,
+        display_name: carry.name,
+        balance_cents: carry.balance_cents,
+        tags: carry.tags ?? null,
+        last_purchase_at: carry.last_purchase_at ?? null,
+        last_credit_at: carry.last_credit_at ?? null,
+      });
     }
     carry = null;
   };
@@ -420,17 +480,28 @@ export async function ingestHoldersChunk(
     const id = typeof obj.id === 'string' ? obj.id : '';
     if (id.includes('/Customer/')) {
       flushCarry();
+      const lastOrder = obj.lastOrder as { createdAt?: string } | null | undefined;
       carry = {
         id,
         email: typeof obj.email === 'string' ? obj.email : null,
         name: typeof obj.displayName === 'string' ? obj.displayName : null,
         balance_cents: 0,
+        tags: Array.isArray(obj.tags) ? (obj.tags as string[]).join(', ') || null : null,
+        last_purchase_at: lastOrder?.createdAt ?? null,
+        last_credit_at: null,
       };
     } else if (id.includes('/StoreCreditAccount/') && carry) {
       const parent = obj.__parentId;
       if (typeof parent === 'string' && parent === carry.id) {
         const bal = (obj.balance as { amount?: string } | undefined)?.amount;
         carry.balance_cents += Math.round(parseFloat(bal ?? '0') * 100) || 0;
+      }
+    } else if (carry && typeof obj.__typename === 'string' && obj.__typename.includes('CreditTransaction')) {
+      // Credit-transaction child line (grandchild of the current customer via
+      // its account — JSONL is depth-first, so attribution to carry is safe).
+      const created = typeof obj.createdAt === 'string' ? obj.createdAt : null;
+      if (created && (!carry.last_credit_at || created > carry.last_credit_at)) {
+        carry.last_credit_at = created;
       }
     }
   }
