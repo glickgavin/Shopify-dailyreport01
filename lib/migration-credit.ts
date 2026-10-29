@@ -377,7 +377,6 @@ export const HOLDERS_BULK_QUERY = `{
                     ... on StoreCreditAccountCreditTransaction { id createdAt }
                     ... on StoreCreditAccountDebitTransaction { id createdAt }
                     ... on StoreCreditAccountDebitRevertTransaction { id createdAt }
-                    ... on StoreCreditAccountExpirationTransaction { id createdAt }
                   }
                 }
               }
