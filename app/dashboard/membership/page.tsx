@@ -2,7 +2,6 @@ import { supabaseAdmin } from '@/lib/supabase';
 import Link from 'next/link';
 import MembershipCharts, { type MembershipChartsProps } from './_components/MembershipCharts';
 import PayersSection, { type PayerMonthRow, type ActiveSnapshot } from './_components/PayersSection';
-import MembersTable, { type MemberRow } from './_components/MembersTable';
 
 export const dynamic   = 'force-dynamic';
 export const revalidate = 0;
@@ -25,41 +24,7 @@ function fmtMonth(isoMonth: string): string {
   return (months[parseInt(mo) - 1] ?? mo) + " '" + yr.slice(2);
 }
 
-export default async function MembershipPage({
-  searchParams,
-}: {
-  searchParams: { tab?: string };
-}) {
-  const tab = searchParams.tab === 'members' ? 'members' : 'overview';
-
-  // Members tab: full member list with current store credit (paged past the
-  // PostgREST 1,000-row cap), then render just the table.
-  if (tab === 'members') {
-    const members: MemberRow[] = [];
-    let asOf: string | null = null;
-    for (let from = 0; ; from += 1000) {
-      const { data } = await (supabaseAdmin as any)
-        .from('membership_credit_members')
-        .select('customer_id, email, display_name, credit_cents, computed_at')
-        .order('credit_cents', { ascending: false })
-        .range(from, from + 999);
-      const rows = (data ?? []) as (MemberRow & { computed_at: string })[];
-      for (const r of rows) {
-        members.push({ customer_id: r.customer_id, email: r.email, display_name: r.display_name, credit_cents: r.credit_cents });
-        if (!asOf || r.computed_at > asOf) asOf = r.computed_at;
-      }
-      if (rows.length < 1000) break;
-    }
-    return (
-      <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
-        <MembershipTopBar tab="members" right={`${members.length} members`} />
-        <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
-          <MembersTable rows={members} asOf={asOf} />
-        </div>
-      </div>
-    );
-  }
-
+export default async function MembershipPage() {
   const [{ data: latest }, { data: payerRows }, { data: activeRows }] = await Promise.all([
     supabaseAdmin
       .from('membership_metrics_daily')
@@ -344,9 +309,11 @@ export default async function MembershipPage({
 // ── shared top bar with tabs (Overview / Members) ─────────────────────────────
 
 function MembershipTopBar({ tab, right }: { tab: 'overview' | 'members'; right: string }) {
+  // The member list lives on the Store Credit page (single source of truth);
+  // the tab deep-links there pre-filtered to active members.
   const tabs: { key: 'overview' | 'members'; label: string; href: string }[] = [
     { key: 'overview', label: 'Overview', href: '/dashboard/membership' },
-    { key: 'members',  label: 'Members',  href: '/dashboard/membership?tab=members' },
+    { key: 'members',  label: 'Members & Credit ↗', href: '/dashboard/credit?scope=members' },
   ];
   return (
     <div style={{
