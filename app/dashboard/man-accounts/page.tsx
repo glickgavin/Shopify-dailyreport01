@@ -16,7 +16,13 @@ const HISTORY_START = '2026-01-01';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-const cell = (n: number, neg = false) => (neg ? (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`) : fmt(n));
+const fmt2 = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
+const cell = (n: number, neg = false, f: 'usd' | 'int' | 'usd2' = 'usd') => {
+  if (f === 'int') return new Intl.NumberFormat('en-US').format(Math.round(n));
+  if (f === 'usd2') return fmt2(n);
+  return neg ? (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`) : fmt(n);
+};
 
 // ── per-period metric bucket ──────────────────────────────────────────────────
 
@@ -26,6 +32,7 @@ interface Metrics {
   adSpend: number;
   stripeIn: number; paypalIn: number; shopifyIn: number; amazonIn: number;
   stripeRefunds: number; paypalRefunds: number;
+  orders: number; metaOrders: number; newMembers: number;
 }
 
 function emptyMetrics(): Metrics {
@@ -35,6 +42,7 @@ function emptyMetrics(): Metrics {
     adSpend: 0,
     stripeIn: 0, paypalIn: 0, shopifyIn: 0, amazonIn: 0,
     stripeRefunds: 0, paypalRefunds: 0,
+    orders: 0, metaOrders: 0, newMembers: 0,
   };
 }
 
@@ -48,6 +56,8 @@ function addDerived(m: Metrics) {
     cashOut: m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs,
     netCash: (m.stripeIn + m.paypalIn + m.shopifyIn + m.amazonIn)
            - (m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs),
+    aov: m.orders > 0 ? m.grossSales / m.orders : 0,
+    metaCpa: m.metaOrders > 0 ? m.adSpend / m.metaOrders : 0,
   };
 }
 type Derived = ReturnType<typeof addDerived>;
@@ -56,7 +66,7 @@ type Derived = ReturnType<typeof addDerived>;
 
 type RowDef =
   | { kind: 'head'; label: string }
-  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number; neg?: boolean }
+  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number; neg?: boolean; fmt?: 'usd' | 'int' | 'usd2' }
   | { kind: 'gap' };
 
 const INCOME_ROWS: RowDef[] = [
@@ -87,6 +97,15 @@ const CASHFLOW_ROWS: RowDef[] = [
   { kind: 'sub', label: 'Cost of goods sold', get: m => m.cogs, neg: true },
   { kind: 'subtotal', label: 'Total cash out', get: m => m.cashOut, neg: true },
   { kind: 'total', label: 'Net cash', get: m => m.netCash },
+];
+
+const KPI_ROWS: RowDef[] = [
+  { kind: 'head', label: 'KPIs' },
+  { kind: 'line', label: 'Orders', get: m => m.orders, fmt: 'int' },
+  { kind: 'line', label: 'Meta orders (attributed)', get: m => m.metaOrders, fmt: 'int' },
+  { kind: 'line', label: 'New members', get: m => m.newMembers, fmt: 'int' },
+  { kind: 'line', label: 'AOV', get: m => m.aov, fmt: 'usd2' },
+  { kind: 'line', label: 'Meta CPA', get: m => m.metaCpa, fmt: 'usd2' },
 ];
 
 // ── page ──────────────────────────────────────────────────────────────────────
@@ -121,15 +140,16 @@ export default async function ManAccountsPage({
   const bucket = (date: string): Metrics | undefined => buckets.get(keyFor(date));
 
   // One fetch per source over the whole span; bucket in JS.
-  const [{ data: dsRows }, adsRaw, { data: stripeSnaps }, { data: paypalSnaps }] = await Promise.all([
+  const [{ data: dsRows }, adsRaw, { data: stripeSnaps }, { data: paypalSnaps }, { data: memRows }] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
-      .select('date,total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,phys_cash_revenue,phys_cash_shipping,phys_non_cash_revenue,mem_revenue,amazon_revenue,amazon_shipping')
+      .select('date,total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,total_orders,phys_cash_revenue,phys_cash_shipping,phys_non_cash_revenue,mem_revenue,amazon_revenue,amazon_shipping')
       .gte('date', start)
       .lte('date', end),
     fetchAdsRangeRaw(start, end),
     (supabaseAdmin as any).from('stripe_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
     (supabaseAdmin as any).from('paypal_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
+    supabaseAdmin.from('daily_membership_orders').select('date,membership_type').gte('date', start).lte('date', end),
   ]);
 
   for (const r of (dsRows ?? []) as Record<string, unknown>[]) {
@@ -149,10 +169,18 @@ export default async function ManAccountsPage({
     // their shipping; Amazon settles separately.
     b.shopifyIn      += n('phys_cash_revenue') + n('phys_cash_shipping');
     b.amazonIn       += n('amazon_revenue') + n('amazon_shipping');
+    b.orders         += n('total_orders');
+  }
+  for (const r of ((memRows ?? []) as { date: string; membership_type: string }[])) {
+    if (r.membership_type !== 'new') continue;
+    const b = bucket(r.date);
+    if (b) b.newMembers += 1;
   }
   for (const r of adsRaw) {
     const b = bucket(String(r.report_date));
-    if (b) b.adSpend += r.spend ?? 0;
+    if (!b) continue;
+    b.adSpend    += r.spend ?? 0;
+    b.metaOrders += (r as { purchases?: number }).purchases ?? 0;
   }
   for (const snap of ((stripeSnaps ?? []) as { date: string; payload: unknown }[])) {
     const b = bucket(snap.date);
@@ -207,10 +235,10 @@ export default async function ManAccountsPage({
         </td>
         {cols.map(c => {
           const v = r.get(c.m);
-          return <td key={c.key} style={{ ...tdBase, color: r.neg && v !== 0 ? '#b91c1c' : r.kind === 'total' && v < 0 ? '#b91c1c' : 'var(--text)' }}>{cell(v, r.neg)}</td>;
+          return <td key={c.key} style={{ ...tdBase, color: r.neg && v !== 0 ? '#b91c1c' : r.kind === 'total' && v < 0 ? '#b91c1c' : 'var(--text)' }}>{cell(v, r.neg, r.fmt)}</td>;
         })}
         <td style={{ ...tdBase, fontWeight: 700, background: 'rgba(23,169,123,0.06)', color: r.neg && r.get(totals) !== 0 ? '#b91c1c' : r.kind === 'total' && r.get(totals) < 0 ? '#b91c1c' : 'var(--text)' }}>
-          {cell(r.get(totals), r.neg)}
+          {cell(r.get(totals), r.neg, r.fmt)}
         </td>
       </tr>
     );
@@ -262,6 +290,7 @@ export default async function ManAccountsPage({
             <tbody>
               {renderRows(INCOME_ROWS)}
               {renderRows([{ kind: 'gap' }, ...CASHFLOW_ROWS])}
+              {renderRows([{ kind: 'gap' }, ...KPI_ROWS])}
             </tbody>
           </table>
         </div>
