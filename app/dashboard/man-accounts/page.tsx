@@ -18,7 +18,8 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 const fmt2 = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-const cell = (n: number, neg = false, f: 'usd' | 'int' | 'usd2' = 'usd') => {
+const cell = (n: number | null, neg = false, f: 'usd' | 'int' | 'usd2' = 'usd') => {
+  if (n === null) return '—';
   if (f === 'int') return new Intl.NumberFormat('en-US').format(Math.round(n));
   if (f === 'usd2') return fmt2(n);
   return neg ? (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`) : fmt(n);
@@ -33,6 +34,7 @@ interface Metrics {
   stripeIn: number; paypalIn: number; shopifyIn: number; amazonIn: number;
   stripeRefunds: number; paypalRefunds: number;
   orders: number; metaOrders: number; newMembers: number;
+  totalMembersEnd: number | null; // point-in-time (period end), not additive
 }
 
 function emptyMetrics(): Metrics {
@@ -43,6 +45,7 @@ function emptyMetrics(): Metrics {
     stripeIn: 0, paypalIn: 0, shopifyIn: 0, amazonIn: 0,
     stripeRefunds: 0, paypalRefunds: 0,
     orders: 0, metaOrders: 0, newMembers: 0,
+    totalMembersEnd: null,
   };
 }
 
@@ -66,7 +69,7 @@ type Derived = ReturnType<typeof addDerived>;
 
 type RowDef =
   | { kind: 'head'; label: string }
-  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number; neg?: boolean; fmt?: 'usd' | 'int' | 'usd2' }
+  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number | null; neg?: boolean; fmt?: 'usd' | 'int' | 'usd2' }
   | { kind: 'gap' };
 
 const INCOME_ROWS: RowDef[] = [
@@ -104,6 +107,7 @@ const KPI_ROWS: RowDef[] = [
   { kind: 'line', label: 'Orders', get: m => m.orders, fmt: 'int' },
   { kind: 'line', label: 'Meta orders (attributed)', get: m => m.metaOrders, fmt: 'int' },
   { kind: 'line', label: 'New members', get: m => m.newMembers, fmt: 'int' },
+  { kind: 'line', label: 'Total members (period end)', get: m => m.totalMembersEnd, fmt: 'int' },
   { kind: 'line', label: 'AOV', get: m => m.aov, fmt: 'usd2' },
   { kind: 'line', label: 'Meta CPA', get: m => m.metaCpa, fmt: 'usd2' },
 ];
@@ -140,7 +144,7 @@ export default async function ManAccountsPage({
   const bucket = (date: string): Metrics | undefined => buckets.get(keyFor(date));
 
   // One fetch per source over the whole span; bucket in JS.
-  const [{ data: dsRows }, adsRaw, { data: stripeSnaps }, { data: paypalSnaps }, { data: memRows }] = await Promise.all([
+  const [{ data: dsRows }, adsRaw, { data: stripeSnaps }, { data: paypalSnaps }, { data: metricRows }] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
       .select('date,total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,total_orders,phys_cash_revenue,phys_cash_shipping,phys_non_cash_revenue,mem_revenue,amazon_revenue,amazon_shipping')
@@ -149,8 +153,29 @@ export default async function ManAccountsPage({
     fetchAdsRangeRaw(start, end),
     (supabaseAdmin as any).from('stripe_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
     (supabaseAdmin as any).from('paypal_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
-    supabaseAdmin.from('daily_membership_orders').select('date,membership_type').gte('date', start).lte('date', end),
+    supabaseAdmin
+      .from('membership_metrics_daily')
+      .select('metric_date, active_members')
+      .gte('metric_date', start)
+      .lte('metric_date', end)
+      .order('metric_date', { ascending: true }),
   ]);
+
+  // New-member orders, paged past the 1,000-row cap (the unpaged fetch silently
+  // dropped later months once the span exceeded 1,000 rows).
+  const memRows: { date: string }[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: pageRows } = await supabaseAdmin
+      .from('daily_membership_orders')
+      .select('date')
+      .eq('membership_type', 'new')
+      .gte('date', start)
+      .lte('date', end)
+      .range(from, from + 999);
+    const batch = (pageRows ?? []) as { date: string }[];
+    memRows.push(...batch);
+    if (batch.length < 1000) break;
+  }
 
   for (const r of (dsRows ?? []) as Record<string, unknown>[]) {
     const b = bucket(String(r.date));
@@ -171,10 +196,14 @@ export default async function ManAccountsPage({
     b.amazonIn       += n('amazon_revenue') + n('amazon_shipping');
     b.orders         += n('total_orders');
   }
-  for (const r of ((memRows ?? []) as { date: string; membership_type: string }[])) {
-    if (r.membership_type !== 'new') continue;
+  for (const r of memRows) {
     const b = bucket(r.date);
     if (b) b.newMembers += 1;
+  }
+  // Total members: the LAST nightly reading inside each period (point-in-time).
+  for (const r of ((metricRows ?? []) as { metric_date: string; active_members: number }[])) {
+    const b = bucket(r.metric_date);
+    if (b) b.totalMembersEnd = r.active_members; // rows are date-ascending
   }
   for (const r of adsRaw) {
     const b = bucket(String(r.report_date));
@@ -201,7 +230,11 @@ export default async function ManAccountsPage({
   const totalMetrics = emptyMetrics();
   for (const p of periods) {
     const b = buckets.get(p.key)!;
-    (Object.keys(totalMetrics) as (keyof Metrics)[]).forEach(k => { totalMetrics[k] += b[k]; });
+    (Object.keys(totalMetrics) as (keyof Metrics)[]).forEach(k => {
+      if (k === 'totalMembersEnd') return;
+      (totalMetrics[k] as number) += (b[k] as number) ?? 0;
+    });
+    if (b.totalMembersEnd !== null) totalMetrics.totalMembersEnd = b.totalMembersEnd; // latest wins
   }
   const totals = addDerived(totalMetrics);
 
@@ -235,9 +268,9 @@ export default async function ManAccountsPage({
         </td>
         {cols.map(c => {
           const v = r.get(c.m);
-          return <td key={c.key} style={{ ...tdBase, color: r.neg && v !== 0 ? '#b91c1c' : r.kind === 'total' && v < 0 ? '#b91c1c' : 'var(--text)' }}>{cell(v, r.neg, r.fmt)}</td>;
+          return <td key={c.key} style={{ ...tdBase, color: v !== null && r.neg && v !== 0 ? '#b91c1c' : v !== null && r.kind === 'total' && v < 0 ? '#b91c1c' : 'var(--text)' }}>{cell(v, r.neg, r.fmt)}</td>;
         })}
-        <td style={{ ...tdBase, fontWeight: 700, background: 'rgba(23,169,123,0.06)', color: r.neg && r.get(totals) !== 0 ? '#b91c1c' : r.kind === 'total' && r.get(totals) < 0 ? '#b91c1c' : 'var(--text)' }}>
+        <td style={{ ...tdBase, fontWeight: 700, background: 'rgba(23,169,123,0.06)', color: r.neg && (r.get(totals) ?? 0) !== 0 ? '#b91c1c' : r.kind === 'total' && (r.get(totals) ?? 0) < 0 ? '#b91c1c' : 'var(--text)' }}>
           {cell(r.get(totals), r.neg, r.fmt)}
         </td>
       </tr>
