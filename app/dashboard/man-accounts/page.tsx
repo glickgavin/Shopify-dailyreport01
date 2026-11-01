@@ -35,6 +35,7 @@ interface Metrics {
   stripeRefunds: number; paypalRefunds: number;
   orders: number; metaOrders: number; newMembers: number;
   totalMembersEnd: number | null; // point-in-time (period end), not additive
+  stripePayout: number; paypalPayout: number; shopifyPayout: number;
 }
 
 function emptyMetrics(): Metrics {
@@ -46,6 +47,7 @@ function emptyMetrics(): Metrics {
     stripeRefunds: 0, paypalRefunds: 0,
     orders: 0, metaOrders: 0, newMembers: 0,
     totalMembersEnd: null,
+    stripePayout: 0, paypalPayout: 0, shopifyPayout: 0,
   };
 }
 
@@ -61,6 +63,7 @@ function addDerived(m: Metrics) {
            - (m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs),
     aov: m.orders > 0 ? m.grossSales / m.orders : 0,
     metaCpa: m.metaOrders > 0 ? m.adSpend / m.metaOrders : 0,
+    cashReceived: m.stripePayout + m.paypalPayout + m.shopifyPayout,
   };
 }
 type Derived = ReturnType<typeof addDerived>;
@@ -101,6 +104,16 @@ const CASHFLOW_ROWS: RowDef[] = [
   { kind: 'subtotal', label: 'Total cash out', get: m => m.cashOut, neg: true },
   { kind: 'total', label: 'Net cash', get: m => m.netCash },
 ];
+
+function payoutRows(hasShopify: boolean): RowDef[] {
+  return [
+    { kind: 'head', label: 'Actual Cash Received (bank)' },
+    { kind: 'sub', label: 'Stripe payouts (net of fees)', get: m => m.stripePayout },
+    { kind: 'sub', label: 'PayPal withdrawals', get: m => m.paypalPayout },
+    { kind: 'sub', label: 'Shopify Payments payouts', get: m => (hasShopify ? m.shopifyPayout : null) },
+    { kind: 'total', label: 'Total cash received', get: m => m.cashReceived },
+  ];
+}
 
 const KPI_ROWS: RowDef[] = [
   { kind: 'head', label: 'KPIs' },
@@ -160,6 +173,22 @@ export default async function ManAccountsPage({
       .lte('metric_date', end)
       .order('metric_date', { ascending: true }),
   ]);
+
+  const { data: payoutRowsDb } = await (supabaseAdmin as any)
+    .from('payouts_daily')
+    .select('provider, payout_date, amount_cents, status')
+    .gte('payout_date', start)
+    .lte('payout_date', end)
+    .limit(5000);
+  let hasShopifyPayouts = false;
+  for (const r of ((payoutRowsDb ?? []) as { provider: string; payout_date: string; amount_cents: number; status: string | null }[])) {
+    if (r.status && !['paid', 'in_transit', 'scheduled'].includes(r.status)) continue;
+    const b = bucket(r.payout_date);
+    if (!b) continue;
+    if (r.provider === 'stripe') b.stripePayout += r.amount_cents / 100;
+    else if (r.provider === 'paypal') b.paypalPayout += r.amount_cents / 100;
+    else if (r.provider === 'shopify') { b.shopifyPayout += r.amount_cents / 100; hasShopifyPayouts = true; }
+  }
 
   // New-member orders, paged past the 1,000-row cap (the unpaged fetch silently
   // dropped later months once the span exceeded 1,000 rows).
@@ -323,13 +352,14 @@ export default async function ManAccountsPage({
             <tbody>
               {renderRows(INCOME_ROWS)}
               {renderRows([{ kind: 'gap' }, ...CASHFLOW_ROWS])}
+              {renderRows([{ kind: 'gap' }, ...payoutRows(hasShopifyPayouts)])}
               {renderRows([{ kind: 'gap' }, ...KPI_ROWS])}
             </tbody>
           </table>
         </div>
 
         <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
-          Accrual (Income Statement) vs cash (Cash Flow): the gap is mostly credit sales ({fmt(totals.creditSales)} total), which book revenue without new cash, and membership cash received ahead of earned revenue. COGS shown as billed; processor fees and payout lag not modelled. Current {view === 'day' ? 'day' : 'month'} is partial.
+          Accrual (Income Statement) vs cash (Cash Flow): the gap is mostly credit sales ({fmt(totals.creditSales)} total), which book revenue without new cash, and membership cash received ahead of earned revenue. COGS shown as billed; processor fees and payout lag not modelled. Current {view === 'day' ? 'day' : 'month'} is partial. Actual cash received = money that landed at the bank (Stripe payouts are net of fees; Shopify payouts need the read_shopify_payments scope on the app and show {'\u2014'} until granted).
         </div>
       </div>
     </div>

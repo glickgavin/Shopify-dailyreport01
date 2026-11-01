@@ -91,6 +91,10 @@
     {
       "path": "/api/cron/credit-monthly-snapshot",
       "schedule": "6,16,26,36,46,56 * * * *"
+    },
+    {
+      "path": "/api/cron/payouts-sync",
+      "schedule": "22 * * * *"
     }
   ]
 }
