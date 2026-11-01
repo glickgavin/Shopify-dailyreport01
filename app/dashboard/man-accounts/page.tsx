@@ -1,208 +1,220 @@
 import Link from 'next/link';
-import { subDays, subMonths, startOfMonth, endOfMonth, format, parseISO, isValid } from 'date-fns';
+import { subDays, format } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAdsRangeRaw } from '@/lib/ads';
 
 export const dynamic = 'force-dynamic';
 
-// Man Accounts — pro-forma management accounts for a selected period:
-// Income Statement (sales split cash/credit, refunds & discounts, shipping,
-// COGS, GP, advertising, GP−Ads) and Cash Flow (cash in by processor, cash
-// out, net cash). All figures come from the same sources the daily/range
-// reports use: daily_summary, stripe/paypal daily snapshots, Meta ads spend.
+// Man Accounts — pro-forma management accounts as a columnar grid:
+//   view=month (default): one column per month since Jan 2026 incl. the
+//   current month, plus a Totals column.
+//   view=day: one column per day for the last 7 days, plus Totals.
+// Income Statement on top, Cash Flow below. Sources match the daily/range
+// reports: daily_summary, stripe/paypal daily snapshots, Meta ads spend.
+
+const HISTORY_START = '2026-01-01';
 
 const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
-const fmtNeg = (n: number) => (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`);
-const pct = (n: number | null) => (n === null ? '—' : `${n.toFixed(1)}%`);
+const cell = (n: number, neg = false) => (neg ? (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`) : fmt(n));
 
-type Preset = 'yesterday' | '7d' | '30d' | 'mtd' | 'm1' | 'm2' | 'custom';
+// ── per-period metric bucket ──────────────────────────────────────────────────
 
-function resolveRange(preset: Preset, from?: string, to?: string): { start: string; end: string; label: string } {
-  const today = new Date();
-  const d = (x: Date) => format(x, 'yyyy-MM-dd');
-  if (preset === 'yesterday') { const y = subDays(today, 1); return { start: d(y), end: d(y), label: 'Yesterday' }; }
-  if (preset === '7d')  return { start: d(subDays(today, 7)),  end: d(subDays(today, 1)), label: 'Last 7 days' };
-  if (preset === '30d') return { start: d(subDays(today, 30)), end: d(subDays(today, 1)), label: 'Last 30 days' };
-  if (preset === 'mtd') {
-    const end = today.getDate() === 1 ? today : subDays(today, 1);
-    return { start: d(startOfMonth(today)), end: d(end), label: `${format(today, 'MMMM')} MTD` };
-  }
-  if (preset === 'm1' || preset === 'm2') {
-    const ref = subMonths(today, preset === 'm1' ? 1 : 2);
-    return { start: d(startOfMonth(ref)), end: d(endOfMonth(ref)), label: format(ref, 'MMMM yyyy') };
-  }
-  if (preset === 'custom' && from && to && isValid(parseISO(from)) && isValid(parseISO(to))) {
-    return { start: from, end: to, label: `${from} → ${to}` };
-  }
-  return { start: d(subDays(today, 30)), end: d(subDays(today, 1)), label: 'Last 30 days' };
+interface Metrics {
+  cashShopify: number; memSales: number; amazonSales: number; creditSales: number;
+  grossSales: number; netSales: number; shippingIncome: number; cogs: number; gp: number;
+  adSpend: number;
+  stripeIn: number; paypalIn: number; shopifyIn: number; amazonIn: number;
+  stripeRefunds: number; paypalRefunds: number;
 }
 
-function sum(rows: Record<string, unknown>[], col: string): number {
-  return rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+function emptyMetrics(): Metrics {
+  return {
+    cashShopify: 0, memSales: 0, amazonSales: 0, creditSales: 0,
+    grossSales: 0, netSales: 0, shippingIncome: 0, cogs: 0, gp: 0,
+    adSpend: 0,
+    stripeIn: 0, paypalIn: 0, shopifyIn: 0, amazonIn: 0,
+    stripeRefunds: 0, paypalRefunds: 0,
+  };
 }
 
-function snapTotal(snaps: { payload: unknown }[], field: string): number {
-  return snaps.reduce((s, snap) => {
-    const sm = (snap.payload as { summary?: Record<string, number> })?.summary;
-    return s + ((sm?.[field] ?? 0) as number);
-  }, 0) / 100;
+function addDerived(m: Metrics) {
+  return {
+    ...m,
+    refundsAndDisc: m.grossSales - m.netSales,
+    gpMinusAds: m.gp - m.adSpend,
+    cashIn: m.stripeIn + m.paypalIn + m.shopifyIn + m.amazonIn,
+    refundsOut: m.stripeRefunds + m.paypalRefunds,
+    cashOut: m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs,
+    netCash: (m.stripeIn + m.paypalIn + m.shopifyIn + m.amazonIn)
+           - (m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs),
+  };
 }
+type Derived = ReturnType<typeof addDerived>;
 
-// ── statement row helpers ─────────────────────────────────────────────────────
+// ── row layout ────────────────────────────────────────────────────────────────
 
-type RowDef = {
-  label: string;
-  value: string;
-  kind?: 'line' | 'sub' | 'subtotal' | 'total' | 'head' | 'memo';
-};
+type RowDef =
+  | { kind: 'head'; label: string }
+  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number; neg?: boolean }
+  | { kind: 'gap' };
 
-function StatementTable({ title, note, rows }: { title: string; note?: string; rows: RowDef[] }) {
-  return (
-    <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.5rem 1.75rem', flex: 1, minWidth: 340 }}>
-      <div style={{ fontFamily: 'var(--font-serif)', fontSize: '1.15rem', marginBottom: 2 }}>{title}</div>
-      {note && <div style={{ fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)', marginBottom: '1rem' }}>{note}</div>}
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-        <tbody>
-          {rows.map((r, i) => {
-            const k = r.kind ?? 'line';
-            const style: React.CSSProperties = {
-              padding: k === 'head' ? '0.9rem 0 0.35rem' : '0.3rem 0',
-              fontVariantNumeric: 'tabular-nums',
-            };
-            const labelStyle: React.CSSProperties = {
-              ...style,
-              paddingLeft: k === 'sub' ? '1.5rem' : 0,
-              color: k === 'memo' ? 'var(--muted)' : 'var(--text)',
-              fontWeight: k === 'head' ? 700 : k === 'total' || k === 'subtotal' ? 600 : 400,
-              fontSize: k === 'head' ? '0.72rem' : k === 'memo' ? '0.76rem' : undefined,
-              textTransform: k === 'head' ? 'uppercase' : undefined,
-              letterSpacing: k === 'head' ? '0.08em' : undefined,
-              fontFamily: k === 'head' ? 'var(--font-mono)' : undefined,
-            };
-            const valStyle: React.CSSProperties = {
-              ...style,
-              textAlign: 'right',
-              fontFamily: 'var(--font-mono)',
-              fontWeight: k === 'total' ? 700 : k === 'subtotal' ? 600 : 400,
-              fontSize: k === 'total' ? '1rem' : k === 'memo' ? '0.76rem' : undefined,
-              color: k === 'memo' ? 'var(--muted)' : r.value.startsWith('(') ? '#b91c1c' : 'var(--text)',
-              borderTop: k === 'total' ? '2px solid var(--text)' : k === 'subtotal' ? '1px solid var(--border)' : undefined,
-            };
-            return (
-              <tr key={`${r.label}-${i}`}>
-                <td style={labelStyle}>{r.label}</td>
-                <td style={valStyle}>{r.value}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+const INCOME_ROWS: RowDef[] = [
+  { kind: 'head', label: 'Income Statement' },
+  { kind: 'sub', label: 'Cash sales — Shopify (card)', get: m => m.cashShopify },
+  { kind: 'sub', label: 'Cash sales — Membership', get: m => m.memSales },
+  { kind: 'sub', label: 'Cash sales — Amazon', get: m => m.amazonSales },
+  { kind: 'sub', label: 'Credit sales (store credit)', get: m => m.creditSales },
+  { kind: 'subtotal', label: 'Gross sales', get: m => m.grossSales },
+  { kind: 'line', label: 'Refunds & discounts', get: m => m.refundsAndDisc, neg: true },
+  { kind: 'subtotal', label: 'Net sales', get: m => m.netSales },
+  { kind: 'line', label: 'Shipping income', get: m => m.shippingIncome },
+  { kind: 'line', label: 'Cost of goods sold', get: m => m.cogs, neg: true },
+  { kind: 'subtotal', label: 'Gross profit', get: m => m.gp },
+  { kind: 'line', label: 'Advertising (Meta)', get: m => m.adSpend, neg: true },
+  { kind: 'total', label: 'GP − Ads', get: m => m.gpMinusAds },
+];
+
+const CASHFLOW_ROWS: RowDef[] = [
+  { kind: 'head', label: 'Cash Flow' },
+  { kind: 'sub', label: 'Stripe (memberships)', get: m => m.stripeIn },
+  { kind: 'sub', label: 'PayPal (memberships)', get: m => m.paypalIn },
+  { kind: 'sub', label: 'Shopify payments (cards)', get: m => m.shopifyIn },
+  { kind: 'sub', label: 'Amazon settlements', get: m => m.amazonIn },
+  { kind: 'subtotal', label: 'Total cash in', get: m => m.cashIn },
+  { kind: 'sub', label: 'Refunds (Stripe + PayPal)', get: m => m.refundsOut, neg: true },
+  { kind: 'sub', label: 'Advertising (Meta)', get: m => m.adSpend, neg: true },
+  { kind: 'sub', label: 'Cost of goods sold', get: m => m.cogs, neg: true },
+  { kind: 'subtotal', label: 'Total cash out', get: m => m.cashOut, neg: true },
+  { kind: 'total', label: 'Net cash', get: m => m.netCash },
+];
 
 // ── page ──────────────────────────────────────────────────────────────────────
 
 export default async function ManAccountsPage({
   searchParams,
 }: {
-  searchParams: { preset?: string; from?: string; to?: string };
+  searchParams: { view?: string };
 }) {
-  const preset = (['yesterday', '7d', '30d', 'mtd', 'm1', 'm2', 'custom'].includes(searchParams.preset ?? '')
-    ? searchParams.preset : '30d') as Preset;
-  const { start, end, label } = resolveRange(preset, searchParams.from, searchParams.to);
+  const view = searchParams.view === 'day' ? 'day' : 'month';
 
+  const today = new Date();
+  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : HISTORY_START;
+  const end = format(today, 'yyyy-MM-dd');
+
+  // Period columns.
+  const periods: { key: string; label: string }[] = [];
+  if (view === 'day') {
+    for (let i = 6; i >= 0; i--) {
+      const d = subDays(today, i);
+      periods.push({ key: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE d MMM') });
+    }
+  } else {
+    const nowAbs = today.getFullYear() * 12 + today.getMonth();
+    for (let abs = 2026 * 12; abs <= nowAbs; abs++) {
+      const key = `${Math.floor(abs / 12)}-${String((abs % 12) + 1).padStart(2, '0')}`;
+      periods.push({ key, label: format(new Date(Math.floor(abs / 12), abs % 12, 1), "MMM ''yy") });
+    }
+  }
+  const keyFor = (date: string) => (view === 'day' ? date : date.slice(0, 7));
+  const buckets = new Map<string, Metrics>(periods.map(p => [p.key, emptyMetrics()]));
+  const bucket = (date: string): Metrics | undefined => buckets.get(keyFor(date));
+
+  // One fetch per source over the whole span; bucket in JS.
   const [{ data: dsRows }, adsRaw, { data: stripeSnaps }, { data: paypalSnaps }] = await Promise.all([
     supabaseAdmin
       .from('daily_summary')
-      .select('total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,phys_cash_revenue,phys_cash_shipping,phys_non_cash_revenue,mem_revenue,amazon_revenue,amazon_shipping')
+      .select('date,total_revenue,total_net_sales,total_shipping,total_cogs,total_profit,phys_cash_revenue,phys_cash_shipping,phys_non_cash_revenue,mem_revenue,amazon_revenue,amazon_shipping')
       .gte('date', start)
       .lte('date', end),
     fetchAdsRangeRaw(start, end),
-    (supabaseAdmin as any).from('stripe_daily_snapshot').select('payload').gte('date', start).lte('date', end),
-    (supabaseAdmin as any).from('paypal_daily_snapshot').select('payload').gte('date', start).lte('date', end),
+    (supabaseAdmin as any).from('stripe_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
+    (supabaseAdmin as any).from('paypal_daily_snapshot').select('date,payload').gte('date', start).lte('date', end),
   ]);
 
-  const rows = (dsRows ?? []) as Record<string, unknown>[];
+  for (const r of (dsRows ?? []) as Record<string, unknown>[]) {
+    const b = bucket(String(r.date));
+    if (!b) continue;
+    const n = (k: string) => Number(r[k]) || 0;
+    b.cashShopify    += n('phys_cash_revenue');
+    b.memSales       += n('mem_revenue');
+    b.amazonSales    += n('amazon_revenue');
+    b.creditSales    += n('phys_non_cash_revenue');
+    b.grossSales     += n('total_revenue');
+    b.netSales       += n('total_net_sales');
+    b.shippingIncome += n('total_shipping');
+    b.cogs           += n('total_cogs');
+    b.gp             += n('total_profit');
+    // Cash-view approximations: Shopify card captures ≈ cash product sales +
+    // their shipping; Amazon settles separately.
+    b.shopifyIn      += n('phys_cash_revenue') + n('phys_cash_shipping');
+    b.amazonIn       += n('amazon_revenue') + n('amazon_shipping');
+  }
+  for (const r of adsRaw) {
+    const b = bucket(String(r.report_date));
+    if (b) b.adSpend += r.spend ?? 0;
+  }
+  for (const snap of ((stripeSnaps ?? []) as { date: string; payload: unknown }[])) {
+    const b = bucket(snap.date);
+    const s = (snap.payload as { summary?: Record<string, number> })?.summary;
+    if (!b || !s) continue;
+    b.stripeIn      += (s.direct_success_total_cents ?? 0) / 100;
+    b.stripeRefunds += (s.refunds_total_cents ?? 0) / 100;
+  }
+  for (const snap of ((paypalSnaps ?? []) as { date: string; payload: unknown }[])) {
+    const b = bucket(snap.date);
+    const s = (snap.payload as { summary?: Record<string, number> })?.summary;
+    if (!b || !s) continue;
+    b.paypalIn      += (s.direct_success_total_cents ?? 0) / 100;
+    b.paypalRefunds += (s.refunds_total_cents ?? 0) / 100;
+  }
 
-  // ── income statement inputs ──────────────────────────────────────────────────
-  const grossSales      = sum(rows, 'total_revenue');
-  const netSales        = sum(rows, 'total_net_sales');
-  const refundsAndDisc  = grossSales - netSales;
-  const shippingIncome  = sum(rows, 'total_shipping');
-  const cogs            = sum(rows, 'total_cogs');
-  const gp              = sum(rows, 'total_profit');
+  const cols = periods.map(p => ({ ...p, m: addDerived(buckets.get(p.key)!) }));
+  const totalMetrics = emptyMetrics();
+  for (const p of periods) {
+    const b = buckets.get(p.key)!;
+    (Object.keys(totalMetrics) as (keyof Metrics)[]).forEach(k => { totalMetrics[k] += b[k]; });
+  }
+  const totals = addDerived(totalMetrics);
 
-  const cashSalesShopify = sum(rows, 'phys_cash_revenue');
-  const memSales         = sum(rows, 'mem_revenue');
-  const amazonSales      = sum(rows, 'amazon_revenue');
-  const creditSales      = sum(rows, 'phys_non_cash_revenue');
-  const cashSales        = cashSalesShopify + memSales + amazonSales;
-
-  const adSpend = adsRaw.reduce((s, r) => s + (r.spend ?? 0), 0);
-  const gpMinusAds = gp - adSpend;
-  const gpMargin = netSales > 0 ? (gp / netSales) * 100 : null;
-
-  // ── cash flow inputs ─────────────────────────────────────────────────────────
-  const stripeSn = (stripeSnaps ?? []) as { payload: unknown }[];
-  const paypalSn = (paypalSnaps ?? []) as { payload: unknown }[];
-  const stripeIn       = snapTotal(stripeSn, 'direct_success_total_cents');
-  const stripeRefunds  = snapTotal(stripeSn, 'refunds_total_cents');
-  const paypalIn       = snapTotal(paypalSn, 'direct_success_total_cents');
-  const paypalRefunds  = snapTotal(paypalSn, 'refunds_total_cents');
-  // Shopify card captures ≈ cash-paid product sales + their shipping (Amazon
-  // settles separately and is listed on its own line).
-  const shopifyIn = cashSalesShopify + sum(rows, 'phys_cash_shipping');
-  const amazonIn  = amazonSales + sum(rows, 'amazon_shipping');
-
-  const cashIn   = stripeIn + paypalIn + shopifyIn + amazonIn;
-  const refundsOut = stripeRefunds + paypalRefunds;
-  const cashOut  = refundsOut + adSpend + cogs;
-  const netCash  = cashIn - cashOut;
-
-  const incomeRows: RowDef[] = [
-    { label: 'Sales', value: '', kind: 'head' },
-    { label: 'Cash sales — Shopify (card)', value: fmt(cashSalesShopify), kind: 'sub' },
-    { label: 'Cash sales — Membership', value: fmt(memSales), kind: 'sub' },
-    { label: 'Cash sales — Amazon', value: fmt(amazonSales), kind: 'sub' },
-    { label: 'Credit sales (paid with store credit)', value: fmt(creditSales), kind: 'sub' },
-    { label: 'Gross sales', value: fmt(grossSales), kind: 'subtotal' },
-    { label: 'Refunds & discounts', value: fmtNeg(refundsAndDisc), kind: 'line' },
-    { label: 'Net sales', value: fmt(netSales), kind: 'subtotal' },
-    { label: 'Shipping income', value: fmt(shippingIncome), kind: 'line' },
-    { label: 'Cost of goods sold', value: fmtNeg(cogs), kind: 'line' },
-    { label: 'Gross profit', value: fmt(gp), kind: 'subtotal' },
-    { label: 'GP margin (of net sales)', value: pct(gpMargin), kind: 'memo' },
-    { label: 'Advertising (Meta)', value: fmtNeg(adSpend), kind: 'line' },
-    { label: 'GP − Ads', value: fmt(gpMinusAds), kind: 'total' },
-    { label: 'Note: cash vs credit split is by payment gateway; "credit sales" consumed store credit (no new cash).', value: '', kind: 'memo' },
-  ];
-
-  const cashFlowRows: RowDef[] = [
-    { label: 'Cash in', value: '', kind: 'head' },
-    { label: 'Stripe (memberships, direct)', value: fmt(stripeIn), kind: 'sub' },
-    { label: 'PayPal (memberships, direct)', value: fmt(paypalIn), kind: 'sub' },
-    { label: 'Shopify payments (cards)', value: fmt(shopifyIn), kind: 'sub' },
-    { label: 'Amazon settlements', value: fmt(amazonIn), kind: 'sub' },
-    { label: 'Total cash in', value: fmt(cashIn), kind: 'subtotal' },
-    { label: 'Cash out', value: '', kind: 'head' },
-    { label: 'Refunds (Stripe + PayPal)', value: fmtNeg(refundsOut), kind: 'sub' },
-    { label: 'Advertising (Meta)', value: fmtNeg(adSpend), kind: 'sub' },
-    { label: 'Cost of goods sold', value: fmtNeg(cogs), kind: 'sub' },
-    { label: 'Total cash out', value: fmtNeg(cashOut), kind: 'subtotal' },
-    { label: 'Net cash', value: netCash >= 0 ? fmt(netCash) : fmtNeg(netCash), kind: 'total' },
-    { label: 'Pro-forma: COGS is accrual (billed with sales, not supplier payment timing); processor fees and payout lags are not modelled.', value: '', kind: 'memo' },
-  ];
-
-  const presets: { key: Preset; label: string }[] = [
-    { key: 'yesterday', label: 'Yesterday' },
-    { key: '7d', label: '7D' },
-    { key: '30d', label: '30D' },
-    { key: 'mtd', label: `${format(new Date(), 'MMM')} MTD` },
-    { key: 'm1', label: format(subMonths(new Date(), 1), 'MMM') },
-    { key: 'm2', label: format(subMonths(new Date(), 2), 'MMM') },
-  ];
+  const renderRows = (rows: RowDef[]) => rows.map((r, i) => {
+    if (r.kind === 'gap') return <tr key={`gap-${i}`}><td colSpan={cols.length + 2} style={{ height: 14 }} /></tr>;
+    if (r.kind === 'head') {
+      return (
+        <tr key={r.label}>
+          <td colSpan={cols.length + 2} style={{ padding: '1.1rem 0 0.45rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--accent)' }}>
+            {r.label}
+          </td>
+        </tr>
+      );
+    }
+    const strong = r.kind === 'total' || r.kind === 'subtotal';
+    const tdBase: React.CSSProperties = {
+      padding: '0.32rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)',
+      fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', fontSize: '0.8rem',
+      fontWeight: r.kind === 'total' ? 700 : strong ? 600 : 400,
+      borderTop: r.kind === 'total' ? '2px solid var(--text)' : r.kind === 'subtotal' ? '1px solid var(--border)' : undefined,
+    };
+    return (
+      <tr key={r.label} style={{ background: strong ? 'rgba(0,0,0,0.02)' : undefined }}>
+        <td style={{
+          padding: '0.32rem 0.6rem', paddingLeft: r.kind === 'sub' ? '1.4rem' : '0.6rem',
+          whiteSpace: 'nowrap', fontWeight: strong ? 600 : 400, fontSize: '0.84rem',
+          position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1,
+          borderTop: r.kind === 'total' ? '2px solid var(--text)' : r.kind === 'subtotal' ? '1px solid var(--border)' : undefined,
+        }}>
+          {r.label}
+        </td>
+        {cols.map(c => {
+          const v = r.get(c.m);
+          return <td key={c.key} style={{ ...tdBase, color: r.neg && v !== 0 ? '#b91c1c' : r.kind === 'total' && v < 0 ? '#b91c1c' : 'var(--text)' }}>{cell(v, r.neg)}</td>;
+        })}
+        <td style={{ ...tdBase, fontWeight: 700, background: 'rgba(23,169,123,0.06)', color: r.neg && r.get(totals) !== 0 ? '#b91c1c' : r.kind === 'total' && r.get(totals) < 0 ? '#b91c1c' : 'var(--text)' }}>
+          {cell(r.get(totals), r.neg)}
+        </td>
+      </tr>
+    );
+  });
 
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
@@ -214,46 +226,48 @@ export default async function ManAccountsPage({
               Man <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Accounts</em>
             </h1>
             <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              Pro-forma management accounts · {label} · {start} → {end}
+              Pro-forma management accounts · {view === 'day' ? 'last 7 days' : `monthly since Jan 2026 (incl. current month)`}
             </div>
           </div>
           <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-          <div style={{ display: 'flex', gap: '0.25rem', flexWrap: 'wrap' }}>
-            {presets.map(p => (
-              <Link key={p.key} href={`/dashboard/man-accounts?preset=${p.key}`} style={{
-                padding: '0.3rem 0.7rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
+          <div style={{ display: 'flex', gap: '0.25rem' }}>
+            {([['month', 'By Month'], ['day', 'By Day']] as const).map(([k, l]) => (
+              <Link key={k} href={`/dashboard/man-accounts${k === 'month' ? '' : `?view=${k}`}`} style={{
+                padding: '0.3rem 0.8rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
                 textDecoration: 'none', border: '1px solid var(--border)',
-                background: preset === p.key ? 'var(--accent-100)' : 'var(--neutral-100)',
-                color: preset === p.key ? '#fff' : 'var(--neutral-600)',
-                fontWeight: preset === p.key ? 600 : 400,
-              }}>{p.label}</Link>
+                background: view === k ? 'var(--accent-100)' : 'var(--neutral-100)',
+                color: view === k ? '#fff' : 'var(--neutral-600)',
+                fontWeight: view === k ? 600 : 400,
+              }}>{l}</Link>
             ))}
           </div>
         </div>
         <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)' }}>
-          Net cash: <strong style={{ color: netCash >= 0 ? 'var(--accent2-900)' : '#b91c1c' }}>{netCash >= 0 ? fmt(netCash) : `(${fmt(Math.abs(netCash))})`}</strong>
+          Net cash (total): <strong style={{ color: totals.netCash >= 0 ? 'var(--accent2-900)' : '#b91c1c' }}>{totals.netCash >= 0 ? fmt(totals.netCash) : `(${fmt(Math.abs(totals.netCash))})`}</strong>
         </div>
       </div>
 
       <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
-        <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <StatementTable
-            title="Income Statement"
-            note={`accrual view · ${label}`}
-            rows={incomeRows}
-          />
-          <StatementTable
-            title="Cash Flow"
-            note={`cash view · ${label}`}
-            rows={cashFlowRows}
-          />
+        <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.25rem 1rem', overflowX: 'auto' }}>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                <th style={{ padding: '0.4rem 0.6rem', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1 }} />
+                {cols.map(c => (
+                  <th key={c.key} style={{ padding: '0.4rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{c.label}</th>
+                ))}
+                <th style={{ padding: '0.4rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent2-900)', whiteSpace: 'nowrap', background: 'rgba(23,169,123,0.06)' }}>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renderRows(INCOME_ROWS)}
+              {renderRows([{ kind: 'gap' }, ...CASHFLOW_ROWS])}
+            </tbody>
+          </table>
         </div>
 
-        {/* Reconciliation strip */}
-        <div style={{ marginTop: '1.25rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '1rem 1.5rem', display: 'flex', gap: '2.5rem', flexWrap: 'wrap', fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--muted)' }}>
-          <span>GP − Ads (accrual): <strong style={{ color: 'var(--text)' }}>{gpMinusAds >= 0 ? fmt(gpMinusAds) : `(${fmt(Math.abs(gpMinusAds))})`}</strong></span>
-          <span>Net cash (cash view): <strong style={{ color: 'var(--text)' }}>{netCash >= 0 ? fmt(netCash) : `(${fmt(Math.abs(netCash))})`}</strong></span>
-          <span>Difference ≈ credit sales consumed ({fmt(creditSales)}) and membership cash not yet earned</span>
+        <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+          Accrual (Income Statement) vs cash (Cash Flow): the gap is mostly credit sales ({fmt(totals.creditSales)} total), which book revenue without new cash, and membership cash received ahead of earned revenue. COGS shown as billed; processor fees and payout lag not modelled. Current {view === 'day' ? 'day' : 'month'} is partial.
         </div>
       </div>
     </div>
