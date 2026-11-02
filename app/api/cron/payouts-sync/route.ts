@@ -166,7 +166,13 @@ async function run(req: NextRequest): Promise<NextResponse> {
   try { results.stripe = await syncStripe(sinceEpoch); } catch (e) { results.stripe_error = (e as Error).message; }
   try { results.paypal = await syncPayPal(since); } catch (e) { results.paypal_error = (e as Error).message; }
   try {
-    const sh = await syncShopify(since);
+    // Shopify backfills from Jan the first time it has access (scope added later).
+    const { count: shopifyExisting } = await (supabaseAdmin as any)
+      .from('payouts_daily')
+      .select('id', { count: 'exact', head: true })
+      .eq('provider', 'shopify');
+    const shopifySince = (shopifyExisting ?? 0) === 0 ? '2026-01-01' : since;
+    const sh = await syncShopify(shopifySince);
     results.shopify = sh.count;
     if (sh.skipped) results.shopify_skipped = sh.skipped;
   } catch (e) { results.shopify_error = (e as Error).message; }
