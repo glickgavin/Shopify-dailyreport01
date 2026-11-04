@@ -139,7 +139,8 @@ async function syncShopify(sinceDate: string): Promise<{ count: number; skipped?
   } catch (err) {
     const msg = (err as Error).message;
     if (/access denied|access scope/i.test(msg)) {
-      return { count: 0, skipped: 'missing read_shopify_payments scope' };
+      // Surface Shopify's own message — it names the exact scopes required.
+      return { count: 0, skipped: msg.slice(0, 300) };
     }
     throw err;
   }
