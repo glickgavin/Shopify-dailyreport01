@@ -18,10 +18,12 @@ const fmt = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 const fmt2 = (n: number) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n);
-const cell = (n: number | null, neg = false, f: 'usd' | 'int' | 'usd2' = 'usd') => {
+const cell = (n: number | null, neg = false, f: 'usd' | 'int' | 'usd2' | 'pct' | 'x' = 'usd') => {
   if (n === null) return '—';
   if (f === 'int') return new Intl.NumberFormat('en-US').format(Math.round(n));
   if (f === 'usd2') return fmt2(n);
+  if (f === 'pct') return `${n.toFixed(1)}%`;
+  if (f === 'x') return `${n.toFixed(1)}x`;
   return neg ? (n === 0 ? fmt(0) : `(${fmt(Math.abs(n))})`) : fmt(n);
 };
 
@@ -63,6 +65,8 @@ function addDerived(m: Metrics) {
            - (m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs),
     aov: m.orders > 0 ? m.grossSales / m.orders : 0,
     metaCpa: m.metaOrders > 0 ? m.adSpend / m.metaOrders : 0,
+    grossMarginPct: m.netSales > 0 ? (m.gp / m.netSales) * 100 : null,
+    gpPerAdDollar: m.adSpend > 0 ? m.gp / m.adSpend : null,
     cashReceived: m.stripePayout + m.paypalPayout + m.shopifyPayout,
   };
 }
@@ -72,7 +76,7 @@ type Derived = ReturnType<typeof addDerived>;
 
 type RowDef =
   | { kind: 'head'; label: string }
-  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number | null; neg?: boolean; fmt?: 'usd' | 'int' | 'usd2' }
+  | { kind: 'line' | 'sub' | 'subtotal' | 'total'; label: string; get: (m: Derived) => number | null; neg?: boolean; fmt?: 'usd' | 'int' | 'usd2' | 'pct' | 'x' }
   | { kind: 'gap' };
 
 const INCOME_ROWS: RowDef[] = [
@@ -123,6 +127,8 @@ const KPI_ROWS: RowDef[] = [
   { kind: 'line', label: 'Total members (period end)', get: m => m.totalMembersEnd, fmt: 'int' },
   { kind: 'line', label: 'AOV', get: m => m.aov, fmt: 'usd2' },
   { kind: 'line', label: 'Meta CPA', get: m => m.metaCpa, fmt: 'usd2' },
+  { kind: 'line', label: 'Gross margin %', get: m => m.grossMarginPct, fmt: 'pct' },
+  { kind: 'line', label: 'GP per $1 ads', get: m => m.gpPerAdDollar, fmt: 'x' },
 ];
 
 // ── page ──────────────────────────────────────────────────────────────────────

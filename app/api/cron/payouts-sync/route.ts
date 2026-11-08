@@ -111,7 +111,7 @@ async function syncShopify(sinceDate: string): Promise<{ count: number; skipped?
       const res: ShopifyPayoutsResp = await shopifyGraphQL<ShopifyPayoutsResp>(
         `query Payouts($after: String) {
           shopifyPaymentsAccount {
-            payouts(first: 100, after: $after) {
+            payouts(first: 100, after: $after, reverse: true) {
               edges { node { id issuedAt status net { amount } } }
               pageInfo { hasNextPage endCursor }
             }
