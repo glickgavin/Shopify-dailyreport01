@@ -95,6 +95,10 @@
     {
       "path": "/api/cron/payouts-sync",
       "schedule": "22 * * * *"
+    },
+    {
+      "path": "/api/cron/paypal-backfill",
+      "schedule": "7,17,27,37,47,57 * * * *"
     }
   ]
 }

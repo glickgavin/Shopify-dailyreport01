@@ -33,7 +33,7 @@ interface Metrics {
   cashShopify: number; memSales: number; amazonSales: number; creditSales: number;
   grossSales: number; netSales: number; shippingIncome: number; cogs: number; gp: number;
   adSpend: number;
-  stripeIn: number; paypalIn: number; shopifyIn: number; amazonIn: number;
+  stripeIn: number; paypalIn: number; paypalCheckoutIn: number; shopifyIn: number; amazonIn: number;
   stripeRefunds: number; paypalRefunds: number;
   orders: number; metaOrders: number; newMembers: number;
   totalMembersEnd: number | null; // point-in-time (period end), not additive
@@ -45,7 +45,7 @@ function emptyMetrics(): Metrics {
     cashShopify: 0, memSales: 0, amazonSales: 0, creditSales: 0,
     grossSales: 0, netSales: 0, shippingIncome: 0, cogs: 0, gp: 0,
     adSpend: 0,
-    stripeIn: 0, paypalIn: 0, shopifyIn: 0, amazonIn: 0,
+    stripeIn: 0, paypalIn: 0, paypalCheckoutIn: 0, shopifyIn: 0, amazonIn: 0,
     stripeRefunds: 0, paypalRefunds: 0,
     orders: 0, metaOrders: 0, newMembers: 0,
     totalMembersEnd: null,
@@ -58,10 +58,10 @@ function addDerived(m: Metrics) {
     ...m,
     refundsAndDisc: m.grossSales - m.netSales,
     gpMinusAds: m.gp - m.adSpend,
-    cashIn: m.stripeIn + m.paypalIn + m.shopifyIn + m.amazonIn,
+    cashIn: m.stripeIn + m.paypalIn + m.paypalCheckoutIn + m.shopifyIn + m.amazonIn,
     refundsOut: m.stripeRefunds + m.paypalRefunds,
     cashOut: m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs,
-    netCash: (m.stripeIn + m.paypalIn + m.shopifyIn + m.amazonIn)
+    netCash: (m.stripeIn + m.paypalIn + m.paypalCheckoutIn + m.shopifyIn + m.amazonIn)
            - (m.stripeRefunds + m.paypalRefunds + m.adSpend + m.cogs),
     aov: m.orders > 0 ? m.grossSales / m.orders : 0,
     metaCpa: m.metaOrders > 0 ? m.adSpend / m.metaOrders : 0,
@@ -99,6 +99,7 @@ const CASHFLOW_ROWS: RowDef[] = [
   { kind: 'head', label: 'Cash Flow' },
   { kind: 'sub', label: 'Stripe (memberships)', get: m => m.stripeIn },
   { kind: 'sub', label: 'PayPal (memberships)', get: m => m.paypalIn },
+  { kind: 'sub', label: 'PayPal (checkout)', get: m => m.paypalCheckoutIn },
   { kind: 'sub', label: 'Shopify payments (cards)', get: m => m.shopifyIn },
   { kind: 'sub', label: 'Amazon settlements', get: m => m.amazonIn },
   { kind: 'subtotal', label: 'Total cash in', get: m => m.cashIn },
@@ -257,8 +258,9 @@ export default async function ManAccountsPage({
     const b = bucket(snap.date);
     const s = (snap.payload as { summary?: Record<string, number> })?.summary;
     if (!b || !s) continue;
-    b.paypalIn      += (s.direct_success_total_cents ?? 0) / 100;
-    b.paypalRefunds += (s.refunds_total_cents ?? 0) / 100;
+    b.paypalIn         += (s.direct_success_total_cents ?? 0) / 100;
+    b.paypalCheckoutIn += (s.shopify_success_total_cents ?? 0) / 100;
+    b.paypalRefunds    += (s.refunds_total_cents ?? 0) / 100;
   }
 
   const cols = periods.map(p => ({ ...p, m: addDerived(buckets.get(p.key)!) }));

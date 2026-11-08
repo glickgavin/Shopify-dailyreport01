@@ -43,6 +43,13 @@ export interface PayPalSnapshotSummary {
     denied_total_cents: number;
     shopify_filtered_count: number;
     /**
+     * Positive gross cents of Shopify-routed PayPal payments (express
+     * checkout on orders). Excluded from direct_success to avoid
+     * double-counting *sales*, but it is real cash into the PayPal
+     * balance, so cash-flow reports need it.
+     */
+    shopify_success_total_cents: number;
+    /**
      * Negative or zero-attribution rows excluded from success/refunds —
      * payouts to bank, balance transfers, currency conversions, reserve
      * releases. Surfaced for transparency, not part of revenue math.
@@ -242,6 +249,8 @@ export async function fetchAndStorePayPalSnapshot(
     denied_count:                          denied.length,
     denied_total_cents:                    denied.reduce((a, r) => a + r.gross_cents, 0),
     shopify_filtered_count:                allRows.length - direct.length,
+    shopify_success_total_cents:           allRows.filter((r) => r.is_shopify && r.status === 'S' && r.gross_cents > 0)
+                                                  .reduce((a, r) => a + r.gross_cents, 0),
     excluded_internal_transfers_count:     excluded.length,
     excluded_internal_transfers_net_cents: excluded.reduce((a, r) => a + r.gross_cents, 0),
     top_denial_reasons:                    [] as { reason: string; count: number }[],
