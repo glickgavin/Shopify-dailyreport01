@@ -9,7 +9,7 @@ export const maxDuration = 300;
 
 // Actual cash received (bank payouts), by provider:
 //   stripe  — Payouts API, arrival-dated, net of fees.
-//   paypal  — T04xx bank-withdrawal transactions already stored inside the
+//   paypal  — daily NET of T04xx + T0200 transfer legs stored inside the
 //             paypal_daily_snapshot payloads (no extra API calls).
 //   shopify — Shopify Payments payouts via GraphQL; needs the
 //             read_shopify_payments scope — skipped gracefully if absent.
@@ -70,21 +70,24 @@ async function syncPayPal(sinceDate: string): Promise<number> {
     const snaps = (data ?? []) as { date: string; payload: unknown }[];
     for (const snap of snaps) {
       const transfers = (snap.payload as { excluded_internal_transfers?: Array<Record<string, unknown>> })?.excluded_internal_transfers ?? [];
+      // A bank transfer shows up as a T04xx withdrawal leg plus offsetting
+      // T0200 general-transfer legs (PayPal's double-entry); the gross T04xx
+      // alone overstates ~3x. The day's NET across both codes is the cash
+      // that actually left for the bank (verified against real transfers).
+      let netOutCents = 0;
       for (const t of transfers) {
         const code = String(t.transaction_event_code ?? '');
-        // T04xx = withdrawals to bank. Stored as negative gross; record the
-        // outgoing amount as positive cash received at the bank.
-        if (!code.startsWith('T04')) continue;
-        const gross = Number(t.gross_cents ?? 0);
-        if (gross >= 0) continue; // reversals/returns of withdrawals excluded
-        rows.push({
-          provider: 'paypal',
-          payout_id: `pp_${String(t.id ?? `${snap.date}|${gross}`)}`,
-          payout_date: snap.date,
-          amount_cents: Math.abs(gross),
-          status: 'paid',
-        });
+        if (!code.startsWith('T04') && code !== 'T0200') continue;
+        netOutCents -= Number(t.gross_cents ?? 0);
       }
+      if (netOutCents <= 0) continue;
+      rows.push({
+        provider: 'paypal',
+        payout_id: `pp_net_${snap.date}`,
+        payout_date: snap.date,
+        amount_cents: Math.round(netOutCents),
+        status: 'paid',
+      });
     }
     if (snaps.length < 200) break;
   }
