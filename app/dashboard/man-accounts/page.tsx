@@ -144,7 +144,13 @@ export default async function ManAccountsPage({
 
   const today = new Date();
   const monthStart = format(today, 'yyyy-MM-01');
-  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : view === 'mtd' ? monthStart : HISTORY_START;
+  // Previous month-to-date comparison window (MTD view): 1st of last month
+  // through the same day-of-month, clamped to that month's length.
+  const prevCut = Math.min(today.getDate(), new Date(today.getFullYear(), today.getMonth(), 0).getDate());
+  const prevStartD = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const prevStart = format(prevStartD, 'yyyy-MM-dd');
+  const prevEnd = format(new Date(today.getFullYear(), today.getMonth() - 1, prevCut), 'yyyy-MM-dd');
+  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : view === 'mtd' ? prevStart : HISTORY_START;
   const end = format(today, 'yyyy-MM-dd');
 
   // Period columns.
@@ -162,8 +168,12 @@ export default async function ManAccountsPage({
       periods.push({ key, label: format(new Date(Math.floor(abs / 12), abs % 12, 1), "MMM ''yy") });
     }
   }
-  const keyFor = (date: string) => (view === 'month' ? date.slice(0, 7) : date);
+  const keyFor = (date: string) =>
+    view === 'month' ? date.slice(0, 7)
+    : view === 'mtd' && date < monthStart ? (date <= prevEnd ? '__prev' : '__skip')
+    : date;
   const buckets = new Map<string, Metrics>(periods.map(p => [p.key, emptyMetrics()]));
+  if (view === 'mtd') buckets.set('__prev', emptyMetrics());
   const bucket = (date: string): Metrics | undefined => buckets.get(keyFor(date));
 
   // One fetch per source over the whole span; bucket in JS.
@@ -277,13 +287,16 @@ export default async function ManAccountsPage({
     if (b.totalMembersEnd !== null) totalMetrics.totalMembersEnd = b.totalMembersEnd; // latest wins
   }
   const totals = addDerived(totalMetrics);
+  const prevTotals = view === 'mtd' ? addDerived(buckets.get('__prev')!) : null;
+  const prevLabel = `${format(prevStartD, 'MMM')} 1–${prevCut}`;
+  const nCols = cols.length + 2 + (prevTotals ? 1 : 0);
 
   const renderRows = (rows: RowDef[]) => rows.map((r, i) => {
-    if (r.kind === 'gap') return <tr key={`gap-${i}`}><td colSpan={cols.length + 2} style={{ height: 14 }} /></tr>;
+    if (r.kind === 'gap') return <tr key={`gap-${i}`}><td colSpan={nCols} style={{ height: 14 }} /></tr>;
     if (r.kind === 'head') {
       return (
         <tr key={r.label}>
-          <td colSpan={cols.length + 2} style={{ padding: '1.1rem 0 0.45rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--accent)' }}>
+          <td colSpan={nCols} style={{ padding: '1.1rem 0 0.45rem', fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--accent)' }}>
             {r.label}
           </td>
         </tr>
@@ -313,6 +326,11 @@ export default async function ManAccountsPage({
         <td style={{ ...tdBase, fontWeight: 700, background: 'rgba(23,169,123,0.06)', color: r.neg && (r.get(totals) ?? 0) !== 0 ? '#b91c1c' : r.kind === 'total' && (r.get(totals) ?? 0) < 0 ? '#b91c1c' : 'var(--text)' }}>
           {cell(r.get(totals), r.neg, r.fmt)}
         </td>
+        {prevTotals && (
+          <td style={{ ...tdBase, background: 'rgba(0,0,0,0.03)', color: r.neg && (r.get(prevTotals) ?? 0) !== 0 ? '#b91c1c' : r.kind === 'total' && (r.get(prevTotals) ?? 0) < 0 ? '#b91c1c' : 'var(--muted)' }}>
+            {cell(r.get(prevTotals), r.neg, r.fmt)}
+          </td>
+        )}
       </tr>
     );
   });
@@ -358,6 +376,9 @@ export default async function ManAccountsPage({
                   <th key={c.key} style={{ padding: '0.4rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{c.label}</th>
                 ))}
                 <th style={{ padding: '0.4rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent2-900)', whiteSpace: 'nowrap', background: 'rgba(23,169,123,0.06)' }}>Total</th>
+                {prevTotals && (
+                  <th style={{ padding: '0.4rem 0.7rem', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.64rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', whiteSpace: 'nowrap', background: 'rgba(0,0,0,0.03)' }}>{prevLabel}</th>
+                )}
               </tr>
             </thead>
             <tbody>
