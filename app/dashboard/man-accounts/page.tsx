@@ -357,8 +357,9 @@ export default async function ManAccountsPage({
             {([['month', 'By Month'], ['day', 'By Day'], ['mtd', 'MTD']] as const).map(([k, l]) => (
               <Link key={k} href={`/dashboard/man-accounts${k === 'month' ? '' : `?view=${k}`}`} style={{
                 padding: '0.3rem 0.8rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
-                textDecoration: 'none', border: '1px solid var(--border)',
-                background: view === k ? 'var(--accent-100)' : 'var(--neutral-100)',
+                textDecoration: 'none',
+                border: view === k ? '1px solid var(--accent)' : '1px solid var(--border)',
+                background: view === k ? 'var(--accent)' : 'var(--neutral-100)',
                 color: view === k ? '#fff' : 'var(--neutral-600)',
                 fontWeight: view === k ? 600 : 400,
               }}>{l}</Link>
