@@ -9,6 +9,7 @@ export const dynamic = 'force-dynamic';
 //   view=month (default): one column per month since Jan 2026 incl. the
 //   current month, plus a Totals column.
 //   view=day: one column per day for the last 7 days, plus Totals.
+//   view=mtd: one column per day of the current month, plus Totals.
 // Income Statement on top, Cash Flow below. Sources match the daily/range
 // reports: daily_summary, stripe/paypal daily snapshots, Meta ads spend.
 
@@ -139,16 +140,18 @@ export default async function ManAccountsPage({
 }: {
   searchParams: { view?: string };
 }) {
-  const view = searchParams.view === 'day' ? 'day' : 'month';
+  const view = searchParams.view === 'day' ? 'day' : searchParams.view === 'mtd' ? 'mtd' : 'month';
 
   const today = new Date();
-  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : HISTORY_START;
+  const monthStart = format(today, 'yyyy-MM-01');
+  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : view === 'mtd' ? monthStart : HISTORY_START;
   const end = format(today, 'yyyy-MM-dd');
 
   // Period columns.
   const periods: { key: string; label: string }[] = [];
-  if (view === 'day') {
-    for (let i = 6; i >= 0; i--) {
+  if (view === 'day' || view === 'mtd') {
+    const nDays = view === 'day' ? 7 : today.getDate();
+    for (let i = nDays - 1; i >= 0; i--) {
       const d = subDays(today, i);
       periods.push({ key: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE d MMM') });
     }
@@ -159,7 +162,7 @@ export default async function ManAccountsPage({
       periods.push({ key, label: format(new Date(Math.floor(abs / 12), abs % 12, 1), "MMM ''yy") });
     }
   }
-  const keyFor = (date: string) => (view === 'day' ? date : date.slice(0, 7));
+  const keyFor = (date: string) => (view === 'month' ? date.slice(0, 7) : date);
   const buckets = new Map<string, Metrics>(periods.map(p => [p.key, emptyMetrics()]));
   const bucket = (date: string): Metrics | undefined => buckets.get(keyFor(date));
 
@@ -324,12 +327,12 @@ export default async function ManAccountsPage({
               Man <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Accounts</em>
             </h1>
             <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              Pro-forma management accounts · {view === 'day' ? 'last 7 days' : `monthly since Jan 2026 (incl. current month)`}
+              Pro-forma management accounts · {view === 'day' ? 'last 7 days' : view === 'mtd' ? `month to date (${format(today, 'MMMM yyyy')})` : `monthly since Jan 2026 (incl. current month)`}
             </div>
           </div>
           <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
           <div style={{ display: 'flex', gap: '0.25rem' }}>
-            {([['month', 'By Month'], ['day', 'By Day']] as const).map(([k, l]) => (
+            {([['month', 'By Month'], ['day', 'By Day'], ['mtd', 'MTD']] as const).map(([k, l]) => (
               <Link key={k} href={`/dashboard/man-accounts${k === 'month' ? '' : `?view=${k}`}`} style={{
                 padding: '0.3rem 0.8rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
                 textDecoration: 'none', border: '1px solid var(--border)',
