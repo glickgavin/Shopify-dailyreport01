@@ -138,27 +138,31 @@ const KPI_ROWS: RowDef[] = [
 export default async function ManAccountsPage({
   searchParams,
 }: {
-  searchParams: { view?: string };
+  searchParams: { view?: string; today?: string };
 }) {
   const view = searchParams.view === 'day' ? 'day' : searchParams.view === 'mtd' ? 'mtd' : 'month';
+  const includeToday = searchParams.today === '1';
 
   const today = new Date();
-  const monthStart = format(today, 'yyyy-MM-01');
+  // Day/MTD end at yesterday by default — today's column is zeros until the
+  // nightly jobs run. ?today=1 ("include today") adds the partial day back.
+  const asOf = includeToday ? today : subDays(today, 1);
+  const monthStart = format(asOf, 'yyyy-MM-01');
   // Previous month-to-date comparison window (MTD view): 1st of last month
   // through the same day-of-month, clamped to that month's length.
-  const prevCut = Math.min(today.getDate(), new Date(today.getFullYear(), today.getMonth(), 0).getDate());
-  const prevStartD = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  const prevCut = Math.min(asOf.getDate(), new Date(asOf.getFullYear(), asOf.getMonth(), 0).getDate());
+  const prevStartD = new Date(asOf.getFullYear(), asOf.getMonth() - 1, 1);
   const prevStart = format(prevStartD, 'yyyy-MM-dd');
-  const prevEnd = format(new Date(today.getFullYear(), today.getMonth() - 1, prevCut), 'yyyy-MM-dd');
-  const start = view === 'day' ? format(subDays(today, 6), 'yyyy-MM-dd') : view === 'mtd' ? prevStart : HISTORY_START;
-  const end = format(today, 'yyyy-MM-dd');
+  const prevEnd = format(new Date(asOf.getFullYear(), asOf.getMonth() - 1, prevCut), 'yyyy-MM-dd');
+  const start = view === 'day' ? format(subDays(asOf, 6), 'yyyy-MM-dd') : view === 'mtd' ? prevStart : HISTORY_START;
+  const end = format(view === 'month' ? today : asOf, 'yyyy-MM-dd');
 
   // Period columns.
   const periods: { key: string; label: string }[] = [];
   if (view === 'day' || view === 'mtd') {
-    const nDays = view === 'day' ? 7 : today.getDate();
+    const nDays = view === 'day' ? 7 : asOf.getDate();
     for (let i = nDays - 1; i >= 0; i--) {
-      const d = subDays(today, i);
+      const d = subDays(asOf, i);
       periods.push({ key: format(d, 'yyyy-MM-dd'), label: format(d, 'EEE d MMM') });
     }
   } else {
@@ -345,7 +349,7 @@ export default async function ManAccountsPage({
               Man <em style={{ color: 'var(--accent)', fontStyle: 'italic' }}>Accounts</em>
             </h1>
             <div style={{ fontSize: '0.72rem', color: 'var(--neutral-500)', marginTop: 2, fontFamily: 'var(--font-mono)' }}>
-              Pro-forma management accounts · {view === 'day' ? 'last 7 days' : view === 'mtd' ? `month to date (${format(today, 'MMMM yyyy')})` : `monthly since Jan 2026 (incl. current month)`}
+              Pro-forma management accounts · {view === 'day' ? 'last 7 days' : view === 'mtd' ? `month to date (${format(asOf, 'MMMM yyyy')})` :`monthly since Jan 2026 (incl. current month)`}
             </div>
           </div>
           <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
@@ -359,6 +363,20 @@ export default async function ManAccountsPage({
                 fontWeight: view === k ? 600 : 400,
               }}>{l}</Link>
             ))}
+            {view !== 'month' && (
+              <Link
+                href={`/dashboard/man-accounts?view=${view}${includeToday ? '' : '&today=1'}`}
+                style={{
+                  padding: '0.3rem 0.8rem', borderRadius: 7, fontSize: '0.78rem', fontFamily: 'var(--font-mono)',
+                  textDecoration: 'none', border: '1px dashed var(--border)', marginLeft: '0.5rem',
+                  background: 'var(--neutral-100)', color: 'var(--neutral-600)',
+                  display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                }}
+              >
+                <span aria-hidden style={{ fontSize: '0.9em' }}>{includeToday ? '☑' : '☐'}</span>
+                include today
+              </Link>
+            )}
           </div>
         </div>
         <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: '0.72rem', color: 'var(--neutral-500)' }}>
