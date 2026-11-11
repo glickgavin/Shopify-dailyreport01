@@ -83,7 +83,7 @@ export default async function ManAccountsPage({
   return (
     <div style={{ background: 'var(--bg)', minHeight: '100vh' }}>
       {/* Top bar */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '1rem 2rem', position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+      <div data-print-hide style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '1rem 2rem', position: 'sticky', top: 0, zIndex: 50, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1.25rem', flexWrap: 'wrap' }}>
           <div>
             <h1 style={{ fontFamily: 'var(--font-serif)', fontSize: '1.25rem', fontWeight: 400, margin: 0 }}>
@@ -166,7 +166,7 @@ export default async function ManAccountsPage({
           </table>
         </div>
 
-        <div style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
+        <div data-print-hide style={{ marginTop: '0.75rem', fontSize: '0.72rem', color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>
           Accrual (Income Statement) vs cash (Cash Flow): the gap is mostly credit sales ({fmtUsd(totals.creditSales)} total), which book revenue without new cash, and membership cash received ahead of earned revenue. COGS shown as billed; processor fees and payout lag not modelled. {view === 'mtd' ? `Variance and Δ% compare the MTD total against ${prevLabel}.` : ''} Actual cash received = money that landed at the bank (Stripe payouts are net of fees).
         </div>
       </div>

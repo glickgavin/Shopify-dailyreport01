@@ -29,6 +29,10 @@ export async function GET(req: NextRequest) {
   try {
     const page = await browser.newPage();
     await page.goto(pageUrl.toString(), { waitUntil: 'networkidle0', timeout: 45000 });
+    // Table only: hide the toolbar and footnote, drop the page gutters.
+    await page.addStyleTag({
+      content: '[data-print-hide]{display:none !important} body{background:#fff !important}',
+    });
     await new Promise((r) => setTimeout(r, 1500));
     const buffer = await page.pdf({
       format: 'A4',
