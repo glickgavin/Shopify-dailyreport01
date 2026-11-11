@@ -14,7 +14,7 @@
     },
     {
       "path": "/api/cron/daily",
-      "schedule": "15 7 * * *"
+      "schedule": "15 8 * * *"
     },
     {
       "path": "/api/cron/daily-backfill",
