@@ -138,7 +138,7 @@ export default async function ManAccountsPage({
         </div>
       </div>
 
-      <div style={{ maxWidth: 1520, margin: '0 auto', padding: '2rem 1.5rem' }}>
+      <div style={{ maxWidth: 2400, margin: '0 auto', padding: '2rem 1.5rem' }}>
         <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.25rem 1rem', overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
             <thead>
