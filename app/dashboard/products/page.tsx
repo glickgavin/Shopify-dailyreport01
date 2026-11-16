@@ -324,6 +324,33 @@ export default async function ProductSalesPage({
                   </tr>
                 );
               })}
+              {products.length > 0 && (() => {
+                const totOrders = products.reduce((s, p) => s + p.orders, 0);
+                const prevTotNet = Array.from(prevAgg.values()).reduce((s, p) => s + p.net, 0);
+                const totDelta = prevTotNet > 0 ? ((totNet - prevTotNet) / prevTotNet) * 100 : null;
+                const tdT: React.CSSProperties = { ...td, fontWeight: 700, borderTop: '2px solid var(--text)', background: 'rgba(23,169,123,0.06)' };
+                return (
+                  <tr>
+                    <td style={{ ...tdT, textAlign: 'left', position: 'sticky', left: 0, zIndex: 1 }}>Total</td>
+                    {!byVariant && <td style={tdT}>{'—'}</td>}
+                    <td style={tdT}>{fmtInt(totQty)}</td>
+                    <td style={tdT}>{fmtInt(totOrders)}</td>
+                    <td style={tdT}>{fmt(totNet)}</td>
+                    <td style={tdT}>{fmt(totShipping)}</td>
+                    <td style={tdT}>{fmt(totRevenue)}</td>
+                    <td style={tdT}>{totQty > 0 ? fmt2(totNet / totQty) : '—'}</td>
+                    <td style={tdT}>{totOrders > 0 ? fmt2((totNet + totShipping) / totOrders) : '—'}</td>
+                    <td style={tdT}>{fmt(totCogs)}</td>
+                    <td style={{ ...tdT, color: totGp < 0 ? '#b91c1c' : 'var(--text)' }}>{fmt(totGp)}</td>
+                    <td style={tdT}>{totNet > 0 ? `${((totGp / totNet) * 100).toFixed(1)}%` : '—'}</td>
+                    <td style={tdT}>100%</td>
+                    <td style={{ ...tdT, color: 'var(--muted)' }}>{prevTotNet > 0 ? fmt(prevTotNet) : '—'}</td>
+                    <td style={{ ...tdT, color: totDelta === null ? 'var(--muted)' : totDelta >= 0 ? 'var(--accent2-900)' : '#b91c1c' }}>
+                      {totDelta === null ? '—' : `${totDelta >= 0 ? '+' : '−'}${Math.abs(totDelta).toFixed(1)}%`}
+                    </td>
+                  </tr>
+                );
+              })()}
               {products.length === 0 && (
                 <tr><td colSpan={byVariant ? 14 : 15} style={{ ...td, textAlign: 'center', color: 'var(--muted)' }}>No product sales in this period.</td></tr>
               )}
