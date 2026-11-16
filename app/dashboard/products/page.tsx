@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { subDays, subMonths, startOfMonth, endOfMonth, format, parseISO, isValid } from 'date-fns';
 import { supabaseAdmin } from '@/lib/supabase';
+import DailyStackChart from './DailyStackChart';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -69,11 +70,11 @@ function computePriorRange(preset: string | undefined, startDate: string, days: 
 
 // ── aggregation ───────────────────────────────────────────────────────────────
 
-interface DpRow { title: string; variant: string | null; item_type: string | null; net_sales: number; cogs: number; revenue: number; qty: number; orders: number }
+interface DpRow { date?: string; title: string; variant: string | null; item_type: string | null; net_sales: number; shipping: number; cogs: number; revenue: number; qty: number; orders: number }
 
 interface ProductAgg {
   key: string; title: string; variant: string | null; itemType: string | null;
-  qty: number; orders: number; net: number; revenue: number; cogs: number; variants: Set<string>;
+  qty: number; orders: number; net: number; shipping: number; revenue: number; cogs: number; variants: Set<string>;
 }
 
 async function fetchRows(start: string, end: string): Promise<DpRow[]> {
@@ -81,7 +82,7 @@ async function fetchRows(start: string, end: string): Promise<DpRow[]> {
   for (let from = 0; ; from += 1000) {
     const { data } = await (supabaseAdmin as any)
       .from('daily_products')
-      .select('title,variant,item_type,net_sales,cogs,revenue,qty,orders')
+      .select('date,title,variant,item_type,net_sales,shipping,cogs,revenue,qty,orders')
       .gte('date', start)
       .lte('date', end)
       .range(from, from + 999);
@@ -99,14 +100,15 @@ function aggregate(rows: DpRow[], byVariant: boolean, physicalOnly: boolean): Ma
     const key = byVariant ? `${r.title}\u0000${r.variant ?? ''}` : r.title;
     let a = map.get(key);
     if (!a) {
-      a = { key, title: r.title, variant: byVariant ? r.variant : null, itemType: r.item_type, qty: 0, orders: 0, net: 0, revenue: 0, cogs: 0, variants: new Set() };
+      a = { key, title: r.title, variant: byVariant ? r.variant : null, itemType: r.item_type, qty: 0, orders: 0, net: 0, shipping: 0, revenue: 0, cogs: 0, variants: new Set() };
       map.set(key, a);
     }
-    a.qty     += Number(r.qty) || 0;
-    a.orders  += Number(r.orders) || 0;
-    a.net     += Number(r.net_sales) || 0;
-    a.revenue += Number(r.revenue) || 0;
-    a.cogs    += Number(r.cogs) || 0;
+    a.qty      += Number(r.qty) || 0;
+    a.orders   += Number(r.orders) || 0;
+    a.net      += Number(r.net_sales) || 0;
+    a.shipping += Number(r.shipping) || 0;
+    a.revenue  += Number(r.revenue) || 0;
+    a.cogs     += Number(r.cogs) || 0;
     if (r.variant) a.variants.add(r.variant);
   }
   return map;
@@ -137,11 +139,43 @@ export default async function ProductSalesPage({
 
   const totQty = products.reduce((s, p) => s + p.qty, 0);
   const totNet = products.reduce((s, p) => s + p.net, 0);
+  const totShipping = products.reduce((s, p) => s + p.shipping, 0);
   const totRevenue = products.reduce((s, p) => s + p.revenue, 0);
   const totCogs = products.reduce((s, p) => s + p.cogs, 0);
   const totGp = totNet - totCogs;
   const storeOrders = ((dsRows ?? []) as { total_orders: number | null }[]).reduce((s, r) => s + (Number(r.total_orders) || 0), 0);
-  const overallAov = storeOrders > 0 ? totNet / storeOrders : 0;
+  const overallAov = storeOrders > 0 ? (totNet + totShipping) / storeOrders : 0;
+
+  // Last 7 complete days, per day (independent of the selected preset):
+  // units + net sales totals and a stacked-by-product breakdown.
+  const chartStart = format(subDays(new Date(), 7), 'yyyy-MM-dd');
+  const chartEnd = format(subDays(new Date(), 1), 'yyyy-MM-dd');
+  const dailyRows = (startDate <= chartStart && endDate >= chartEnd ? rows : await fetchRows(chartStart, chartEnd))
+    .filter(r => r.date && r.date >= chartStart && r.date <= chartEnd && (!physicalOnly || r.item_type !== 'Membership'));
+  const topNet = new Map<string, number>();
+  for (const r of dailyRows) topNet.set(r.title, (topNet.get(r.title) ?? 0) + (Number(r.net_sales) || 0));
+  const topTitles = Array.from(topNet.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t]) => t);
+  const dayTotals: { key: string; name: string; qty: number; net: number; stack: Record<string, number> }[] = [];
+  for (let i = 7; i >= 1; i--) {
+    const d = subDays(new Date(), i);
+    dayTotals.push({ key: format(d, 'yyyy-MM-dd'), name: format(d, 'EEE d MMM'), qty: 0, net: 0, stack: {} });
+  }
+  const dayIdx = new Map(dayTotals.map((d, i) => [d.key, i]));
+  for (const r of dailyRows) {
+    const idx = dayIdx.get(r.date!);
+    if (idx === undefined) continue;
+    const d = dayTotals[idx];
+    d.qty += Number(r.qty) || 0;
+    const net = Number(r.net_sales) || 0;
+    d.net += net;
+    const bucket = topTitles.includes(r.title) ? r.title : 'Other';
+    d.stack[bucket] = (d.stack[bucket] ?? 0) + net;
+  }
+  const chartKeys = [...topTitles, 'Other'];
+  const chartData = dayTotals.map(d => ({
+    name: d.name,
+    ...Object.fromEntries(chartKeys.map(k => [k, Math.round(d.stack[k] ?? 0)])),
+  }));
 
   const qs = (over: Record<string, string | undefined>) => {
     const p = new URLSearchParams();
@@ -167,9 +201,10 @@ export default async function ProductSalesPage({
     { label: 'Units sold', value: fmtInt(totQty) },
     { label: 'Net product sales', value: fmt(totNet), sub: 'after discounts' },
     { label: 'Gross revenue', value: fmt(totRevenue) },
+    { label: 'Shipping income', value: fmt(totShipping) },
     { label: 'Gross profit', value: fmt(totGp), sub: totNet > 0 ? `${((totGp / totNet) * 100).toFixed(1)}% margin` : undefined },
     { label: 'Store orders', value: fmtInt(storeOrders) },
-    { label: 'AOV (net / order)', value: fmt2(overallAov) },
+    { label: 'AOV (net + shipping)', value: fmt2(overallAov) },
   ];
 
   return (
@@ -206,6 +241,37 @@ export default async function ProductSalesPage({
           ))}
         </div>
 
+        {/* Last 7 days: stacked net sales by product + units/net per day */}
+        <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.25rem 1rem', marginBottom: '1.25rem' }}>
+          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.09em', color: 'var(--accent)', marginBottom: '0.75rem' }}>
+            Last 7 days {'·'} net sales by product (top 6 + other)
+          </div>
+          <DailyStackChart data={chartData} keys={chartKeys} />
+          <div style={{ overflowX: 'auto', marginTop: '0.75rem' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, textAlign: 'left' }} />
+                  {dayTotals.map(d => <th key={d.key} style={th}>{d.name}</th>)}
+                  <th style={{ ...th, background: 'rgba(23,169,123,0.06)', color: 'var(--accent2-900)' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>Units</td>
+                  {dayTotals.map(d => <td key={d.key} style={td}>{fmtInt(d.qty)}</td>)}
+                  <td style={{ ...td, fontWeight: 700, background: 'rgba(23,169,123,0.06)' }}>{fmtInt(dayTotals.reduce((s, d) => s + d.qty, 0))}</td>
+                </tr>
+                <tr>
+                  <td style={{ ...td, textAlign: 'left', fontWeight: 600 }}>Net sales</td>
+                  {dayTotals.map(d => <td key={d.key} style={td}>{fmt(d.net)}</td>)}
+                  <td style={{ ...td, fontWeight: 700, background: 'rgba(23,169,123,0.06)' }}>{fmt(dayTotals.reduce((s, d) => s + d.net, 0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         {/* Product table */}
         <div style={{ background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', padding: '1.25rem 1rem', overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', width: '100%' }}>
@@ -216,9 +282,10 @@ export default async function ProductSalesPage({
                 <th style={th}>Qty</th>
                 <th style={th}>Orders</th>
                 <th style={th}>Net sales</th>
+                <th style={th}>Shipping</th>
                 <th style={th}>Gross rev.</th>
                 <th style={th}>Avg unit (net)</th>
-                <th style={th}>AOV (net)</th>
+                <th style={th}>AOV (net+ship)</th>
                 <th style={th}>COGS</th>
                 <th style={th}>GP</th>
                 <th style={th}>Margin %</th>
@@ -244,9 +311,10 @@ export default async function ProductSalesPage({
                     <td style={td}>{fmtInt(p.qty)}</td>
                     <td style={td}>{fmtInt(p.orders)}</td>
                     <td style={{ ...td, fontWeight: 600 }}>{fmt(p.net)}</td>
+                    <td style={td}>{fmt(p.shipping)}</td>
                     <td style={td}>{fmt(p.revenue)}</td>
                     <td style={td}>{p.qty > 0 ? fmt2(p.net / p.qty) : '—'}</td>
-                    <td style={td}>{p.orders > 0 ? fmt2(p.net / p.orders) : '—'}</td>
+                    <td style={td}>{p.orders > 0 ? fmt2((p.net + p.shipping) / p.orders) : '—'}</td>
                     <td style={td}>{fmt(p.cogs)}</td>
                     <td style={{ ...td, color: gp < 0 ? '#b91c1c' : 'var(--text)' }}>{fmt(gp)}</td>
                     <td style={td}>{p.net > 0 ? `${((gp / p.net) * 100).toFixed(1)}%` : '—'}</td>
@@ -257,7 +325,7 @@ export default async function ProductSalesPage({
                 );
               })}
               {products.length === 0 && (
-                <tr><td colSpan={byVariant ? 13 : 14} style={{ ...td, textAlign: 'center', color: 'var(--muted)' }}>No product sales in this period.</td></tr>
+                <tr><td colSpan={byVariant ? 14 : 15} style={{ ...td, textAlign: 'center', color: 'var(--muted)' }}>No product sales in this period.</td></tr>
               )}
             </tbody>
           </table>
