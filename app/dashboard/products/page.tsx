@@ -288,6 +288,7 @@ export default async function ProductSalesPage({
                 <th style={th}>AOV (net+ship)</th>
                 <th style={th}>COGS</th>
                 <th style={th}>GP</th>
+                <th style={th}>GP / order</th>
                 <th style={th}>Margin %</th>
                 <th style={th}>Share %</th>
                 <th style={th}>Prev net</th>
@@ -317,6 +318,7 @@ export default async function ProductSalesPage({
                     <td style={td}>{p.orders > 0 ? fmt2((p.net + p.shipping) / p.orders) : '—'}</td>
                     <td style={td}>{fmt(p.cogs)}</td>
                     <td style={{ ...td, color: gp < 0 ? '#b91c1c' : 'var(--text)' }}>{fmt(gp)}</td>
+                    <td style={{ ...td, color: gp < 0 ? '#b91c1c' : 'var(--text)' }}>{p.orders > 0 ? fmt2(gp / p.orders) : '—'}</td>
                     <td style={td}>{p.net > 0 ? `${((gp / p.net) * 100).toFixed(1)}%` : '—'}</td>
                     <td style={td}>{totNet > 0 ? `${((p.net / totNet) * 100).toFixed(1)}%` : '—'}</td>
                     <td style={{ ...td, color: 'var(--muted)' }}>{prev ? fmt(prevNet) : '—'}</td>
@@ -342,6 +344,7 @@ export default async function ProductSalesPage({
                     <td style={tdT}>{totOrders > 0 ? fmt2((totNet + totShipping) / totOrders) : '—'}</td>
                     <td style={tdT}>{fmt(totCogs)}</td>
                     <td style={{ ...tdT, color: totGp < 0 ? '#b91c1c' : 'var(--text)' }}>{fmt(totGp)}</td>
+                    <td style={{ ...tdT, color: totGp < 0 ? '#b91c1c' : 'var(--text)' }}>{totOrders > 0 ? fmt2(totGp / totOrders) : '—'}</td>
                     <td style={tdT}>{totNet > 0 ? `${((totGp / totNet) * 100).toFixed(1)}%` : '—'}</td>
                     <td style={tdT}>100%</td>
                     <td style={{ ...tdT, color: 'var(--muted)' }}>{prevTotNet > 0 ? fmt(prevTotNet) : '—'}</td>
@@ -352,7 +355,7 @@ export default async function ProductSalesPage({
                 );
               })()}
               {products.length === 0 && (
-                <tr><td colSpan={byVariant ? 14 : 15} style={{ ...td, textAlign: 'center', color: 'var(--muted)' }}>No product sales in this period.</td></tr>
+                <tr><td colSpan={byVariant ? 15 : 16} style={{ ...td, textAlign: 'center', color: 'var(--muted)' }}>No product sales in this period.</td></tr>
               )}
             </tbody>
           </table>
